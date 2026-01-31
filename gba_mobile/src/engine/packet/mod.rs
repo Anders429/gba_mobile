@@ -5,6 +5,8 @@ mod error;
 
 pub(in crate::engine) use error::Error;
 
+use crate::mmio::serial::TransferLength;
+
 use super::{Command, Source};
 
 pub(in crate::engine) const MAX_RETRIES: u8 = 5;
@@ -56,4 +58,23 @@ pub(in crate::engine) enum Packet {
         error: receive::Error,
         attempt: u8,
     },
+}
+
+impl Packet {
+    pub(in crate::engine) fn packet(transfer_length: TransferLength, source: Source) -> Self {
+        match transfer_length {
+            TransferLength::_8Bit => Self::Send8 {
+                step: send::Step8::MagicByte1,
+                source,
+                checksum: 0,
+                attempt: 0,
+            },
+            TransferLength::_32Bit => Self::Send32 {
+                step: send::Step32::MagicByte,
+                source,
+                checksum: 0,
+                attempt: 0,
+            },
+        }
+    }
 }

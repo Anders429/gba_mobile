@@ -1,6 +1,7 @@
 mod adapter;
 mod command;
 mod error;
+mod flow;
 mod packet;
 mod sink;
 mod source;
@@ -21,12 +22,15 @@ const HANDSHAKE: [u8; 8] = [0x4e, 0x49, 0x4e, 0x54, 0x45, 0x4e, 0x44, 0x4f];
 
 #[derive(Debug)]
 enum State {
-    Active {
+    NotConnected,
+    LinkingP2P {
         adapter: Adapter,
         transfer_length: TransferLength,
 
         packet: Option<Packet>,
+        flow: flow::LinkingP2P,
     },
+    P2P,
     Error(Error),
 }
 
@@ -39,57 +43,44 @@ impl Engine {
     /// Create a new packet engine.
     pub(crate) const fn new() -> Self {
         Self {
-            state: State::Active {
-                adapter: Adapter::Blue,
-                transfer_length: TransferLength::_8Bit,
-
-                packet: None,
-            },
+            state: State::NotConnected,
         }
     }
 
-    pub(crate) fn begin(&mut self) {
-        // TODO: Find a better way to do this.
-        if let State::Active {
-            packet,
-            transfer_length,
-            ..
-        } = &mut self.state
-        {
-            match transfer_length {
-                TransferLength::_8Bit => {
-                    *packet = Some(Packet::Send8 {
-                        step: send::Step8::MagicByte1,
-                        source: Source::BeginSession,
-                        checksum: 0,
-                        attempt: 0,
-                    })
-                }
-                TransferLength::_32Bit => {
-                    *packet = Some(Packet::Send32 {
-                        step: send::Step32::MagicByte,
-                        source: Source::BeginSession,
-                        checksum: 0,
-                        attempt: 0,
-                    })
+    pub(crate) fn link_p2p(&mut self) {
+        // TODO: Close any previous sessions.
+        self.state = State::LinkingP2P {
+            adapter: Adapter::Blue,
+            transfer_length: TransferLength::_8Bit,
+
+            packet: None,
+            flow: flow::LinkingP2P::Waking,
+        }
+    }
+
+    pub(crate) fn vblank(&mut self) {
+        match &mut self.state {
+            State::NotConnected => {}
+            State::LinkingP2P {
+                transfer_length,
+                packet,
+                flow,
+                ..
+            } => {
+                if let Some(_) = packet {
+                    // TODO: Handle requests.
+                } else {
+                    // Schedule a new request.
+                    *packet = Some(flow.request(*transfer_length));
                 }
             }
-        } else {
-            self.state = State::Active {
-                packet: Some(Packet::Send8 {
-                    step: send::Step8::MagicByte1,
-                    source: Source::BeginSession,
-                    checksum: 0,
-                    attempt: 0,
-                }),
-                transfer_length: TransferLength::_8Bit,
-                adapter: Adapter::Blue,
-            }
+            State::P2P => todo!(),
+            State::Error(_) => {}
         }
     }
 
     pub(crate) fn timer(&mut self) {
-        if let State::Active { packet, .. } = &mut self.state
+        if let State::LinkingP2P { packet, .. } = &mut self.state
             && let Some(packet) = packet.as_mut()
         {
             match packet {
@@ -278,10 +269,11 @@ impl Engine {
     }
 
     pub(crate) fn serial(&mut self) {
-        if let State::Active {
+        if let State::LinkingP2P {
             adapter,
             transfer_length,
             packet: state_packet,
+            flow,
         } = &mut self.state
             && let Some(packet) = state_packet.take()
         {
@@ -741,7 +733,12 @@ impl Engine {
                                     *adapter = received_adapter;
                                     match result.finish() {
                                         sink::Finished::Success => {
-                                            // TODO: We want to do something with this result.
+                                            if let Some(new_flow) = flow.next() {
+                                                *flow = new_flow;
+                                            } else {
+                                                self.state = State::P2P;
+                                                return;
+                                            }
                                         }
                                     }
                                     None
@@ -1145,7 +1142,12 @@ impl Engine {
                                         *adapter = received_adapter;
                                         match result.finish() {
                                             sink::Finished::Success => {
-                                                // TODO: We want to do something with this result.
+                                                if let Some(new_flow) = flow.next() {
+                                                    *flow = new_flow;
+                                                } else {
+                                                    self.state = State::P2P;
+                                                    return;
+                                                }
                                             }
                                         }
                                         None
@@ -1424,7 +1426,13 @@ mod tests {
         }
 
         let mut engine = Engine::new();
-        engine.begin();
+        engine.state = super::State::LinkingP2P {
+            adapter: super::Adapter::Blue,
+            transfer_length: TransferLength::_8Bit,
+            packet: None,
+            flow: super::flow::LinkingP2P::BeginSession,
+        };
+        engine.vblank();
 
         // Magic values.
         assert_sio_8!(engine, 0x99, 0xd2);
@@ -1466,12 +1474,13 @@ mod tests {
         }
 
         let mut engine = Engine::new();
-        engine.state = super::State::Active {
+        engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_32Bit,
             packet: None,
+            flow: super::flow::LinkingP2P::BeginSession,
         };
-        engine.begin();
+        engine.vblank();
 
         // Magic values + command.
         assert_sio_32!(
@@ -1520,9 +1529,10 @@ mod tests {
         }
 
         let mut engine = Engine::new();
-        engine.state = super::State::Active {
+        engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
+
             packet: Some(super::Packet::Receive8 {
                 step: super::receive::Step8::MagicByte1 {
                     sink: super::sink::Command::BeginSession,
@@ -1530,7 +1540,9 @@ mod tests {
                 checksum: 0,
                 attempt: 0,
             }),
+            flow: super::flow::LinkingP2P::BeginSession,
         };
+        engine.vblank();
 
         // Magic values.
         assert_sio_8!(engine, 0x4b, 0x99);
@@ -1572,9 +1584,10 @@ mod tests {
         }
 
         let mut engine = Engine::new();
-        engine.state = super::State::Active {
+        engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
+
             packet: Some(super::Packet::Receive8 {
                 step: super::receive::Step8::MagicByte1 {
                     sink: super::sink::Command::BeginSession,
@@ -1582,7 +1595,9 @@ mod tests {
                 checksum: 0,
                 attempt: 0,
             }),
+            flow: super::flow::LinkingP2P::BeginSession,
         };
+        engine.vblank();
 
         // Magic values.
         assert_sio_8!(engine, 0x4b, 0x99);
@@ -1622,9 +1637,10 @@ mod tests {
         }
 
         let mut engine = Engine::new();
-        engine.state = super::State::Active {
+        engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_32Bit,
+
             packet: Some(super::Packet::Receive32 {
                 step: super::receive::Step32::MagicByte {
                     sink: super::sink::Command::BeginSession,
@@ -1632,7 +1648,9 @@ mod tests {
                 checksum: 0,
                 attempt: 0,
             }),
+            flow: super::flow::LinkingP2P::BeginSession,
         };
+        engine.vblank();
 
         // Magic values + command.
         assert_sio_32!(
@@ -1676,9 +1694,10 @@ mod tests {
         }
 
         let mut engine = Engine::new();
-        engine.state = super::State::Active {
+        engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_32Bit,
+
             packet: Some(super::Packet::Receive32 {
                 step: super::receive::Step32::MagicByte {
                     sink: super::sink::Command::BeginSession,
@@ -1686,7 +1705,9 @@ mod tests {
                 checksum: 0,
                 attempt: 0,
             }),
+            flow: super::flow::LinkingP2P::BeginSession,
         };
+        engine.vblank();
 
         // Magic values + command.
         assert_sio_32!(
