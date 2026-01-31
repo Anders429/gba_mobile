@@ -1,4 +1,4 @@
-use super::{request, sink};
+use super::request;
 use core::{
     fmt,
     fmt::{Display, Formatter},

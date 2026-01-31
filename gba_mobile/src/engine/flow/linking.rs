@@ -16,8 +16,8 @@ impl LinkingP2P {
     pub(in crate::engine) fn request(self, transfer_length: TransferLength) -> Request {
         match self {
             Self::Waking => todo!(),
-            Self::BeginSession => Request::packet(transfer_length, Source::BeginSession),
-            Self::Sio32 => Request::packet(transfer_length, todo!()),
+            Self::BeginSession => Request::new_packet(transfer_length, Source::BeginSession),
+            Self::Sio32 => Request::new_packet(transfer_length, todo!()),
             Self::WaitForIdle => todo!(),
         }
     }

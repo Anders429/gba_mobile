@@ -11,6 +11,7 @@ debug = true
 lto = true
 
 [dependencies]
+claims = "0.8.0"
 either = {version = "1.15.0", default-features = false}
 
 [dev-dependencies]

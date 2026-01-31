@@ -1,10 +1,8 @@
-use super::super::Parsed;
 use crate::engine::HANDSHAKE;
 use core::{
     fmt,
     fmt::{Display, Formatter},
 };
-use either::Either;
 
 #[derive(Debug)]
 pub(in crate::engine) enum Data {

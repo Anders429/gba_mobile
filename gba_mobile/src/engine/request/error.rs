@@ -1,4 +1,4 @@
-use super::{receive, send};
+use super::packet;
 use core::{
     fmt,
     fmt::{Display, Formatter},
@@ -7,15 +7,13 @@ use core::{
 /// Errors that can happen while sending or receiving a request.
 #[derive(Debug)]
 pub(in crate::engine) enum Error {
-    Send(send::Error),
-    Receive(receive::Error),
+    Packet(packet::Error),
 }
 
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::Send(_) => formatter.write_str("error while sending request"),
-            Self::Receive(_) => formatter.write_str("error while receiving request"),
+            Self::Packet(_) => formatter.write_str("packet communication error"),
         }
     }
 }
@@ -23,8 +21,7 @@ impl Display for Error {
 impl core::error::Error for Error {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::Send(error) => Some(error),
-            Self::Receive(error) => Some(error),
+            Self::Packet(error) => Some(error),
         }
     }
 }
