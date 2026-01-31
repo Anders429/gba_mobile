@@ -2,7 +2,7 @@ mod adapter;
 mod command;
 mod error;
 mod flow;
-mod packet;
+mod request;
 mod sink;
 mod source;
 
@@ -14,7 +14,7 @@ use crate::mmio::serial::{SIODATA8, SIODATA32, TransferLength};
 use adapter::Adapter;
 use command::Command;
 use either::Either;
-use packet::{Packet, receive, send};
+use request::{Request, receive, send};
 use source::Source;
 
 /// Handshake for beginning a session.
@@ -27,7 +27,7 @@ enum State {
         adapter: Adapter,
         transfer_length: TransferLength,
 
-        packet: Option<Packet>,
+        request: Option<Request>,
         flow: flow::LinkingP2P,
     },
     P2P,
@@ -40,7 +40,7 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
-    /// Create a new packet engine.
+    /// Create a new communication engine.
     pub(crate) const fn new() -> Self {
         Self {
             state: State::NotConnected,
@@ -53,7 +53,7 @@ impl Engine {
             adapter: Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
 
-            packet: None,
+            request: None,
             flow: flow::LinkingP2P::Waking,
         }
     }
@@ -63,15 +63,15 @@ impl Engine {
             State::NotConnected => {}
             State::LinkingP2P {
                 transfer_length,
-                packet,
+                request,
                 flow,
                 ..
             } => {
-                if let Some(_) = packet {
+                if let Some(_) = request {
                     // TODO: Handle requests.
                 } else {
                     // Schedule a new request.
-                    *packet = Some(flow.request(*transfer_length));
+                    *request = Some(flow.request(*transfer_length));
                 }
             }
             State::P2P => todo!(),
@@ -80,14 +80,14 @@ impl Engine {
     }
 
     pub(crate) fn timer(&mut self) {
-        if let State::LinkingP2P { packet, .. } = &mut self.state
-            && let Some(packet) = packet.as_mut()
+        if let State::LinkingP2P { request, .. } = &mut self.state
+            && let Some(request) = request.as_mut()
         {
-            match packet {
+            match request {
                 // /-----------\
                 // | SIO8 Send |
                 // \-----------/
-                Packet::Send8 {
+                Request::Send8 {
                     step,
                     source,
                     checksum,
@@ -125,7 +125,7 @@ impl Engine {
                 // /------------\
                 // | SIO32 Send |
                 // \------------/
-                Packet::Send32 {
+                Request::Send32 {
                     step,
                     source,
                     checksum,
@@ -189,7 +189,7 @@ impl Engine {
                 // /--------------\
                 // | SIO8 Receive |
                 // \--------------/
-                Packet::Receive8 { step, .. } => {
+                Request::Receive8 { step, .. } => {
                     let byte = match step {
                         receive::Step8::AcknowledgementSignalDevice { .. } => 0x81,
                         receive::Step8::AcknowledgementSignalCommand { result, .. } => {
@@ -203,7 +203,7 @@ impl Engine {
                 // /---------------\
                 // | SIO32 Receive |
                 // \---------------/
-                Packet::Receive32 { step, .. } => {
+                Request::Receive32 { step, .. } => {
                     let bytes = match step {
                         receive::Step32::AcknowledgementSignal { result, .. } => {
                             u32::from_be_bytes([0x81, (result.command() as u8 ^ 0x80), 0x00, 0x00])
@@ -216,7 +216,7 @@ impl Engine {
                 // /--------------------\
                 // | SIO8 Receive Error |
                 // \--------------------/
-                Packet::Receive8Error {
+                Request::Receive8Error {
                     step,
                     error,
                     attempt,
@@ -225,7 +225,7 @@ impl Engine {
                     let byte = match step {
                         receive::Step8Error::AcknowledgementSignalDevice { .. } => 0x81,
                         receive::Step8Error::AcknowledgementSignalCommand { .. } => {
-                            if *attempt + 1 < packet::MAX_RETRIES {
+                            if *attempt + 1 < request::MAX_RETRIES {
                                 error.command() as u8 ^ 0x80
                             } else {
                                 // Since we've errored on communication too much, it doesn't matter
@@ -242,7 +242,7 @@ impl Engine {
                 // /---------------------\
                 // | SIO32 Receive Error |
                 // \---------------------/
-                Packet::Receive32Error {
+                Request::Receive32Error {
                     step,
                     error,
                     attempt,
@@ -250,7 +250,7 @@ impl Engine {
                 } => {
                     let bytes = match step {
                         receive::Step32Error::AcknowledgementSignal { .. } => {
-                            let command_byte = if *attempt + 1 < packet::MAX_RETRIES {
+                            let command_byte = if *attempt + 1 < request::MAX_RETRIES {
                                 error.command() as u8 ^ 0x80
                             } else {
                                 // Since we've errored on communication too much, it doesn't matter
@@ -272,16 +272,16 @@ impl Engine {
         if let State::LinkingP2P {
             adapter,
             transfer_length,
-            packet: state_packet,
+            request: state_request,
             flow,
         } = &mut self.state
-            && let Some(packet) = state_packet.take()
+            && let Some(request) = state_request.take()
         {
-            *state_packet = match packet {
+            *state_request = match request {
                 // /-----------\
                 // | SIO8 Send |
                 // \-----------/
-                Packet::Send8 {
+                Request::Send8 {
                     step,
                     source,
                     checksum,
@@ -289,31 +289,31 @@ impl Engine {
                 } => {
                     let byte = unsafe { SIODATA8.read_volatile() };
                     match step {
-                        send::Step8::MagicByte1 => Some(Packet::Send8 {
+                        send::Step8::MagicByte1 => Some(Request::Send8 {
                             step: send::Step8::MagicByte2,
                             source,
                             checksum,
                             attempt,
                         }),
-                        send::Step8::MagicByte2 => Some(Packet::Send8 {
+                        send::Step8::MagicByte2 => Some(Request::Send8 {
                             step: send::Step8::HeaderCommand,
                             source,
                             checksum,
                             attempt,
                         }),
-                        send::Step8::HeaderCommand => Some(Packet::Send8 {
+                        send::Step8::HeaderCommand => Some(Request::Send8 {
                             step: send::Step8::HeaderEmptyByte,
                             source,
                             checksum,
                             attempt,
                         }),
-                        send::Step8::HeaderEmptyByte => Some(Packet::Send8 {
+                        send::Step8::HeaderEmptyByte => Some(Request::Send8 {
                             step: send::Step8::HeaderLength1,
                             source,
                             checksum,
                             attempt,
                         }),
-                        send::Step8::HeaderLength1 => Some(Packet::Send8 {
+                        send::Step8::HeaderLength1 => Some(Request::Send8 {
                             step: send::Step8::HeaderLength2,
                             source,
                             checksum,
@@ -321,14 +321,14 @@ impl Engine {
                         }),
                         send::Step8::HeaderLength2 => {
                             if source.length() > 0 {
-                                Some(Packet::Send8 {
+                                Some(Request::Send8 {
                                     step: send::Step8::Data { index: 0 },
                                     source,
                                     checksum,
                                     attempt,
                                 })
                             } else {
-                                Some(Packet::Send8 {
+                                Some(Request::Send8 {
                                     step: send::Step8::Checksum1,
                                     source,
                                     checksum,
@@ -339,14 +339,14 @@ impl Engine {
                         send::Step8::Data { index } => {
                             let next_index = index + 1;
                             if source.length() > next_index {
-                                Some(Packet::Send8 {
+                                Some(Request::Send8 {
                                     step: send::Step8::Data { index: next_index },
                                     source,
                                     checksum,
                                     attempt,
                                 })
                             } else {
-                                Some(Packet::Send8 {
+                                Some(Request::Send8 {
                                     step: send::Step8::Checksum1,
                                     source,
                                     checksum,
@@ -354,19 +354,19 @@ impl Engine {
                                 })
                             }
                         }
-                        send::Step8::Checksum1 => Some(Packet::Send8 {
+                        send::Step8::Checksum1 => Some(Request::Send8 {
                             step: send::Step8::Checksum2,
                             source,
                             checksum,
                             attempt,
                         }),
-                        send::Step8::Checksum2 { .. } => Some(Packet::Send8 {
+                        send::Step8::Checksum2 { .. } => Some(Request::Send8 {
                             step: send::Step8::AcknowledgementSignalDevice,
                             source,
                             checksum,
                             attempt,
                         }),
-                        send::Step8::AcknowledgementSignalDevice => Some(Packet::Send8 {
+                        send::Step8::AcknowledgementSignalDevice => Some(Request::Send8 {
                             step: send::Step8::AcknowledgementSignalCommand,
                             source,
                             checksum,
@@ -379,9 +379,9 @@ impl Engine {
                                     Command::NotSupportedError
                                     | Command::MalformedError
                                     | Command::InternalError,
-                                ) if new_attempt < packet::MAX_RETRIES => {
+                                ) if new_attempt < request::MAX_RETRIES => {
                                     // Retry.
-                                    Some(Packet::Send8 {
+                                    Some(Request::Send8 {
                                         step: send::Step8::MagicByte1,
                                         source,
                                         checksum: 0,
@@ -390,30 +390,34 @@ impl Engine {
                                 }
                                 Ok(Command::NotSupportedError) => {
                                     // Too many retries. Stop trying and set error state.
-                                    self.state = State::Error(Error::Packet(packet::Error::Send(
-                                        packet::send::Error::UnsupportedCommand(source.command()),
-                                    )));
+                                    self.state =
+                                        State::Error(Error::Request(request::Error::Send(
+                                            request::send::Error::UnsupportedCommand(
+                                                source.command(),
+                                            ),
+                                        )));
                                     return;
                                 }
                                 Ok(Command::MalformedError) => {
                                     // Too many retries. Stop trying and set error state.
-                                    self.state = State::Error(Error::Packet(packet::Error::Send(
-                                        packet::send::Error::Malformed,
-                                    )));
+                                    self.state = State::Error(Error::Request(
+                                        request::Error::Send(request::send::Error::Malformed),
+                                    ));
                                     return;
                                 }
                                 Ok(Command::InternalError) => {
                                     // Too many retries. Stop trying and set error state.
-                                    self.state = State::Error(Error::Packet(packet::Error::Send(
-                                        packet::send::Error::AdapterInternalError,
-                                    )));
+                                    self.state =
+                                        State::Error(Error::Request(request::Error::Send(
+                                            request::send::Error::AdapterInternalError,
+                                        )));
                                     return;
                                 }
                                 _ => {
                                     // We don't verify anything here and simply assume the adapter
                                     // responded with a correct command. If the adapter is in an invalid
                                     // state, we will find out when receiving the response packet instead.
-                                    Some(Packet::Receive8 {
+                                    Some(Request::Receive8 {
                                         step: receive::Step8::MagicByte1 {
                                             sink: source.sink(),
                                         },
@@ -430,7 +434,7 @@ impl Engine {
                 // /------------\
                 // | SIO32 Send |
                 // \------------/
-                Packet::Send32 {
+                Request::Send32 {
                     step,
                     source,
                     checksum,
@@ -438,7 +442,7 @@ impl Engine {
                 } => {
                     let bytes = unsafe { SIODATA32.read_volatile() };
                     match step {
-                        send::Step32::MagicByte => Some(Packet::Send32 {
+                        send::Step32::MagicByte => Some(Request::Send32 {
                             step: send::Step32::HeaderLength,
                             source,
                             checksum,
@@ -450,7 +454,7 @@ impl Engine {
                                 1..=2 => send::Step32::Checksum,
                                 _ => send::Step32::Data { index: 2 },
                             };
-                            Some(Packet::Send32 {
+                            Some(Request::Send32 {
                                 step: new_step,
                                 source,
                                 checksum,
@@ -467,14 +471,14 @@ impl Engine {
                             } else {
                                 send::Step32::Data { index: index + 4 }
                             };
-                            Some(Packet::Send32 {
+                            Some(Request::Send32 {
                                 step: new_step,
                                 source,
                                 checksum,
                                 attempt,
                             })
                         }
-                        send::Step32::Checksum => Some(Packet::Send32 {
+                        send::Step32::Checksum => Some(Request::Send32 {
                             step: send::Step32::AcknowledgementSignal,
                             source,
                             checksum,
@@ -487,9 +491,9 @@ impl Engine {
                                     Command::NotSupportedError
                                     | Command::MalformedError
                                     | Command::InternalError,
-                                ) if new_attempt < packet::MAX_RETRIES => {
+                                ) if new_attempt < request::MAX_RETRIES => {
                                     // Retry.
-                                    Some(Packet::Send32 {
+                                    Some(Request::Send32 {
                                         step: send::Step32::MagicByte,
                                         source,
                                         checksum: 0,
@@ -498,30 +502,34 @@ impl Engine {
                                 }
                                 Ok(Command::NotSupportedError) => {
                                     // Too many retries. Stop trying and set error state.
-                                    self.state = State::Error(Error::Packet(packet::Error::Send(
-                                        packet::send::Error::UnsupportedCommand(source.command()),
-                                    )));
+                                    self.state =
+                                        State::Error(Error::Request(request::Error::Send(
+                                            request::send::Error::UnsupportedCommand(
+                                                source.command(),
+                                            ),
+                                        )));
                                     return;
                                 }
                                 Ok(Command::MalformedError) => {
                                     // Too many retries. Stop trying and set error state.
-                                    self.state = State::Error(Error::Packet(packet::Error::Send(
-                                        packet::send::Error::Malformed,
-                                    )));
+                                    self.state = State::Error(Error::Request(
+                                        request::Error::Send(request::send::Error::Malformed),
+                                    ));
                                     return;
                                 }
                                 Ok(Command::InternalError) => {
                                     // Too many retries. Stop trying and set error state.
-                                    self.state = State::Error(Error::Packet(packet::Error::Send(
-                                        packet::send::Error::AdapterInternalError,
-                                    )));
+                                    self.state =
+                                        State::Error(Error::Request(request::Error::Send(
+                                            request::send::Error::AdapterInternalError,
+                                        )));
                                     return;
                                 }
                                 _ => {
                                     // We don't verify anything here and simply assume the adapter
                                     // responded with a correct command. If the adapter is in an invalid
                                     // state, we will find out when receiving the response packet instead.
-                                    Some(Packet::Receive32 {
+                                    Some(Request::Receive32 {
                                         step: receive::Step32::MagicByte {
                                             sink: source.sink(),
                                         },
@@ -538,7 +546,7 @@ impl Engine {
                 // /--------------\
                 // | SIO8 Receive |
                 // \--------------/
-                Packet::Receive8 {
+                Request::Receive8 {
                     step,
                     checksum,
                     attempt,
@@ -546,59 +554,59 @@ impl Engine {
                     let byte = unsafe { SIODATA8.read_volatile() };
                     match step {
                         receive::Step8::MagicByte1 { sink } => match byte {
-                            0x99 => Some(Packet::Receive8 {
+                            0x99 => Some(Request::Receive8 {
                                 step: receive::Step8::MagicByte2 { sink },
                                 checksum,
                                 attempt,
                             }),
-                            0xd2 => Some(Packet::Receive8 {
+                            0xd2 => Some(Request::Receive8 {
                                 step: receive::Step8::MagicByte1 { sink },
                                 checksum,
                                 attempt,
                             }),
-                            _ => Some(Packet::Receive8Error {
+                            _ => Some(Request::Receive8Error {
                                 step: receive::Step8Error::MagicByte2 { sink },
-                                error: packet::receive::Error::MagicValue1(byte),
+                                error: request::receive::Error::MagicValue1(byte),
                                 attempt,
                             }),
                         },
                         receive::Step8::MagicByte2 { sink } => match byte {
-                            0x66 => Some(Packet::Receive8 {
+                            0x66 => Some(Request::Receive8 {
                                 step: receive::Step8::HeaderCommand { sink },
                                 checksum,
                                 attempt,
                             }),
-                            _ => Some(Packet::Receive8Error {
+                            _ => Some(Request::Receive8Error {
                                 step: receive::Step8Error::HeaderCommand { sink },
-                                error: packet::receive::Error::MagicValue2(byte),
+                                error: request::receive::Error::MagicValue2(byte),
                                 attempt,
                             }),
                         },
                         receive::Step8::HeaderCommand { sink } => match Command::try_from(byte) {
                             Ok(command) => match sink.parse(command) {
-                                Ok(sink) => Some(Packet::Receive8 {
+                                Ok(sink) => Some(Request::Receive8 {
                                     step: receive::Step8::HeaderEmptyByte { sink },
                                     checksum: checksum.wrapping_add(byte as u16),
                                     attempt,
                                 }),
-                                Err((error, sink)) => Some(Packet::Receive8Error {
+                                Err((error, sink)) => Some(Request::Receive8Error {
                                     step: receive::Step8Error::HeaderEmptyByte { sink },
-                                    error: packet::receive::Error::UnsupportedCommand(error),
+                                    error: request::receive::Error::UnsupportedCommand(error),
                                     attempt,
                                 }),
                             },
-                            Err(unknown) => Some(Packet::Receive8Error {
+                            Err(unknown) => Some(Request::Receive8Error {
                                 step: receive::Step8Error::HeaderEmptyByte { sink },
-                                error: packet::receive::Error::UnknownCommand(unknown),
+                                error: request::receive::Error::UnknownCommand(unknown),
                                 attempt,
                             }),
                         },
-                        receive::Step8::HeaderEmptyByte { sink } => Some(Packet::Receive8 {
+                        receive::Step8::HeaderEmptyByte { sink } => Some(Request::Receive8 {
                             step: receive::Step8::HeaderLength1 { sink },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
                         }),
-                        receive::Step8::HeaderLength1 { sink } => Some(Packet::Receive8 {
+                        receive::Step8::HeaderLength1 { sink } => Some(Request::Receive8 {
                             step: receive::Step8::HeaderLength2 {
                                 first_byte: byte,
                                 sink,
@@ -609,41 +617,41 @@ impl Engine {
                         receive::Step8::HeaderLength2 { sink, first_byte } => {
                             let full_length = ((first_byte as u16) << 8) | (byte as u16);
                             match sink.parse(full_length) {
-                                Ok(Either::Left(sink)) => Some(Packet::Receive8 {
+                                Ok(Either::Left(sink)) => Some(Request::Receive8 {
                                     step: receive::Step8::Data { sink },
                                     checksum: checksum.wrapping_add(byte as u16),
                                     attempt,
                                 }),
-                                Ok(Either::Right(result)) => Some(Packet::Receive8 {
+                                Ok(Either::Right(result)) => Some(Request::Receive8 {
                                     step: receive::Step8::Checksum1 { result },
                                     checksum: checksum.wrapping_add(byte as u16),
                                     attempt,
                                 }),
                                 Err((error, sink)) => match NonZeroU16::new(full_length) {
-                                    Some(length) => Some(Packet::Receive8Error {
+                                    Some(length) => Some(Request::Receive8Error {
                                         step: receive::Step8Error::Data {
                                             sink,
                                             index: 0,
                                             length,
                                         },
-                                        error: packet::receive::Error::UnexpectedLength(error),
+                                        error: request::receive::Error::UnexpectedLength(error),
                                         attempt,
                                     }),
-                                    None => Some(Packet::Receive8Error {
+                                    None => Some(Request::Receive8Error {
                                         step: receive::Step8Error::Checksum1 { sink },
-                                        error: packet::receive::Error::UnexpectedLength(error),
+                                        error: request::receive::Error::UnexpectedLength(error),
                                         attempt,
                                     }),
                                 },
                             }
                         }
                         receive::Step8::Data { sink } => match sink.parse(byte) {
-                            Ok(Either::Left(sink)) => Some(Packet::Receive8 {
+                            Ok(Either::Left(sink)) => Some(Request::Receive8 {
                                 step: receive::Step8::Data { sink },
                                 checksum: checksum.wrapping_add(byte as u16),
                                 attempt,
                             }),
-                            Ok(Either::Right(result)) => Some(Packet::Receive8 {
+                            Ok(Either::Right(result)) => Some(Request::Receive8 {
                                 step: receive::Step8::Checksum1 { result },
                                 checksum: checksum.wrapping_add(byte as u16),
                                 attempt,
@@ -653,26 +661,26 @@ impl Engine {
                                     && next_index < length.get()
                                 {
                                     // We still have more data to receive in the error state.
-                                    Some(Packet::Receive8Error {
+                                    Some(Request::Receive8Error {
                                         step: receive::Step8Error::Data {
                                             sink,
                                             index: next_index,
                                             length,
                                         },
-                                        error: packet::receive::Error::MalformedData(error),
+                                        error: request::receive::Error::MalformedData(error),
                                         attempt,
                                     })
                                 } else {
                                     // The error happened on the last byte being received.
-                                    Some(Packet::Receive8Error {
+                                    Some(Request::Receive8Error {
                                         step: receive::Step8Error::Checksum1 { sink },
-                                        error: packet::receive::Error::MalformedData(error),
+                                        error: request::receive::Error::MalformedData(error),
                                         attempt,
                                     })
                                 }
                             }
                         },
-                        receive::Step8::Checksum1 { result } => Some(Packet::Receive8 {
+                        receive::Step8::Checksum1 { result } => Some(Request::Receive8 {
                             step: receive::Step8::Checksum2 {
                                 first_byte: byte,
                                 result,
@@ -683,17 +691,17 @@ impl Engine {
                         receive::Step8::Checksum2 { result, first_byte } => {
                             let full_checksum = ((first_byte as u16) << 8) | (byte as u16);
                             if full_checksum == checksum {
-                                Some(Packet::Receive8 {
+                                Some(Request::Receive8 {
                                     step: receive::Step8::AcknowledgementSignalDevice { result },
                                     checksum,
                                     attempt,
                                 })
                             } else {
-                                Some(Packet::Receive8Error {
+                                Some(Request::Receive8Error {
                                     step: receive::Step8Error::AcknowledgementSignalDevice {
                                         sink: result.revert(),
                                     },
-                                    error: packet::receive::Error::Checksum {
+                                    error: request::receive::Error::Checksum {
                                         calculated: checksum,
                                         received: full_checksum,
                                     },
@@ -703,7 +711,7 @@ impl Engine {
                         }
                         receive::Step8::AcknowledgementSignalDevice { result } => {
                             match Adapter::try_from(byte) {
-                                Ok(received_adapter) => Some(Packet::Receive8 {
+                                Ok(received_adapter) => Some(Request::Receive8 {
                                     step: receive::Step8::AcknowledgementSignalCommand {
                                         result,
                                         adapter: received_adapter,
@@ -711,11 +719,11 @@ impl Engine {
                                     checksum,
                                     attempt,
                                 }),
-                                Err(unknown) => Some(Packet::Receive8Error {
+                                Err(unknown) => Some(Request::Receive8Error {
                                     step: receive::Step8Error::AcknowledgementSignalCommand {
                                         sink: result.revert(),
                                     },
-                                    error: packet::receive::Error::UnsupportedDevice(unknown),
+                                    error: request::receive::Error::UnsupportedDevice(unknown),
                                     attempt,
                                 }),
                             }
@@ -747,8 +755,8 @@ impl Engine {
                                     // We can no longer retry at this point. We simply enter an
                                     // error state.
                                     self.state =
-                                        State::Error(Error::Packet(packet::Error::Receive(
-                                            packet::receive::Error::NonZeroAcknowledgementCommand(
+                                        State::Error(Error::Request(request::Error::Receive(
+                                            request::receive::Error::NonZeroAcknowledgementCommand(
                                                 nonzero,
                                             ),
                                         )));
@@ -762,7 +770,7 @@ impl Engine {
                 // /---------------\
                 // | SIO32 Receive |
                 // \---------------/
-                Packet::Receive32 {
+                Request::Receive32 {
                     step,
                     checksum,
                     attempt,
@@ -770,7 +778,7 @@ impl Engine {
                     let bytes = unsafe { SIODATA32.read_volatile().to_be_bytes() };
                     match step {
                         receive::Step32::MagicByte { sink } => match bytes[0] {
-                            0xd2 => Some(Packet::Receive32 {
+                            0xd2 => Some(Request::Receive32 {
                                 step: receive::Step32::MagicByte { sink },
                                 checksum,
                                 attempt,
@@ -778,32 +786,32 @@ impl Engine {
                             0x99 => match bytes[1] {
                                 0x66 => match Command::try_from(bytes[2]) {
                                     Ok(command) => match sink.parse(command) {
-                                        Ok(sink) => Some(Packet::Receive32 {
+                                        Ok(sink) => Some(Request::Receive32 {
                                             step: receive::Step32::HeaderLength { sink },
                                             checksum: checksum
                                                 .wrapping_add(bytes[2] as u16)
                                                 .wrapping_add(bytes[3] as u16),
                                             attempt,
                                         }),
-                                        Err((error, sink)) => Some(Packet::Receive32Error {
+                                        Err((error, sink)) => Some(Request::Receive32Error {
                                             step: receive::Step32Error::HeaderLength { sink },
                                             error: receive::Error::UnsupportedCommand(error),
                                             attempt,
                                         }),
                                     },
-                                    Err(unknown) => Some(Packet::Receive32Error {
+                                    Err(unknown) => Some(Request::Receive32Error {
                                         step: receive::Step32Error::HeaderLength { sink },
                                         error: receive::Error::UnknownCommand(unknown),
                                         attempt,
                                     }),
                                 },
-                                byte => Some(Packet::Receive32Error {
+                                byte => Some(Request::Receive32Error {
                                     step: receive::Step32Error::HeaderLength { sink },
                                     error: receive::Error::MagicValue2(byte),
                                     attempt,
                                 }),
                             },
-                            byte => Some(Packet::Receive32Error {
+                            byte => Some(Request::Receive32Error {
                                 step: receive::Step32Error::HeaderLength { sink },
                                 error: receive::Error::MagicValue1(byte),
                                 attempt,
@@ -816,7 +824,7 @@ impl Engine {
                                     // Receive the last two bytes as data.
                                     match sink.parse(bytes[2]) {
                                         Ok(Either::Left(sink)) => match sink.parse(bytes[3]) {
-                                            Ok(Either::Left(sink)) => Some(Packet::Receive32 {
+                                            Ok(Either::Left(sink)) => Some(Request::Receive32 {
                                                 step: receive::Step32::Data { sink },
                                                 checksum: checksum
                                                     .wrapping_add(bytes[0] as u16)
@@ -825,7 +833,7 @@ impl Engine {
                                                     .wrapping_add(bytes[3] as u16),
                                                 attempt,
                                             }),
-                                            Ok(Either::Right(result)) => Some(Packet::Receive32 {
+                                            Ok(Either::Right(result)) => Some(Request::Receive32 {
                                                 step: receive::Step32::Checksum { result },
                                                 checksum: checksum
                                                     .wrapping_add(bytes[0] as u16)
@@ -839,7 +847,7 @@ impl Engine {
                                                     && next_index < length.get()
                                                 {
                                                     // We still have more data to receive in the error state.
-                                                    Some(Packet::Receive32Error {
+                                                    Some(Request::Receive32Error {
                                                         step: receive::Step32Error::Data {
                                                             sink,
                                                             index: next_index,
@@ -850,7 +858,7 @@ impl Engine {
                                                     })
                                                 } else {
                                                     // The error happened on the last byte being received.
-                                                    Some(Packet::Receive32Error {
+                                                    Some(Request::Receive32Error {
                                                         step: receive::Step32Error::Checksum {
                                                             sink,
                                                         },
@@ -860,7 +868,7 @@ impl Engine {
                                                 }
                                             }
                                         },
-                                        Ok(Either::Right(result)) => Some(Packet::Receive32 {
+                                        Ok(Either::Right(result)) => Some(Request::Receive32 {
                                             step: receive::Step32::Checksum { result },
                                             checksum: checksum
                                                 .wrapping_add(bytes[0] as u16)
@@ -874,7 +882,7 @@ impl Engine {
                                                 && next_index < length.get()
                                             {
                                                 // We still have more data to receive in the error state.
-                                                Some(Packet::Receive32Error {
+                                                Some(Request::Receive32Error {
                                                     step: receive::Step32Error::Data {
                                                         sink,
                                                         index: next_index,
@@ -885,7 +893,7 @@ impl Engine {
                                                 })
                                             } else {
                                                 // The error happened on the last byte being received.
-                                                Some(Packet::Receive32Error {
+                                                Some(Request::Receive32Error {
                                                     step: receive::Step32Error::Checksum { sink },
                                                     error: receive::Error::MalformedData(error),
                                                     attempt,
@@ -899,13 +907,13 @@ impl Engine {
                                     let full_checksum =
                                         ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                                     if full_checksum == checksum {
-                                        Some(Packet::Receive32 {
+                                        Some(Request::Receive32 {
                                             step: receive::Step32::AcknowledgementSignal { result },
                                             checksum,
                                             attempt,
                                         })
                                     } else {
-                                        Some(Packet::Receive32Error {
+                                        Some(Request::Receive32Error {
                                             step: receive::Step32Error::AcknowledgementSignal {
                                                 sink: result.revert(),
                                             },
@@ -917,7 +925,7 @@ impl Engine {
                                         })
                                     }
                                 }
-                                Err((error, sink)) => Some(Packet::Receive32Error {
+                                Err((error, sink)) => Some(Request::Receive32Error {
                                     step: receive::Step32Error::AcknowledgementSignal { sink },
                                     error: receive::Error::UnexpectedLength(error),
                                     attempt,
@@ -933,7 +941,7 @@ impl Engine {
                                                 Ok(Either::Left(sink)) => {
                                                     match sink.parse(bytes[3]) {
                                                         Ok(Either::Left(sink)) => {
-                                                            Some(Packet::Receive32 {
+                                                            Some(Request::Receive32 {
                                                                 step: receive::Step32::Data {
                                                                     sink,
                                                                 },
@@ -946,7 +954,7 @@ impl Engine {
                                                             })
                                                         }
                                                         Ok(Either::Right(result)) => {
-                                                            Some(Packet::Receive32 {
+                                                            Some(Request::Receive32 {
                                                                 step: receive::Step32::Checksum {
                                                                     result,
                                                                 },
@@ -964,16 +972,16 @@ impl Engine {
                                                                 && next_index < length.get()
                                                             {
                                                                 // We still have more data to receive in the error state.
-                                                                Some(Packet::Receive32Error { step: receive::Step32Error::Data { sink, index: next_index, length }, error: receive::Error::MalformedData(error), attempt })
+                                                                Some(Request::Receive32Error { step: receive::Step32Error::Data { sink, index: next_index, length }, error: receive::Error::MalformedData(error), attempt })
                                                             } else {
                                                                 // The error happened on the last byte being received.
-                                                                Some(Packet::Receive32Error { step: receive::Step32Error::Checksum { sink }, error: receive::Error::MalformedData(error), attempt })
+                                                                Some(Request::Receive32Error { step: receive::Step32Error::Checksum { sink }, error: receive::Error::MalformedData(error), attempt })
                                                             }
                                                         }
                                                     }
                                                 }
                                                 Ok(Either::Right(result)) => {
-                                                    Some(Packet::Receive32 {
+                                                    Some(Request::Receive32 {
                                                         step: receive::Step32::Checksum { result },
                                                         checksum: checksum
                                                             .wrapping_add(bytes[0] as u16)
@@ -988,7 +996,7 @@ impl Engine {
                                                         && next_index < length.get()
                                                     {
                                                         // We still have more data to receive in the error state.
-                                                        Some(Packet::Receive32Error {
+                                                        Some(Request::Receive32Error {
                                                             step: receive::Step32Error::Data {
                                                                 sink,
                                                                 index: next_index,
@@ -1001,7 +1009,7 @@ impl Engine {
                                                         })
                                                     } else {
                                                         // The error happened on the last byte being received.
-                                                        Some(Packet::Receive32Error {
+                                                        Some(Request::Receive32Error {
                                                             step: receive::Step32Error::Checksum {
                                                                 sink,
                                                             },
@@ -1022,7 +1030,7 @@ impl Engine {
                                             let full_checksum =
                                                 ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                                             if full_checksum == calculated_checksum {
-                                                Some(Packet::Receive32 {
+                                                Some(Request::Receive32 {
                                                     step: receive::Step32::AcknowledgementSignal {
                                                         result,
                                                     },
@@ -1030,7 +1038,7 @@ impl Engine {
                                                     attempt,
                                                 })
                                             } else {
-                                                Some(Packet::Receive32Error { step: receive::Step32Error::AcknowledgementSignal { sink: result.revert() }, error: receive::Error::Checksum { calculated: calculated_checksum, received: full_checksum }, attempt })
+                                                Some(Request::Receive32Error { step: receive::Step32Error::AcknowledgementSignal { sink: result.revert() }, error: receive::Error::Checksum { calculated: calculated_checksum, received: full_checksum }, attempt })
                                             }
                                         }
                                         Err((error, index, length, sink)) => {
@@ -1038,7 +1046,7 @@ impl Engine {
                                                 && next_index < length.get()
                                             {
                                                 // We still have more data to receive in the error state.
-                                                Some(Packet::Receive32Error {
+                                                Some(Request::Receive32Error {
                                                     step: receive::Step32Error::Data {
                                                         sink,
                                                         index: next_index,
@@ -1049,7 +1057,7 @@ impl Engine {
                                                 })
                                             } else {
                                                 // The error happened on the last byte being received.
-                                                Some(Packet::Receive32Error { step: receive::Step32Error::AcknowledgementSignal { sink }, error: receive::Error::MalformedData(error), attempt })
+                                                Some(Request::Receive32Error { step: receive::Step32Error::AcknowledgementSignal { sink }, error: receive::Error::MalformedData(error), attempt })
                                             }
                                         }
                                     }
@@ -1062,13 +1070,13 @@ impl Engine {
                                     let full_checksum =
                                         ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                                     if full_checksum == calculated_checksum {
-                                        Some(Packet::Receive32 {
+                                        Some(Request::Receive32 {
                                             step: receive::Step32::AcknowledgementSignal { result },
                                             checksum: calculated_checksum,
                                             attempt,
                                         })
                                     } else {
-                                        Some(Packet::Receive32Error {
+                                        Some(Request::Receive32Error {
                                             step: receive::Step32Error::AcknowledgementSignal {
                                                 sink: result.revert(),
                                             },
@@ -1085,7 +1093,7 @@ impl Engine {
                                         && next_index < length.get()
                                     {
                                         // We still have more data to receive in the error state.
-                                        Some(Packet::Receive32Error {
+                                        Some(Request::Receive32Error {
                                             step: receive::Step32Error::Data {
                                                 sink,
                                                 index: next_index,
@@ -1096,7 +1104,7 @@ impl Engine {
                                         })
                                     } else {
                                         // The error happened on the last byte being received.
-                                        Some(Packet::Receive32Error {
+                                        Some(Request::Receive32Error {
                                             step: receive::Step32Error::AcknowledgementSignal {
                                                 sink,
                                             },
@@ -1114,13 +1122,13 @@ impl Engine {
                                 .wrapping_add(bytes[1] as u16);
                             let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                             if full_checksum == calculated_checksum {
-                                Some(Packet::Receive32 {
+                                Some(Request::Receive32 {
                                     step: receive::Step32::AcknowledgementSignal { result },
                                     checksum: calculated_checksum,
                                     attempt,
                                 })
                             } else {
-                                Some(Packet::Receive32Error {
+                                Some(Request::Receive32Error {
                                     step: receive::Step32Error::AcknowledgementSignal {
                                         sink: result.revert(),
                                     },
@@ -1155,7 +1163,7 @@ impl Engine {
                                     Some(nonzero) => {
                                         // We can no longer retry at this point. We simply enter an
                                         // error state.
-                                        self.state = State::Error(Error::Packet(packet::Error::Receive(packet::receive::Error::NonZeroAcknowledgementCommand(nonzero))));
+                                        self.state = State::Error(Error::Request(request::Error::Receive(request::receive::Error::NonZeroAcknowledgementCommand(nonzero))));
                                         return;
                                     }
                                 },
@@ -1163,8 +1171,8 @@ impl Engine {
                                     // We can no longer retry at this point. We simply enter an
                                     // error state.
                                     self.state =
-                                        State::Error(Error::Packet(packet::Error::Receive(
-                                            packet::receive::Error::UnsupportedDevice(unknown),
+                                        State::Error(Error::Request(request::Error::Receive(
+                                            request::receive::Error::UnsupportedDevice(unknown),
                                         )));
                                     return;
                                 }
@@ -1176,34 +1184,34 @@ impl Engine {
                 // /--------------------\
                 // | SIO8 Receive Error |
                 // \--------------------/
-                Packet::Receive8Error {
+                Request::Receive8Error {
                     step,
                     error,
                     attempt,
                 } => {
                     let byte = unsafe { SIODATA8.read_volatile() };
                     match step {
-                        receive::Step8Error::MagicByte2 { sink } => Some(Packet::Receive8Error {
+                        receive::Step8Error::MagicByte2 { sink } => Some(Request::Receive8Error {
                             step: receive::Step8Error::HeaderCommand { sink },
                             error,
                             attempt,
                         }),
                         receive::Step8Error::HeaderCommand { sink } => {
-                            Some(Packet::Receive8Error {
+                            Some(Request::Receive8Error {
                                 step: receive::Step8Error::HeaderEmptyByte { sink },
                                 error,
                                 attempt,
                             })
                         }
                         receive::Step8Error::HeaderEmptyByte { sink } => {
-                            Some(Packet::Receive8Error {
+                            Some(Request::Receive8Error {
                                 step: receive::Step8Error::HeaderLength1 { sink },
                                 error,
                                 attempt,
                             })
                         }
                         receive::Step8Error::HeaderLength1 { sink } => {
-                            Some(Packet::Receive8Error {
+                            Some(Request::Receive8Error {
                                 step: receive::Step8Error::HeaderLength2 {
                                     sink,
                                     first_byte: byte,
@@ -1215,7 +1223,7 @@ impl Engine {
                         receive::Step8Error::HeaderLength2 { sink, first_byte } => {
                             let full_length = ((first_byte as u16) << 8) | (byte as u16);
                             match NonZeroU16::new(full_length) {
-                                Some(length) => Some(Packet::Receive8Error {
+                                Some(length) => Some(Request::Receive8Error {
                                     step: receive::Step8Error::Data {
                                         sink,
                                         index: 0,
@@ -1224,7 +1232,7 @@ impl Engine {
                                     error,
                                     attempt,
                                 }),
-                                None => Some(Packet::Receive8Error {
+                                None => Some(Request::Receive8Error {
                                     step: receive::Step8Error::Checksum1 { sink },
                                     error,
                                     attempt,
@@ -1238,7 +1246,7 @@ impl Engine {
                         } => {
                             let next_index = index + 1;
                             if next_index < length.get() {
-                                Some(Packet::Receive8Error {
+                                Some(Request::Receive8Error {
                                     step: receive::Step8Error::Data {
                                         sink,
                                         index: next_index,
@@ -1248,25 +1256,25 @@ impl Engine {
                                     attempt,
                                 })
                             } else {
-                                Some(Packet::Receive8Error {
+                                Some(Request::Receive8Error {
                                     step: receive::Step8Error::Checksum1 { sink },
                                     error,
                                     attempt,
                                 })
                             }
                         }
-                        receive::Step8Error::Checksum1 { sink } => Some(Packet::Receive8Error {
+                        receive::Step8Error::Checksum1 { sink } => Some(Request::Receive8Error {
                             step: receive::Step8Error::Checksum2 { sink },
                             error,
                             attempt,
                         }),
-                        receive::Step8Error::Checksum2 { sink } => Some(Packet::Receive8Error {
+                        receive::Step8Error::Checksum2 { sink } => Some(Request::Receive8Error {
                             step: receive::Step8Error::AcknowledgementSignalDevice { sink },
                             error,
                             attempt,
                         }),
                         receive::Step8Error::AcknowledgementSignalDevice { sink } => {
-                            Some(Packet::Receive8Error {
+                            Some(Request::Receive8Error {
                                 step: receive::Step8Error::AcknowledgementSignalCommand { sink },
                                 error,
                                 attempt,
@@ -1274,9 +1282,9 @@ impl Engine {
                         }
                         receive::Step8Error::AcknowledgementSignalCommand { sink } => {
                             let new_attempt = attempt + 1;
-                            if new_attempt < packet::MAX_RETRIES {
+                            if new_attempt < request::MAX_RETRIES {
                                 // Retry.
-                                Some(Packet::Receive8 {
+                                Some(Request::Receive8 {
                                     step: receive::Step8::MagicByte1 { sink },
                                     checksum: 0,
                                     attempt: new_attempt,
@@ -1284,7 +1292,7 @@ impl Engine {
                             } else {
                                 // Too many retries. Stop trying and set error state.
                                 self.state =
-                                    State::Error(Error::Packet(packet::Error::Receive(error)));
+                                    State::Error(Error::Request(request::Error::Receive(error)));
                                 return;
                             }
                         }
@@ -1294,7 +1302,7 @@ impl Engine {
                 // /---------------------\
                 // | SIO32 Receive Error |
                 // \---------------------/
-                Packet::Receive32Error {
+                Request::Receive32Error {
                     step,
                     error,
                     attempt,
@@ -1306,13 +1314,13 @@ impl Engine {
                             match NonZeroU16::new(full_length) {
                                 Some(length) => {
                                     if 2 < length.get() {
-                                        Some(Packet::Receive32Error {
+                                        Some(Request::Receive32Error {
                                             step: receive::Step32Error::Checksum { sink },
                                             error,
                                             attempt,
                                         })
                                     } else {
-                                        Some(Packet::Receive32Error {
+                                        Some(Request::Receive32Error {
                                             step: receive::Step32Error::Data {
                                                 sink,
                                                 index: 2,
@@ -1323,7 +1331,7 @@ impl Engine {
                                         })
                                     }
                                 }
-                                None => Some(Packet::Receive32Error {
+                                None => Some(Request::Receive32Error {
                                     step: receive::Step32Error::AcknowledgementSignal { sink },
                                     error,
                                     attempt,
@@ -1337,21 +1345,21 @@ impl Engine {
                         } => {
                             if index + 2 >= length.get() {
                                 // Checksum is included in last two bytes.
-                                Some(Packet::Receive32Error {
+                                Some(Request::Receive32Error {
                                     step: receive::Step32Error::AcknowledgementSignal { sink },
                                     error,
                                     attempt,
                                 })
                             } else if index + 4 >= length.get() {
                                 // These are the last data bytes.
-                                Some(Packet::Receive32Error {
+                                Some(Request::Receive32Error {
                                     step: receive::Step32Error::Checksum { sink },
                                     error,
                                     attempt,
                                 })
                             } else {
                                 // There is more data.
-                                Some(Packet::Receive32Error {
+                                Some(Request::Receive32Error {
                                     step: receive::Step32Error::Data {
                                         sink,
                                         index: index + 4,
@@ -1362,16 +1370,16 @@ impl Engine {
                                 })
                             }
                         }
-                        receive::Step32Error::Checksum { sink } => Some(Packet::Receive32Error {
+                        receive::Step32Error::Checksum { sink } => Some(Request::Receive32Error {
                             step: receive::Step32Error::AcknowledgementSignal { sink },
                             error,
                             attempt,
                         }),
                         receive::Step32Error::AcknowledgementSignal { sink } => {
                             let new_attempt = attempt + 1;
-                            if new_attempt < packet::MAX_RETRIES {
+                            if new_attempt < request::MAX_RETRIES {
                                 // Retry.
-                                Some(Packet::Receive32 {
+                                Some(Request::Receive32 {
                                     step: receive::Step32::MagicByte { sink },
                                     checksum: 0,
                                     attempt: new_attempt,
@@ -1379,7 +1387,7 @@ impl Engine {
                             } else {
                                 // Too many retries. Stop trying and set error state.
                                 self.state =
-                                    State::Error(Error::Packet(packet::Error::Receive(error)));
+                                    State::Error(Error::Request(request::Error::Receive(error)));
                                 return;
                             }
                         }
@@ -1429,7 +1437,7 @@ mod tests {
         engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
-            packet: None,
+            request: None,
             flow: super::flow::LinkingP2P::BeginSession,
         };
         engine.vblank();
@@ -1477,7 +1485,7 @@ mod tests {
         engine.state = super::State::LinkingP2P {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_32Bit,
-            packet: None,
+            request: None,
             flow: super::flow::LinkingP2P::BeginSession,
         };
         engine.vblank();
@@ -1533,7 +1541,7 @@ mod tests {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
 
-            packet: Some(super::Packet::Receive8 {
+            request: Some(super::Request::Receive8 {
                 step: super::receive::Step8::MagicByte1 {
                     sink: super::sink::Command::BeginSession,
                 },
@@ -1588,7 +1596,7 @@ mod tests {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
 
-            packet: Some(super::Packet::Receive8 {
+            request: Some(super::Request::Receive8 {
                 step: super::receive::Step8::MagicByte1 {
                     sink: super::sink::Command::BeginSession,
                 },
@@ -1641,7 +1649,7 @@ mod tests {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_32Bit,
 
-            packet: Some(super::Packet::Receive32 {
+            request: Some(super::Request::Receive32 {
                 step: super::receive::Step32::MagicByte {
                     sink: super::sink::Command::BeginSession,
                 },
@@ -1698,7 +1706,7 @@ mod tests {
             adapter: super::Adapter::Blue,
             transfer_length: TransferLength::_32Bit,
 
-            packet: Some(super::Packet::Receive32 {
+            request: Some(super::Request::Receive32 {
                 step: super::receive::Step32::MagicByte {
                     sink: super::sink::Command::BeginSession,
                 },

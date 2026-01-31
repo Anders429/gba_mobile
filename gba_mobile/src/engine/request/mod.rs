@@ -7,13 +7,13 @@ pub(in crate::engine) use error::Error;
 
 use crate::mmio::serial::TransferLength;
 
-use super::{Command, Source};
+use super::Source;
 
 pub(in crate::engine) const MAX_RETRIES: u8 = 5;
 
-/// In-progress packet communication.
+/// In-progress communication.
 #[derive(Debug)]
-pub(in crate::engine) enum Packet {
+pub(in crate::engine) enum Request {
     /// Sending in SIO8 mode.
     Send8 {
         step: send::Step8,
@@ -60,7 +60,7 @@ pub(in crate::engine) enum Packet {
     },
 }
 
-impl Packet {
+impl Request {
     pub(in crate::engine) fn packet(transfer_length: TransferLength, source: Source) -> Self {
         match transfer_length {
             TransferLength::_8Bit => Self::Send8 {

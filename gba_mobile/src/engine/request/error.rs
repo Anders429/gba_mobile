@@ -4,7 +4,7 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-/// Errors that can happen while sending or receiving a packet.
+/// Errors that can happen while sending or receiving a request.
 #[derive(Debug)]
 pub(in crate::engine) enum Error {
     Send(send::Error),
@@ -14,8 +14,8 @@ pub(in crate::engine) enum Error {
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::Send(_) => formatter.write_str("error during packet sending"),
-            Self::Receive(_) => formatter.write_str("error during packet receiving"),
+            Self::Send(_) => formatter.write_str("error while sending request"),
+            Self::Receive(_) => formatter.write_str("error while receiving request"),
         }
     }
 }

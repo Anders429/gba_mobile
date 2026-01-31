@@ -1,5 +1,5 @@
 use crate::{
-    engine::{Packet, Source},
+    engine::{Request, Source},
     mmio::serial::TransferLength,
 };
 
@@ -13,11 +13,11 @@ pub(in crate::engine) enum LinkingP2P {
 }
 
 impl LinkingP2P {
-    pub(in crate::engine) fn request(self, transfer_length: TransferLength) -> Packet {
+    pub(in crate::engine) fn request(self, transfer_length: TransferLength) -> Request {
         match self {
             Self::Waking => todo!(),
-            Self::BeginSession => Packet::packet(transfer_length, Source::BeginSession),
-            Self::Sio32 => Packet::packet(transfer_length, todo!()),
+            Self::BeginSession => Request::packet(transfer_length, Source::BeginSession),
+            Self::Sio32 => Request::packet(transfer_length, todo!()),
             Self::WaitForIdle => todo!(),
         }
     }

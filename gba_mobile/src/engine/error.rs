@@ -1,4 +1,4 @@
-use super::{packet, sink};
+use super::{request, sink};
 use core::{
     fmt,
     fmt::{Display, Formatter},
@@ -6,13 +6,13 @@ use core::{
 
 #[derive(Debug)]
 pub(crate) enum Error {
-    Packet(packet::Error),
+    Request(request::Error),
 }
 
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::Packet(_) => formatter.write_str("packet communication error"),
+            Self::Request(_) => formatter.write_str("communication error"),
         }
     }
 }
@@ -20,7 +20,7 @@ impl Display for Error {
 impl core::error::Error for Error {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::Packet(error) => Some(error),
+            Self::Request(error) => Some(error),
         }
     }
 }
