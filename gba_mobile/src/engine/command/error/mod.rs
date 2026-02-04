@@ -24,7 +24,7 @@ use core::{
 };
 use unknown_error::UnknownError;
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Unknown {
     Empty(UnknownError),
     BeginSession(UnknownError),
@@ -148,7 +148,7 @@ impl core::error::Error for Unknown {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     BeginSession(begin_session::Error),
     EndSession(end_session::Error),

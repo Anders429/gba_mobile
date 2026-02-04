@@ -6,8 +6,8 @@ mod error;
 pub(in crate::engine) use error::Error;
 
 use crate::{
-    engine::{Adapter, Command, Source, sink},
-    mmio::serial::{SIODATA8, SIODATA32, TransferLength},
+    engine::{Adapter, Command, Source, command, sink},
+    mmio::serial::{SIOCNT, SIODATA8, SIODATA32, TransferLength},
 };
 use core::num::{NonZeroU8, NonZeroU16};
 use either::Either;
@@ -265,7 +265,11 @@ impl Packet {
     }
 
     /// Pull bytes from SIO into this packet.
-    pub(in crate::engine) fn pull(self, adapter: &mut Adapter) -> Result<Option<Self>, Error> {
+    pub(in crate::engine) fn pull(
+        self,
+        adapter: &mut Adapter,
+        transfer_length: &mut TransferLength,
+    ) -> Result<Option<Self>, Either<Error, command::Error>> {
         match self {
             // /-----------\
             // | SIO8 Send |
@@ -379,17 +383,17 @@ impl Packet {
                             }
                             Ok(Command::NotSupportedError) => {
                                 // Too many retries. Stop trying and set error state.
-                                Err(Error::Send(send::Error::UnsupportedCommand(
+                                Err(Either::Left(Error::Send(send::Error::UnsupportedCommand(
                                     source.command(),
-                                )))
+                                ))))
                             }
                             Ok(Command::MalformedError) => {
                                 // Too many retries. Stop trying and set error state.
-                                Err(Error::Send(send::Error::Malformed))
+                                Err(Either::Left(Error::Send(send::Error::Malformed)))
                             }
                             Ok(Command::InternalError) => {
                                 // Too many retries. Stop trying and set error state.
-                                Err(Error::Send(send::Error::AdapterInternalError))
+                                Err(Either::Left(Error::Send(send::Error::AdapterInternalError)))
                             }
                             _ => {
                                 // We don't verify anything here and simply assume the adapter
@@ -480,17 +484,17 @@ impl Packet {
                             }
                             Ok(Command::NotSupportedError) => {
                                 // Too many retries. Stop trying and set error state.
-                                Err(Error::Send(send::Error::UnsupportedCommand(
+                                Err(Either::Left(Error::Send(send::Error::UnsupportedCommand(
                                     source.command(),
-                                )))
+                                ))))
                             }
                             Ok(Command::MalformedError) => {
                                 // Too many retries. Stop trying and set error state.
-                                Err(Error::Send(send::Error::Malformed))
+                                Err(Either::Left(Error::Send(send::Error::Malformed)))
                             }
                             Ok(Command::InternalError) => {
                                 // Too many retries. Stop trying and set error state.
-                                Err(Error::Send(send::Error::AdapterInternalError))
+                                Err(Either::Left(Error::Send(send::Error::AdapterInternalError)))
                             }
                             _ => {
                                 // We don't verify anything here and simply assume the adapter
@@ -708,14 +712,29 @@ impl Packet {
                                 *adapter = received_adapter;
                                 match result.finish() {
                                     sink::Finished::Success => Ok(None),
+                                    sink::Finished::TransferLength(new_transfer_length) => {
+                                        *transfer_length = new_transfer_length;
+                                        unsafe {
+                                            // Set SIOCNT so that we can write data to the correct SIODATA.
+                                            SIOCNT.write_volatile(
+                                                SIOCNT
+                                                    .read_volatile()
+                                                    .transfer_length(new_transfer_length),
+                                            );
+                                        }
+                                        Ok(None)
+                                    }
+                                    sink::Finished::CommandError(error) => {
+                                        Err(Either::Right(error))
+                                    }
                                 }
                             }
                             Some(nonzero) => {
                                 // We can no longer retry at this point. We simply enter an
                                 // error state.
-                                Err(Error::Receive(
+                                Err(Either::Left(Error::Receive(
                                     receive::Error::NonZeroAcknowledgementCommand(nonzero),
-                                ))
+                                )))
                             }
                         }
                     }
@@ -1129,20 +1148,37 @@ impl Packet {
                                     *adapter = received_adapter;
                                     match result.finish() {
                                         sink::Finished::Success => Ok(None),
+                                        sink::Finished::TransferLength(new_transfer_length) => {
+                                            *transfer_length = new_transfer_length;
+                                            unsafe {
+                                                // Set SIOCNT so that we can write data to the correct SIODATA.
+                                                SIOCNT.write_volatile(
+                                                    SIOCNT
+                                                        .read_volatile()
+                                                        .transfer_length(new_transfer_length),
+                                                );
+                                            }
+                                            Ok(None)
+                                        }
+                                        sink::Finished::CommandError(error) => {
+                                            Err(Either::Right(error))
+                                        }
                                     }
                                 }
                                 Some(nonzero) => {
                                     // We can no longer retry at this point. We simply enter an
                                     // error state.
-                                    Err(Error::Receive(
+                                    Err(Either::Left(Error::Receive(
                                         receive::Error::NonZeroAcknowledgementCommand(nonzero),
-                                    ))
+                                    )))
                                 }
                             },
                             Err(unknown) => {
                                 // We can no longer retry at this point. We simply enter an
                                 // error state.
-                                Err(Error::Receive(receive::Error::UnsupportedDevice(unknown)))
+                                Err(Either::Left(Error::Receive(
+                                    receive::Error::UnsupportedDevice(unknown),
+                                )))
                             }
                         }
                     }
@@ -1255,7 +1291,7 @@ impl Packet {
                             }))
                         } else {
                             // Too many retries. Stop trying and set error state.
-                            Err(Error::Receive(error))
+                            Err(Either::Left(Error::Receive(error)))
                         }
                     }
                 }
@@ -1348,7 +1384,7 @@ impl Packet {
                             }))
                         } else {
                             // Too many retries. Stop trying and set error state.
-                            Err(Error::Receive(error))
+                            Err(Either::Left(Error::Receive(error)))
                         }
                     }
                 }
@@ -1364,60 +1400,88 @@ mod tests {
         engine::{Adapter, Command, HANDSHAKE, Source, command},
         mmio::serial::{self, Mode, RCNT, SIOCNT, SIODATA8, SIODATA32, TransferLength},
     };
-    use claims::{assert_none, assert_ok, assert_some};
+    use claims::{assert_err_eq, assert_none, assert_ok, assert_some};
+    use either::Either;
     use gba_test::test;
 
     macro_rules! assert_sio_8 {
-        ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
+        ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
             #[allow(unused_assignments)] // It's okay if we don't use the packet after this.
             {
                 $packet.push();
                 assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
                 unsafe { SIODATA8.write_volatile($receive) };
-                $packet = assert_some!(assert_ok!($packet.pull(&mut $adapter)));
+                $packet = assert_some!(assert_ok!(
+                    $packet.pull(&mut $adapter, &mut $transfer_length)
+                ));
             }
         };
     }
 
     macro_rules! assert_sio_8_final {
-        ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
+        ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
             $packet.push();
             assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
             unsafe { SIODATA8.write_volatile($receive) };
-            assert_none!(assert_ok!($packet.pull(&mut $adapter)));
+            assert_none!(assert_ok!(
+                $packet.pull(&mut $adapter, &mut $transfer_length)
+            ));
+        };
+    }
+
+    macro_rules! assert_sio_8_final_error {
+        ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr, $error:expr $(,)?) => {
+            $packet.push();
+            assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
+            unsafe { SIODATA8.write_volatile($receive) };
+            assert_err_eq!($packet.pull(&mut $adapter, &mut $transfer_length), $error,);
         };
     }
 
     macro_rules! assert_sio_32 {
-        ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
+        ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
             #[allow(unused_assignments)] // It's okay if we don't use the packet after this.
             {
                 $packet.push();
                 assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
                 unsafe { SIODATA32.write_volatile($receive) };
-                $packet = assert_some!(assert_ok!($packet.pull(&mut $adapter)));
+                $packet = assert_some!(assert_ok!(
+                    $packet.pull(&mut $adapter, &mut $transfer_length)
+                ));
             }
         };
     }
 
     macro_rules! assert_sio_32_final {
-        ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
+        ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
             $packet.push();
             assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
             unsafe { SIODATA32.write_volatile($receive) };
-            assert_none!(assert_ok!($packet.pull(&mut $adapter)));
+            assert_none!(assert_ok!(
+                $packet.pull(&mut $adapter, &mut $transfer_length)
+            ));
+        };
+    }
+
+    macro_rules! assert_sio_32_final_error {
+        ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr, $error:expr $(,)?) => {
+            $packet.push();
+            assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
+            unsafe { SIODATA32.write_volatile($receive) };
+            assert_err_eq!($packet.pull(&mut $adapter, &mut $transfer_length), $error,);
         };
     }
 
     #[test]
     fn begin_session_send8() {
         // Enter Normal SIO8 mode so that SIODATA can be used.
+        let mut transfer_length = TransferLength::_8Bit;
         unsafe {
             RCNT.write_volatile(Mode::NORMAL);
-            SIOCNT.write_volatile(serial::Control::new().transfer_length(TransferLength::_8Bit));
+            SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(TransferLength::_8Bit, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -1425,79 +1489,104 @@ mod tests {
         // \------/
 
         // Magic values.
-        assert_sio_8!(packet, adapter, 0x99, 0xd2);
-        assert_sio_8!(packet, adapter, 0x66, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x99, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x66, 0xd2);
 
         // Header.
         // Command.
-        assert_sio_8!(packet, adapter, Command::BeginSession as u8, 0xd2);
-        assert_sio_8!(packet, adapter, 0x00, 0xd2);
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
+            Command::BeginSession as u8,
+            0xd2
+        );
+        assert_sio_8!(packet, adapter, transfer_length, 0x00, 0xd2);
         // Length.
-        assert_sio_8!(packet, adapter, 0x00, 0xd2);
-        assert_sio_8!(packet, adapter, 0x08, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x00, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x08, 0xd2);
 
         // Data.
-        assert_sio_8!(packet, adapter, HANDSHAKE[0], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[1], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[2], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[3], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[4], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[5], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[6], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[7], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[0], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[1], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[2], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[3], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[4], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[5], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[6], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[7], 0xd2);
 
         // Checksum.
-        assert_sio_8!(packet, adapter, 0x02, 0xd2);
-        assert_sio_8!(packet, adapter, 0x77, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x02, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x77, 0xd2);
 
         // Acknowledgement Signal.
-        assert_sio_8!(packet, adapter, 0x81, Adapter::Red as u8);
-        assert_sio_8!(packet, adapter, 0x00, Command::BeginSession as u8 ^ 0x80);
+        assert_sio_8!(packet, adapter, transfer_length, 0x81, Adapter::Red as u8);
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
+            0x00,
+            Command::BeginSession as u8 ^ 0x80
+        );
 
         // /---------\
         // | Receive |
         // \---------/
 
         // Magic values.
-        assert_sio_8!(packet, adapter, 0x4b, 0x99);
-        assert_sio_8!(packet, adapter, 0x4b, 0x66);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x99);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x66);
 
         // Header.
         // Command.
-        assert_sio_8!(packet, adapter, 0x4b, Command::BeginSession as u8);
-        assert_sio_8!(packet, adapter, 0x4b, 0x00);
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
+            0x4b,
+            Command::BeginSession as u8
+        );
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x00);
         // Length.
-        assert_sio_8!(packet, adapter, 0x4b, 0x00);
-        assert_sio_8!(packet, adapter, 0x4b, 0x08);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x00);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x08);
 
         // Data.
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[0]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[1]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[2]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[3]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[4]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[5]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[6]);
-        assert_sio_8!(packet, adapter, 0x4b, HANDSHAKE[7]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[0]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[1]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[2]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[3]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[4]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[5]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[6]);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, HANDSHAKE[7]);
 
         // Checksum.
-        assert_sio_8!(packet, adapter, 0x4b, 0x02);
-        assert_sio_8!(packet, adapter, 0x4b, 0x77);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x02);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x77);
 
         // Acknowledgement Signal.
-        assert_sio_8!(packet, adapter, 0x81, Adapter::Blue as u8);
-        assert_sio_8_final!(packet, adapter, Command::BeginSession as u8 ^ 0x80, 0x00);
+        assert_sio_8!(packet, adapter, transfer_length, 0x81, Adapter::Blue as u8);
+        assert_sio_8_final!(
+            packet,
+            adapter,
+            transfer_length,
+            Command::BeginSession as u8 ^ 0x80,
+            0x00
+        );
     }
 
     #[test]
     fn begin_session_send8_command_error() {
         // Enter Normal SIO8 mode so that SIODATA can be used.
+        let mut transfer_length = TransferLength::_8Bit;
         unsafe {
             RCNT.write_volatile(Mode::NORMAL);
-            SIOCNT.write_volatile(serial::Control::new().transfer_length(TransferLength::_8Bit));
+            SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(TransferLength::_8Bit, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -1505,78 +1594,113 @@ mod tests {
         // \------/
 
         // Magic values.
-        assert_sio_8!(packet, adapter, 0x99, 0xd2);
-        assert_sio_8!(packet, adapter, 0x66, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x99, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x66, 0xd2);
 
         // Header.
         // Command.
-        assert_sio_8!(packet, adapter, Command::BeginSession as u8, 0xd2);
-        assert_sio_8!(packet, adapter, 0x00, 0xd2);
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
+            Command::BeginSession as u8,
+            0xd2
+        );
+        assert_sio_8!(packet, adapter, transfer_length, 0x00, 0xd2);
         // Length.
-        assert_sio_8!(packet, adapter, 0x00, 0xd2);
-        assert_sio_8!(packet, adapter, 0x08, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x00, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x08, 0xd2);
 
         // Data.
-        assert_sio_8!(packet, adapter, HANDSHAKE[0], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[1], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[2], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[3], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[4], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[5], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[6], 0xd2);
-        assert_sio_8!(packet, adapter, HANDSHAKE[7], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[0], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[1], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[2], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[3], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[4], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[5], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[6], 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, HANDSHAKE[7], 0xd2);
 
         // Checksum.
-        assert_sio_8!(packet, adapter, 0x02, 0xd2);
-        assert_sio_8!(packet, adapter, 0x77, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x02, 0xd2);
+        assert_sio_8!(packet, adapter, transfer_length, 0x77, 0xd2);
 
         // Acknowledgement Signal.
-        assert_sio_8!(packet, adapter, 0x81, Adapter::Red as u8);
-        assert_sio_8!(packet, adapter, 0x00, Command::BeginSession as u8 ^ 0x80);
+        assert_sio_8!(packet, adapter, transfer_length, 0x81, Adapter::Red as u8);
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
+            0x00,
+            Command::BeginSession as u8 ^ 0x80
+        );
 
         // /---------\
         // | Receive |
         // \---------/
 
         // Magic values.
-        assert_sio_8!(packet, adapter, 0x4b, 0x99);
-        assert_sio_8!(packet, adapter, 0x4b, 0x66);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x99);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x66);
 
         // Header.
         // Command.
-        assert_sio_8!(packet, adapter, 0x4b, Command::CommandError as u8);
-        assert_sio_8!(packet, adapter, 0x4b, 0x00);
-        // Length.
-        assert_sio_8!(packet, adapter, 0x4b, 0x00);
-        assert_sio_8!(packet, adapter, 0x4b, 0x02);
-
-        // Data.
-        assert_sio_8!(packet, adapter, 0x4b, Command::BeginSession as u8);
         assert_sio_8!(
             packet,
             adapter,
+            transfer_length,
+            0x4b,
+            Command::CommandError as u8
+        );
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x00);
+        // Length.
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x00);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x02);
+
+        // Data.
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
+            0x4b,
+            Command::BeginSession as u8
+        );
+        assert_sio_8!(
+            packet,
+            adapter,
+            transfer_length,
             0x4b,
             command::error::begin_session::Error::AlreadyActive as u8
         );
 
         // Checksum.
-        assert_sio_8!(packet, adapter, 0x4b, 0x00);
-        assert_sio_8!(packet, adapter, 0x4b, 0x81);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x00);
+        assert_sio_8!(packet, adapter, transfer_length, 0x4b, 0x81);
 
         // Acknowledgement Signal.
-        assert_sio_8!(packet, adapter, 0x81, Adapter::Blue as u8);
-        assert_sio_8_final!(packet, adapter, Command::CommandError as u8 ^ 0x80, 0x00);
+        assert_sio_8!(packet, adapter, transfer_length, 0x81, Adapter::Blue as u8);
+        assert_sio_8_final_error!(
+            packet,
+            adapter,
+            transfer_length,
+            Command::CommandError as u8 ^ 0x80,
+            0x00,
+            Either::Right(command::Error::BeginSession(
+                command::error::begin_session::Error::AlreadyActive
+            )),
+        );
     }
 
     #[test]
     fn begin_session_send32() {
         // Enter Normal SIO32 mode so that SIODATA can be used.
+        let mut transfer_length = TransferLength::_32Bit;
         unsafe {
             RCNT.write_volatile(Mode::NORMAL);
-            SIOCNT.write_volatile(serial::Control::new().transfer_length(TransferLength::_32Bit));
+            SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(TransferLength::_32Bit, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -1587,6 +1711,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x99, 0x66, Command::BeginSession as u8, 0x00]),
             0xd2_d2_d2_d2,
         );
@@ -1595,12 +1720,14 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x00, 0x08, HANDSHAKE[0], HANDSHAKE[1]]),
             0xd2_d2_d2_d2,
         );
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([HANDSHAKE[2], HANDSHAKE[3], HANDSHAKE[4], HANDSHAKE[5]]),
             0xd2_d2_d2_d2,
         );
@@ -1608,6 +1735,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([HANDSHAKE[6], HANDSHAKE[7], 0x02, 0x77]),
             0xd2_d2_d2_d2,
         );
@@ -1616,6 +1744,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x81, 0x00, 0x00, 0x00]),
             u32::from_be_bytes([
                 Adapter::Blue as u8,
@@ -1633,6 +1762,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([0x99, 0x66, Command::BeginSession as u8, 0x00])
         );
@@ -1641,12 +1771,14 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([0x00, 0x08, HANDSHAKE[0], HANDSHAKE[1]]),
         );
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([HANDSHAKE[2], HANDSHAKE[3], HANDSHAKE[4], HANDSHAKE[5]]),
         );
@@ -1654,6 +1786,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([HANDSHAKE[6], HANDSHAKE[7], 0x02, 0x77]),
         );
@@ -1662,6 +1795,7 @@ mod tests {
         assert_sio_32_final!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x81, Command::BeginSession as u8 ^ 0x80, 0x00, 0x00]),
             u32::from_be_bytes([Adapter::Blue as u8, 0x00, 0x00, 0x00]),
         );
@@ -1670,12 +1804,13 @@ mod tests {
     #[test]
     fn begin_session_send32_command_error() {
         // Enter Normal SIO32 mode so that SIODATA can be used.
+        let mut transfer_length = TransferLength::_32Bit;
         unsafe {
             RCNT.write_volatile(Mode::NORMAL);
-            SIOCNT.write_volatile(serial::Control::new().transfer_length(TransferLength::_32Bit));
+            SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(TransferLength::_32Bit, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -1686,6 +1821,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x99, 0x66, Command::BeginSession as u8, 0x00]),
             0xd2_d2_d2_d2,
         );
@@ -1694,12 +1830,14 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x00, 0x08, HANDSHAKE[0], HANDSHAKE[1]]),
             0xd2_d2_d2_d2,
         );
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([HANDSHAKE[2], HANDSHAKE[3], HANDSHAKE[4], HANDSHAKE[5]]),
             0xd2_d2_d2_d2,
         );
@@ -1707,6 +1845,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([HANDSHAKE[6], HANDSHAKE[7], 0x02, 0x77]),
             0xd2_d2_d2_d2,
         );
@@ -1715,6 +1854,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x81, 0x00, 0x00, 0x00]),
             u32::from_be_bytes([
                 Adapter::Blue as u8,
@@ -1732,6 +1872,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([0x99, 0x66, Command::CommandError as u8, 0x00])
         );
@@ -1740,6 +1881,7 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([
                 0x00,
@@ -1752,16 +1894,21 @@ mod tests {
         assert_sio_32!(
             packet,
             adapter,
+            transfer_length,
             0x4b_4b_4b_4b,
             u32::from_be_bytes([0x00, 0x00, 0x00, 0x81]),
         );
 
         // Acknowledgement Signal.
-        assert_sio_32_final!(
+        assert_sio_32_final_error!(
             packet,
             adapter,
+            transfer_length,
             u32::from_be_bytes([0x81, Command::CommandError as u8 ^ 0x80, 0x00, 0x00]),
             u32::from_be_bytes([Adapter::Blue as u8, 0x00, 0x00, 0x00]),
+            Either::Right(command::Error::BeginSession(
+                command::error::begin_session::Error::AlreadyActive
+            )),
         );
     }
 }

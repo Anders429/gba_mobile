@@ -116,7 +116,7 @@ pub(in crate::engine) enum Step32Error {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     MagicValue1(u8),
     MagicValue2(u8),

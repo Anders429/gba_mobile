@@ -14,6 +14,8 @@ use either::Either;
 pub(in crate::engine) enum Data {
     BeginSession(begin_session::Data),
     BeginSessionCommandError(command_error::Data),
+
+    EnableSio32CommandError(command_error::Data),
 }
 
 impl Data {
@@ -47,11 +49,23 @@ impl Data {
                     Command::BeginSession,
                 )),
             },
+            Self::EnableSio32CommandError(data) => match data.parse(byte) {
+                Ok(Either::Left(data)) => Ok(Either::Left(Self::EnableSio32CommandError(data))),
+                Ok(Either::Right(command_error)) => Ok(Either::Right(
+                    Parsed::EnableSio32CommandError(command_error),
+                )),
+                Err((error, index)) => Err((
+                    Error::CommandError(error),
+                    index,
+                    unsafe { NonZeroU16::new_unchecked(2) },
+                    Command::BeginSession,
+                )),
+            },
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     BeginSession(begin_session::Error),
 

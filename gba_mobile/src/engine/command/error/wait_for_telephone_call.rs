@@ -4,7 +4,7 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::engine) enum Error {
     NoCallReceived = 0x00,

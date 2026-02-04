@@ -2,12 +2,13 @@ pub(in crate::engine) mod packet;
 
 mod error;
 
+use either::Either;
 pub(in crate::engine) use error::Error;
 pub(in crate::engine) use packet::Packet;
 
 use crate::{
     Timer,
-    engine::{Adapter, Source},
+    engine::{Adapter, Source, command},
     mmio::{
         serial::{self, SIOCNT, SIODATA8, SIODATA32, TransferLength},
         timer::{self, TM0CNT, TM0VAL, TM1CNT, TM1VAL, TM2CNT, TM2VAL, TM3CNT, TM3VAL},
@@ -73,19 +74,19 @@ impl Request {
     pub(in crate::engine) fn serial(
         self,
         adapter: &mut Adapter,
-        transfer_length: TransferLength,
+        transfer_length: &mut TransferLength,
         timer: Timer,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Option<Self>, Either<Error, command::Error>> {
         match self {
             Self::Packet(packet) => packet
-                .pull(adapter)
+                .pull(adapter, transfer_length)
                 .map(|next_packet| {
                     next_packet.map(|packet| {
-                        schedule_timer(timer, transfer_length);
+                        schedule_timer(timer, *transfer_length);
                         Self::Packet(packet)
                     })
                 })
-                .map_err(Error::Packet),
+                .map_err(|either| either.map_left(Error::Packet)),
             Self::WaitForIdle { .. } => match transfer_length {
                 TransferLength::_8Bit => {
                     if unsafe { SIODATA8.read_volatile() } == 0xd2 {

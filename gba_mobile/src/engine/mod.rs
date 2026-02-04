@@ -6,6 +6,7 @@ mod request;
 mod sink;
 mod source;
 
+use either::Either;
 pub(crate) use error::Error;
 
 use crate::{
@@ -136,9 +137,12 @@ impl Engine {
                 ..
             } => {
                 if let Some(request) = state_request.take() {
-                    match request.serial(adapter, *transfer_length, self.timer) {
+                    match request.serial(adapter, transfer_length, self.timer) {
                         Ok(next_request) => *state_request = next_request,
-                        Err(error) => self.state = State::Error(Error::Request(error)),
+                        Err(Either::Left(request_error)) => {
+                            self.state = State::Error(Error::Request(request_error))
+                        }
+                        Err(Either::Right(command_error)) => todo!(),
                     }
                 }
             }

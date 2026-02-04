@@ -5,7 +5,7 @@ use core::{
 };
 
 /// Errors that can happen while sending or receiving a packet.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     Send(send::Error),
     Receive(receive::Error),

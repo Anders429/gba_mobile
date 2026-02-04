@@ -3,7 +3,7 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) struct UnknownError(pub(super) u8);
 
 impl Display for UnknownError {

@@ -8,6 +8,7 @@ use core::{
 #[derive(Debug)]
 pub(in crate::engine) enum Command {
     BeginSession,
+    EnableSio32,
 }
 
 impl Command {
@@ -21,13 +22,20 @@ impl Command {
                 engine::Command::CommandError => Ok(Length::BeginSessionCommandError),
                 _ => Err((Error::BeginSession(command), self)),
             },
+            Self::EnableSio32 => match command {
+                engine::Command::Sio32Mode => Ok(Length::EnableSio32(true)),
+                engine::Command::Reset => Ok(Length::EnableSio32(false)),
+                engine::Command::CommandError => Ok(Length::EnableSio32CommandError),
+                _ => Err((Error::EnableSio32(command), self)),
+            },
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     BeginSession(engine::Command),
+    EnableSio32(engine::Command),
 }
 
 impl Error {
@@ -59,6 +67,15 @@ impl Display for Error {
                 formatter,
                 *command,
                 &[engine::Command::BeginSession, engine::Command::CommandError],
+            ),
+            Self::EnableSio32(command) => Self::fmt_error(
+                formatter,
+                *command,
+                &[
+                    engine::Command::Sio32Mode,
+                    engine::Command::Reset,
+                    engine::Command::CommandError,
+                ],
             ),
         }
     }
