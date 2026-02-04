@@ -65,7 +65,7 @@ impl Engine {
                 ..
             } => {
                 if let Some(request) = request {
-                    request.vblank();
+                    request.vblank(*transfer_length);
                 } else {
                     // Schedule a new request.
                     *request = Some(flow.request(*transfer_length));
@@ -79,8 +79,14 @@ impl Engine {
     pub fn timer(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
-            State::LinkingP2P { request, .. } => {
-                request.as_mut().map(|request| request.timer());
+            State::LinkingP2P {
+                request,
+                transfer_length,
+                ..
+            } => {
+                request
+                    .as_mut()
+                    .map(|request| request.timer(*transfer_length));
             }
             State::P2P => todo!(),
             State::Error(_) => {}
@@ -93,10 +99,11 @@ impl Engine {
             State::LinkingP2P {
                 request: state_request,
                 adapter,
+                transfer_length,
                 ..
             } => {
                 if let Some(request) = state_request.take() {
-                    match request.serial(adapter) {
+                    match request.serial(adapter, *transfer_length) {
                         Ok(next_request) => *state_request = next_request,
                         Err(error) => self.state = State::Error(Error::Request(error)),
                     }

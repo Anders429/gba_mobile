@@ -81,8 +81,8 @@ impl Packet {
         }
     }
 
-    /// Bull bytes from SIO into this packet.
-    pub(in crate::engine) fn pull(&mut self) {
+    /// Push bytes into SIO from this packet.
+    pub(in crate::engine) fn push(&mut self) {
         match self {
             // /-----------\
             // | SIO8 Send |
@@ -264,8 +264,8 @@ impl Packet {
         }
     }
 
-    /// Push bytes into SIO from this packet.
-    pub(in crate::engine) fn push(self, adapter: &mut Adapter) -> Result<Option<Self>, Error> {
+    /// Pull bytes from SIO into this packet.
+    pub(in crate::engine) fn pull(self, adapter: &mut Adapter) -> Result<Option<Self>, Error> {
         match self {
             // /-----------\
             // | SIO8 Send |
@@ -1371,20 +1371,20 @@ mod tests {
         ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
             #[allow(unused_assignments)] // It's okay if we don't use the packet after this.
             {
-                $packet.pull();
+                $packet.push();
                 assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
                 unsafe { SIODATA8.write_volatile($receive) };
-                $packet = assert_some!(assert_ok!($packet.push(&mut $adapter)));
+                $packet = assert_some!(assert_ok!($packet.pull(&mut $adapter)));
             }
         };
     }
 
     macro_rules! assert_sio_8_final {
         ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
-            $packet.pull();
+            $packet.push();
             assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
             unsafe { SIODATA8.write_volatile($receive) };
-            assert_none!(assert_ok!($packet.push(&mut $adapter)));
+            assert_none!(assert_ok!($packet.pull(&mut $adapter)));
         };
     }
 
@@ -1392,20 +1392,20 @@ mod tests {
         ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
             #[allow(unused_assignments)] // It's okay if we don't use the packet after this.
             {
-                $packet.pull();
+                $packet.push();
                 assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
                 unsafe { SIODATA32.write_volatile($receive) };
-                $packet = assert_some!(assert_ok!($packet.push(&mut $adapter)));
+                $packet = assert_some!(assert_ok!($packet.pull(&mut $adapter)));
             }
         };
     }
 
     macro_rules! assert_sio_32_final {
         ($packet:ident, $adapter:ident, $send:expr, $receive:expr $(,)?) => {
-            $packet.pull();
+            $packet.push();
             assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
             unsafe { SIODATA32.write_volatile($receive) };
-            assert_none!(assert_ok!($packet.push(&mut $adapter)));
+            assert_none!(assert_ok!($packet.pull(&mut $adapter)));
         };
     }
 

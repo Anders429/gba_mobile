@@ -7,7 +7,7 @@ pub(in crate::engine) use packet::Packet;
 
 use crate::{
     engine::{Adapter, Source},
-    mmio::serial::{SIODATA8, SIODATA32, TransferLength},
+    mmio::serial::{self, SIOCNT, SIODATA8, SIODATA32, TransferLength},
 };
 
 const FRAMES_100_MILLISECONDS: u8 = 7;
@@ -18,7 +18,6 @@ pub(in crate::engine) enum Request {
     Packet(Packet),
     WaitForIdle {
         // TODO: Separate this all out into another module?
-        transfer_length: TransferLength,
         frame: u8,
     },
 }
@@ -28,20 +27,14 @@ impl Request {
         Self::Packet(Packet::new(transfer_length, source))
     }
 
-    pub(in crate::engine) fn new_wait_for_idle(transfer_length: TransferLength) -> Self {
-        Self::WaitForIdle {
-            frame: 0,
-            transfer_length,
-        }
+    pub(in crate::engine) fn new_wait_for_idle() -> Self {
+        Self::WaitForIdle { frame: 0 }
     }
 
-    pub(in crate::engine) fn vblank(&mut self) {
+    pub(in crate::engine) fn vblank(&mut self, transfer_length: TransferLength) {
         match self {
             Self::Packet(_) => todo!("timeouts?"),
-            Self::WaitForIdle {
-                frame,
-                transfer_length,
-            } => {
+            Self::WaitForIdle { frame } => {
                 if *frame % FRAMES_100_MILLISECONDS == 0 {
                     // Send a new idle byte.
                     match transfer_length {
@@ -50,6 +43,7 @@ impl Request {
                             SIODATA32.write_volatile(0x4b_4b_4b_4b);
                         },
                     }
+                    schedule_serial(transfer_length);
                 }
                 if *frame > FRAMES_3_SECONDS {
                     todo!("timeout")
@@ -59,22 +53,27 @@ impl Request {
         }
     }
 
-    pub(in crate::engine) fn timer(&mut self) {
+    pub(in crate::engine) fn timer(&mut self, transfer_length: TransferLength) {
         match self {
-            Self::Packet(packet) => packet.pull(),
+            Self::Packet(packet) => {
+                packet.push();
+                schedule_serial(transfer_length);
+            }
             Self::WaitForIdle { .. } => {}
         }
     }
 
-    pub(in crate::engine) fn serial(self, adapter: &mut Adapter) -> Result<Option<Self>, Error> {
+    pub(in crate::engine) fn serial(
+        self,
+        adapter: &mut Adapter,
+        transfer_length: TransferLength,
+    ) -> Result<Option<Self>, Error> {
         match self {
             Self::Packet(packet) => packet
-                .push(adapter)
+                .pull(adapter)
                 .map(|next_packet| next_packet.map(Self::Packet))
                 .map_err(Error::Packet),
-            Self::WaitForIdle {
-                transfer_length, ..
-            } => match transfer_length {
+            Self::WaitForIdle { .. } => match transfer_length {
                 TransferLength::_8Bit => {
                     if unsafe { SIODATA8.read_volatile() } == 0xd2 {
                         Ok(None)
@@ -91,5 +90,17 @@ impl Request {
                 }
             },
         }
+    }
+}
+
+fn schedule_serial(transfer_length: TransferLength) {
+    unsafe {
+        SIOCNT.write_volatile(
+            serial::Control::new()
+                .master(true)
+                .start(true)
+                .interrupts(true)
+                .transfer_length(transfer_length),
+        )
     }
 }

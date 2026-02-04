@@ -28,8 +28,25 @@ impl Control {
         Self(0)
     }
 
+    /// Configures whether this device should act as master.
+    pub(crate) fn master(self, enabled: bool) -> Self {
+        Self((self.0 & 0b1111_1111_1111_1110) | (enabled as u16))
+    }
+
+    /// If enabled, sets to begin transferring.
+    pub(crate) fn start(self, enabled: bool) -> Self {
+        Self((self.0 & 0b1111_1111_0111_1111) | ((enabled as u16) << 7))
+    }
+
     /// Configures the transfer length.
     pub(crate) const fn transfer_length(self, transfer_length: TransferLength) -> Self {
         Self((self.0 & 0b1100_1111_1111_1111) | ((transfer_length as u16) << 12))
+    }
+
+    /// Enables interrupts upon completion.
+    ///
+    /// Interrupts must also be enabled in IME and IE.
+    pub(crate) fn interrupts(self, enabled: bool) -> Self {
+        Self((self.0 & 0b1011_1111_1111_1111) | ((enabled as u16) << 14))
     }
 }

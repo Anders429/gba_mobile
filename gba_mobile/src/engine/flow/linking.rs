@@ -15,10 +15,10 @@ pub(in crate::engine) enum LinkingP2P {
 impl LinkingP2P {
     pub(in crate::engine) fn request(self, transfer_length: TransferLength) -> Request {
         match self {
-            Self::Waking => Request::new_wait_for_idle(transfer_length),
+            Self::Waking => Request::new_wait_for_idle(),
             Self::BeginSession => Request::new_packet(transfer_length, Source::BeginSession),
             Self::Sio32 => Request::new_packet(transfer_length, todo!()),
-            Self::WaitForIdle => Request::new_wait_for_idle(transfer_length),
+            Self::WaitForIdle => Request::new_wait_for_idle(),
         }
     }
 
