@@ -8,7 +8,13 @@ mod source;
 
 pub(crate) use error::Error;
 
-use crate::{Timer, mmio::serial::TransferLength};
+use crate::{
+    Timer,
+    mmio::{
+        interrupt,
+        serial::{self, RCNT, SIOCNT, TransferLength},
+    },
+};
 use adapter::Adapter;
 use command::Command;
 use request::Request;
@@ -39,15 +45,40 @@ pub struct Engine {
 
 impl Engine {
     /// Create a new communication engine.
-    pub const unsafe fn new(timer: Timer) -> Self {
+    pub const fn new(timer: Timer) -> Self {
         Self {
             state: State::NotConnected,
             timer,
         }
     }
 
-    pub fn link_p2p(&mut self) {
+    /// Enables communication, if it isn't already enabled.
+    fn enable_communication(&self) {
+        unsafe {
+            // Set transfer mode to 8-bit Normal.
+            RCNT.write_volatile(serial::Mode::NORMAL);
+            SIOCNT.write_volatile(serial::Control::new().transfer_length(TransferLength::_8Bit));
+
+            // Enable interrupts for vblank, timer, and serial.
+            let timer_enable = match self.timer {
+                Timer::_0 => interrupt::Enable::TIMER0,
+                Timer::_1 => interrupt::Enable::TIMER1,
+                Timer::_2 => interrupt::Enable::TIMER2,
+                Timer::_3 => interrupt::Enable::TIMER3,
+            };
+            interrupt::ENABLE.write_volatile(
+                interrupt::Enable::VBLANK | timer_enable | interrupt::Enable::SERIAL,
+            );
+        }
+    }
+
+    /// # Safety
+    /// Must take exclusive ownership over the serial registers and the timer registers related to
+    /// the [`Timer`] used to construct this Engine.
+    pub unsafe fn link_p2p(&mut self) {
         // TODO: Close any previous sessions.
+        self.enable_communication();
+
         self.state = State::LinkingP2P {
             adapter: Adapter::Blue,
             transfer_length: TransferLength::_8Bit,
