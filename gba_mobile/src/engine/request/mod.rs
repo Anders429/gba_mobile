@@ -6,12 +6,19 @@ pub(in crate::engine) use error::Error;
 pub(in crate::engine) use packet::Packet;
 
 use crate::{
+    Timer,
     engine::{Adapter, Source},
-    mmio::serial::{self, SIOCNT, SIODATA8, SIODATA32, TransferLength},
+    mmio::{
+        serial::{self, SIOCNT, SIODATA8, SIODATA32, TransferLength},
+        timer::{self, TM0CNT, TM0VAL, TM1CNT, TM1VAL, TM2CNT, TM2VAL, TM3CNT, TM3VAL},
+    },
 };
 
 const FRAMES_100_MILLISECONDS: u8 = 7;
 const FRAMES_3_SECONDS: u8 = 180;
+// These are at a rate of ~60us per tick.
+const TIMER_200_MICROSECONDS: u16 = 4;
+const TIMER_400_MICROSECONDS: u16 = 7;
 
 #[derive(Debug)]
 pub(in crate::engine) enum Request {
@@ -67,11 +74,17 @@ impl Request {
         self,
         adapter: &mut Adapter,
         transfer_length: TransferLength,
+        timer: Timer,
     ) -> Result<Option<Self>, Error> {
         match self {
             Self::Packet(packet) => packet
                 .pull(adapter)
-                .map(|next_packet| next_packet.map(Self::Packet))
+                .map(|next_packet| {
+                    next_packet.map(|packet| {
+                        schedule_timer(timer, transfer_length);
+                        Self::Packet(packet)
+                    })
+                })
                 .map_err(Error::Packet),
             Self::WaitForIdle { .. } => match transfer_length {
                 TransferLength::_8Bit => {
@@ -102,5 +115,36 @@ fn schedule_serial(transfer_length: TransferLength) {
                 .interrupts(true)
                 .transfer_length(transfer_length),
         )
+    }
+}
+
+fn schedule_timer(timer: Timer, transfer_length: TransferLength) {
+    let value = match transfer_length {
+        TransferLength::_8Bit => TIMER_200_MICROSECONDS,
+        TransferLength::_32Bit => TIMER_400_MICROSECONDS,
+    };
+    let control = timer::Control::new()
+        .frequency(timer::Frequency::_1024)
+        .interrupts(true)
+        .start(true);
+    unsafe {
+        match timer {
+            Timer::_0 => {
+                TM0VAL.write_volatile(value);
+                TM0CNT.write_volatile(control);
+            }
+            Timer::_1 => {
+                TM1VAL.write_volatile(value);
+                TM1CNT.write_volatile(control);
+            }
+            Timer::_2 => {
+                TM2VAL.write_volatile(value);
+                TM2CNT.write_volatile(control);
+            }
+            Timer::_3 => {
+                TM3VAL.write_volatile(value);
+                TM3CNT.write_volatile(control);
+            }
+        }
     }
 }

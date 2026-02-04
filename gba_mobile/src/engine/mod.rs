@@ -8,7 +8,7 @@ mod source;
 
 pub(crate) use error::Error;
 
-use crate::mmio::serial::TransferLength;
+use crate::{Timer, mmio::serial::TransferLength};
 use adapter::Adapter;
 use command::Command;
 use request::Request;
@@ -34,13 +34,15 @@ enum State {
 #[derive(Debug)]
 pub struct Engine {
     state: State,
+    timer: Timer,
 }
 
 impl Engine {
     /// Create a new communication engine.
-    pub const unsafe fn new() -> Self {
+    pub const unsafe fn new(timer: Timer) -> Self {
         Self {
             state: State::NotConnected,
+            timer,
         }
     }
 
@@ -103,7 +105,7 @@ impl Engine {
                 ..
             } => {
                 if let Some(request) = state_request.take() {
-                    match request.serial(adapter, *transfer_length) {
+                    match request.serial(adapter, *transfer_length, self.timer) {
                         Ok(next_request) => *state_request = next_request,
                         Err(error) => self.state = State::Error(Error::Request(error)),
                     }

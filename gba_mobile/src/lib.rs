@@ -9,8 +9,10 @@ extern crate alloc;
 
 mod engine;
 mod mmio;
+mod timer;
 
 pub use engine::Engine;
+pub use timer::Timer;
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
