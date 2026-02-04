@@ -77,25 +77,33 @@ impl Engine {
     }
 
     pub(crate) fn timer(&mut self) {
-        if let State::LinkingP2P { request, .. } = &mut self.state
-            && let Some(request) = request.as_mut()
-        {
-            request.timer();
+        match &mut self.state {
+            State::NotConnected => {}
+            State::LinkingP2P { request, .. } => {
+                request.as_mut().map(|request| request.timer());
+            }
+            State::P2P => todo!(),
+            State::Error(_) => {}
         }
     }
 
     pub(crate) fn serial(&mut self) {
-        if let State::LinkingP2P {
-            adapter,
-            request: state_request,
-            ..
-        } = &mut self.state
-            && let Some(request) = state_request.take()
-        {
-            match request.serial(adapter) {
-                Ok(next_request) => *state_request = next_request,
-                Err(error) => self.state = State::Error(Error::Request(error)),
+        match &mut self.state {
+            State::NotConnected => {}
+            State::LinkingP2P {
+                request: state_request,
+                adapter,
+                ..
+            } => {
+                if let Some(request) = state_request.take() {
+                    match request.serial(adapter) {
+                        Ok(next_request) => *state_request = next_request,
+                        Err(error) => self.state = State::Error(Error::Request(error)),
+                    }
+                }
             }
+            State::P2P => todo!(),
+            State::Error(_) => {}
         }
     }
 }
