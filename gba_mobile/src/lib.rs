@@ -10,6 +10,8 @@ extern crate alloc;
 mod engine;
 mod mmio;
 
+pub use engine::Engine;
+
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub fn main() {

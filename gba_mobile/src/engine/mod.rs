@@ -32,19 +32,19 @@ enum State {
 }
 
 #[derive(Debug)]
-pub(crate) struct Engine {
+pub struct Engine {
     state: State,
 }
 
 impl Engine {
     /// Create a new communication engine.
-    pub(crate) const fn new() -> Self {
+    pub const unsafe fn new() -> Self {
         Self {
             state: State::NotConnected,
         }
     }
 
-    pub(crate) fn link_p2p(&mut self) {
+    pub fn link_p2p(&mut self) {
         // TODO: Close any previous sessions.
         self.state = State::LinkingP2P {
             adapter: Adapter::Blue,
@@ -55,7 +55,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn vblank(&mut self) {
+    pub fn vblank(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
             State::LinkingP2P {
@@ -76,7 +76,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn timer(&mut self) {
+    pub fn timer(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
             State::LinkingP2P { request, .. } => {
@@ -87,7 +87,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn serial(&mut self) {
+    pub fn serial(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
             State::LinkingP2P {
