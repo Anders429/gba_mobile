@@ -26,14 +26,14 @@ extern "C" fn irq_handler(bits: IrqBits) {
             MOBILE_ENGINE.vblank();
         }
     }
-    if bits.timer0() {
-        unsafe {
-            MOBILE_ENGINE.timer();
-        }
-    }
     if bits.serial() {
         unsafe {
             MOBILE_ENGINE.serial();
+        }
+    }
+    if bits.timer0() {
+        unsafe {
+            MOBILE_ENGINE.timer();
         }
     }
 }
@@ -44,33 +44,38 @@ pub fn main() {
 
     RUST_IRQ_HANDLER.write(Some(irq_handler));
     DISPSTAT.write(DisplayStatus::new().with_irq_vblank(true));
-    IE.write(IrqBits::new().with_vblank(true).with_serial(true));
+    IE.write(
+        IrqBits::new()
+            .with_vblank(true)
+            .with_timer0(true)
+            .with_serial(true),
+    );
     IME.write(true);
 
     VBlankIntrWait();
 
-    let pending_link = unsafe {
-        IME.write(false);
-        let pending_link = MOBILE_ENGINE.link_p2p();
-        IME.write(true);
-        pending_link
-    };
+    IME.write(false);
+    let pending_link = unsafe { MOBILE_ENGINE.link_p2p() };
+    IME.write(true);
 
     let status = loop {
         VBlankIntrWait();
-        let status = unsafe {
-            IME.write(false);
-            let status = pending_link.status(&MOBILE_ENGINE);
-            IME.write(true);
-            status
-        };
+
+        IME.write(false);
+        let status = unsafe { pending_link.status(&MOBILE_ENGINE) };
+        IME.write(true);
+
         if let Ok(None) = status {
             continue;
         }
         break status;
     };
 
-    log::info!("link connection status: {status:?}")
+    log::info!("link connection status: {status:?}");
+
+    loop {
+        VBlankIntrWait();
+    }
 }
 
 #[unsafe(no_mangle)]

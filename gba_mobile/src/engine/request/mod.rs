@@ -1,10 +1,12 @@
 pub(in crate::engine) mod packet;
 
 mod error;
+mod timeout;
 
 use either::Either;
 pub(in crate::engine) use error::Error;
 pub(in crate::engine) use packet::Packet;
+pub(in crate::engine) use timeout::Timeout;
 
 use crate::{
     Timer,
@@ -18,8 +20,8 @@ use crate::{
 const FRAMES_100_MILLISECONDS: u8 = 7;
 const FRAMES_3_SECONDS: u8 = 180;
 // These are at a rate of ~60us per tick.
-const TIMER_200_MICROSECONDS: u16 = 4;
-const TIMER_400_MICROSECONDS: u16 = 7;
+const TIMER_200_MICROSECONDS: u16 = u16::MIN.wrapping_sub(4);
+const TIMER_400_MICROSECONDS: u16 = u16::MIN.wrapping_sub(7);
 
 #[derive(Debug)]
 pub(in crate::engine) enum Request {
@@ -31,7 +33,12 @@ pub(in crate::engine) enum Request {
 }
 
 impl Request {
-    pub(in crate::engine) fn new_packet(transfer_length: TransferLength, source: Source) -> Self {
+    pub(in crate::engine) fn new_packet(
+        timer: Timer,
+        transfer_length: TransferLength,
+        source: Source,
+    ) -> Self {
+        schedule_timer(timer, transfer_length);
         Self::Packet(Packet::new(transfer_length, source))
     }
 
@@ -39,9 +46,15 @@ impl Request {
         Self::WaitForIdle { frame: 0 }
     }
 
-    pub(in crate::engine) fn vblank(&mut self, transfer_length: TransferLength) {
+    pub(in crate::engine) fn vblank(
+        &mut self,
+        transfer_length: TransferLength,
+    ) -> Result<(), Timeout> {
         match self {
-            Self::Packet(_) => todo!("timeouts?"),
+            Self::Packet(_) => {
+                // TODO: Timeouts?
+                Ok(())
+            }
             Self::WaitForIdle { frame } => {
                 if *frame % FRAMES_100_MILLISECONDS == 0 {
                     // Send a new idle byte.
@@ -54,9 +67,11 @@ impl Request {
                     schedule_serial(transfer_length);
                 }
                 if *frame > FRAMES_3_SECONDS {
-                    todo!("timeout")
+                    Err(Timeout::WaitForIdle)
+                } else {
+                    *frame += 1;
+                    Ok(())
                 }
-                *frame += 1;
             }
         }
     }

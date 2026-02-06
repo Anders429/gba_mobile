@@ -53,6 +53,7 @@ name = "gba_mobile"
 version = "0.1.0"
 dependencies = [
  "either",
+ "log",
 ]
 
 [[package]]

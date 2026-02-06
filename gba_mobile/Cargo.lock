@@ -21,6 +21,7 @@ dependencies = [
  "claims",
  "either",
  "gba_test",
+ "log",
  "mgba_log",
 ]
 

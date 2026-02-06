@@ -281,6 +281,7 @@ impl Packet {
                 attempt,
             } => {
                 let byte = unsafe { SIODATA8.read_volatile() };
+                log::debug!("received byte {byte:#04x}");
                 match step {
                     send::Step8::MagicByte1 => Ok(Some(Self::Send8 {
                         step: send::Step8::MagicByte2,
@@ -523,6 +524,7 @@ impl Packet {
                 attempt,
             } => {
                 let byte = unsafe { SIODATA8.read_volatile() };
+                log::debug!("received byte {byte:#04x}");
                 match step {
                     receive::Step8::MagicByte1 { sink } => match byte {
                         0x99 => Ok(Some(Self::Receive8 {
@@ -535,6 +537,7 @@ impl Packet {
                             checksum,
                             attempt,
                         })),
+                        0x4b => panic!("help"),
                         _ => Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::MagicByte2 { sink },
                             error: receive::Error::MagicValue1(byte),
@@ -1194,6 +1197,7 @@ impl Packet {
                 attempt,
             } => {
                 let byte = unsafe { SIODATA8.read_volatile() };
+                log::debug!("received byte {byte:#04x}");
                 match step {
                     receive::Step8Error::MagicByte2 { sink } => Ok(Some(Self::Receive8Error {
                         step: receive::Step8Error::HeaderCommand { sink },

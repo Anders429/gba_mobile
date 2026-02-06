@@ -37,6 +37,14 @@ impl From<request::Error> for Error {
     }
 }
 
+impl From<request::Timeout> for Error {
+    fn from(timeout: request::Timeout) -> Self {
+        Self {
+            kind: Kind::Timeout(timeout),
+        }
+    }
+}
+
 impl From<command::Error> for Error {
     fn from(error: command::Error) -> Self {
         Self {
@@ -48,6 +56,7 @@ impl From<command::Error> for Error {
 #[derive(Debug)]
 enum Kind {
     Request(request::Error),
+    Timeout(request::Timeout),
     Command(command::Error),
     Aborted,
 }
@@ -58,6 +67,7 @@ impl Display for Kind {
             Self::Request(_) => {
                 formatter.write_str("an error occurred while processing the request")
             }
+            Self::Timeout(_) => formatter.write_str("the request timed out"),
             Self::Command(_) => formatter.write_str("the adapter responded with an error"),
             Self::Aborted => formatter.write_str("the link attempt was aborted"),
         }
@@ -68,6 +78,7 @@ impl core::error::Error for Kind {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Request(error) => Some(error),
+            Self::Timeout(timeout) => Some(timeout),
             Self::Command(error) => Some(error),
             Self::Aborted => None,
         }

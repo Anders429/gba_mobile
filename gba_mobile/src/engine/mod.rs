@@ -36,6 +36,7 @@ enum State {
     },
     P2P,
     LinkingP2PError(command::Error),
+    RequestTimeout(request::Timeout),
     RequestError(request::Error),
 }
 
@@ -98,6 +99,7 @@ impl Engine {
             State::LinkingP2P { .. } => Ok(false),
             State::P2P => Ok(true),
             State::LinkingP2PError(error) => Err(error.clone().into()),
+            State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
         }
     }
@@ -112,19 +114,24 @@ impl Engine {
                 ..
             } => {
                 if let Some(request) = request {
-                    request.vblank(*transfer_length);
+                    if let Err(timeout) = request.vblank(*transfer_length) {
+                        self.state = State::RequestTimeout(timeout);
+                    }
                 } else {
                     // Schedule a new request.
-                    *request = Some(flow.request(*transfer_length));
+                    log::info!("Scheduling new request");
+                    *request = Some(flow.request(self.timer, *transfer_length));
                 }
             }
             State::P2P => todo!(),
             State::LinkingP2PError(_) => {}
+            State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
         }
     }
 
     pub fn timer(&mut self) {
+        self.timer.stop();
         match &mut self.state {
             State::NotConnected => {}
             State::LinkingP2P {
@@ -138,6 +145,7 @@ impl Engine {
             }
             State::P2P => todo!(),
             State::LinkingP2PError(_) => {}
+            State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
         }
     }
@@ -170,6 +178,7 @@ impl Engine {
             }
             State::P2P => todo!(),
             State::LinkingP2PError(_) => {}
+            State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
         }
     }

@@ -12,6 +12,7 @@ lto = true
 
 [dependencies]
 either = {version = "1.15.0", default-features = false}
+log = "0.4.29"
 
 [dev-dependencies]
 claims = "0.8.0"
