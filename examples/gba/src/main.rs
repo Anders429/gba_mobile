@@ -7,7 +7,7 @@
 use gba::prelude::*;
 use gba_mobile::Timer;
 
-#[unsafe(link_section = ".iwram")]
+#[unsafe(link_section = ".ewram")]
 static mut MOBILE_ENGINE: gba_mobile::Engine = gba_mobile::Engine::new(Timer::_0);
 
 #[panic_handler]
