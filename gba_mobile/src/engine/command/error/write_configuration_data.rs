@@ -4,7 +4,7 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::engine) enum Error {
     WriteFailure = 0x00,

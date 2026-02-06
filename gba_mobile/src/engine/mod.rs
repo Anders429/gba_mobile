@@ -1,3 +1,5 @@
+pub(crate) mod error;
+
 mod adapter;
 mod command;
 mod flow;
@@ -85,6 +87,16 @@ impl Engine {
 
             request: None,
             flow: flow::LinkingP2P::Waking,
+        }
+    }
+
+    pub(crate) fn link_p2p_status(&self) -> Result<bool, error::link_p2p::Error> {
+        match &self.state {
+            State::NotConnected => Err(error::link_p2p::Error::aborted()),
+            State::LinkingP2P { .. } => Ok(false),
+            State::P2P => Ok(true),
+            State::LinkingP2PError(error) => Err(error.clone().into()),
+            State::RequestError(error) => Err(error.clone().into()),
         }
     }
 

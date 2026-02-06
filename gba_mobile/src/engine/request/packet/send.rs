@@ -32,7 +32,7 @@ pub(in crate::engine) enum Step32 {
     AcknowledgementSignal,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     UnsupportedCommand(Command),
     Malformed,

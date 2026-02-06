@@ -32,7 +32,7 @@ impl Command {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     BeginSession(engine::Command),
     EnableSio32(engine::Command),

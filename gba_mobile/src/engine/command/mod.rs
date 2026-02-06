@@ -4,7 +4,7 @@ pub(in crate::engine) use error::Error;
 
 use core::fmt::{self, Display, Formatter};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) struct Unknown(u8);
 
 impl Display for Unknown {

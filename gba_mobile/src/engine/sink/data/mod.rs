@@ -65,7 +65,7 @@ impl Data {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     BeginSession(begin_session::Error),
 

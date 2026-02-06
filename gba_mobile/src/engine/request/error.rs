@@ -5,7 +5,7 @@ use core::{
 };
 
 /// Errors that can happen while sending or receiving a request.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(in crate::engine) enum Error {
     Packet(packet::Error),
 }

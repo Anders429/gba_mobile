@@ -48,7 +48,7 @@ impl Data {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) struct Error {
     byte: u8,
     index: u8,

@@ -7,6 +7,8 @@
 #[cfg(test)]
 extern crate alloc;
 
+pub mod link_p2p;
+
 mod engine;
 mod mmio;
 mod timer;

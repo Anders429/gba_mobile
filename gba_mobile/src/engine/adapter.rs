@@ -4,7 +4,7 @@ use core::{
 };
 
 /// An unknown adapter ID that does not correspond to a supported adapter.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) struct Unknown(u8);
 
 impl Display for Unknown {

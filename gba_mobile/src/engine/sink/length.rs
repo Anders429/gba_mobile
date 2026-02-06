@@ -58,7 +58,7 @@ impl Length {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::engine) enum Error {
     BeginSession(u16),
     EnableSio32(NonZeroU16),
