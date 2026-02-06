@@ -11,6 +11,7 @@ use either::Either;
 
 use crate::{
     Timer,
+    link_p2p::{self, LinkP2P},
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -77,7 +78,7 @@ impl Engine {
     /// # Safety
     /// Must take exclusive ownership over the serial registers and the timer registers related to
     /// the [`Timer`] used to construct this Engine.
-    pub unsafe fn link_p2p(&mut self) {
+    pub unsafe fn link_p2p(&mut self) -> link_p2p::Pending {
         // TODO: Close any previous sessions.
         self.enable_communication();
 
@@ -87,7 +88,9 @@ impl Engine {
 
             request: None,
             flow: flow::LinkingP2P::Waking,
-        }
+        };
+
+        link_p2p::Pending {}
     }
 
     pub(crate) fn link_p2p_status(&self) -> Result<bool, error::link_p2p::Error> {
