@@ -1,13 +1,11 @@
 mod adapter;
 mod command;
-mod error;
 mod flow;
 mod request;
 mod sink;
 mod source;
 
 use either::Either;
-pub(crate) use error::Error;
 
 use crate::{
     Timer,
@@ -35,7 +33,8 @@ enum State {
         flow: flow::LinkingP2P,
     },
     P2P,
-    Error(Error),
+    LinkingP2PError(command::Error),
+    RequestError(request::Error),
 }
 
 #[derive(Debug)]
@@ -106,7 +105,8 @@ impl Engine {
                 }
             }
             State::P2P => todo!(),
-            State::Error(_) => {}
+            State::LinkingP2PError(_) => {}
+            State::RequestError(_) => {}
         }
     }
 
@@ -123,7 +123,8 @@ impl Engine {
                     .map(|request| request.timer(*transfer_length));
             }
             State::P2P => todo!(),
-            State::Error(_) => {}
+            State::LinkingP2PError(_) => {}
+            State::RequestError(_) => {}
         }
     }
 
@@ -140,14 +141,17 @@ impl Engine {
                     match request.serial(adapter, transfer_length, self.timer) {
                         Ok(next_request) => *state_request = next_request,
                         Err(Either::Left(request_error)) => {
-                            self.state = State::Error(Error::Request(request_error))
+                            self.state = State::RequestError(request_error)
                         }
-                        Err(Either::Right(command_error)) => todo!(),
+                        Err(Either::Right(command_error)) => {
+                            self.state = State::LinkingP2PError(command_error)
+                        }
                     }
                 }
             }
             State::P2P => todo!(),
-            State::Error(_) => {}
+            State::LinkingP2PError(_) => {}
+            State::RequestError(_) => {}
         }
     }
 }
