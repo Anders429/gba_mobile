@@ -18,43 +18,65 @@ pub(in crate::engine) enum Step8 {
     },
     HeaderEmptyByte {
         sink: sink::Length,
+        command_xor: bool,
     },
     HeaderLength1 {
         sink: sink::Length,
+        command_xor: bool,
     },
     HeaderLength2 {
         sink: sink::Length,
         first_byte: u8,
+        command_xor: bool,
     },
 
     Data {
         sink: sink::Data,
+        command_xor: bool,
     },
 
     Checksum1 {
         result: sink::Parsed,
+        command_xor: bool,
     },
     Checksum2 {
         result: sink::Parsed,
         first_byte: u8,
+        command_xor: bool,
     },
 
     AcknowledgementSignalDevice {
         result: sink::Parsed,
+        command_xor: bool,
     },
     AcknowledgementSignalCommand {
         result: sink::Parsed,
         adapter: Adapter,
+        command_xor: bool,
     },
 }
 
 #[derive(Debug)]
 pub(in crate::engine) enum Step32 {
-    MagicByte { sink: sink::Command },
-    HeaderLength { sink: sink::Length },
-    Data { sink: sink::Data },
-    Checksum { result: sink::Parsed },
-    AcknowledgementSignal { result: sink::Parsed },
+    MagicByte {
+        sink: sink::Command,
+    },
+    HeaderLength {
+        sink: sink::Length,
+        command_xor: bool,
+    },
+    Data {
+        sink: sink::Data,
+        command_xor: bool,
+    },
+    Checksum {
+        result: sink::Parsed,
+        command_xor: bool,
+    },
+    AcknowledgementSignal {
+        result: sink::Parsed,
+        command_xor: bool,
+    },
 }
 
 #[derive(Debug)]

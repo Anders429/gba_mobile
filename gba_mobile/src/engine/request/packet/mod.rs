@@ -189,8 +189,16 @@ impl Packet {
             Self::Receive8 { step, .. } => {
                 let byte = match step {
                     receive::Step8::AcknowledgementSignalDevice { .. } => 0x81,
-                    receive::Step8::AcknowledgementSignalCommand { result, .. } => {
-                        result.command() as u8 ^ 0x80
+                    receive::Step8::AcknowledgementSignalCommand {
+                        result,
+                        command_xor,
+                        ..
+                    } => {
+                        if *command_xor {
+                            result.command() as u8 | 0x80
+                        } else {
+                            result.command() as u8
+                        }
                     }
                     _ => 0x4b,
                 };
@@ -202,8 +210,17 @@ impl Packet {
             // \---------------/
             Self::Receive32 { step, .. } => {
                 let bytes = match step {
-                    receive::Step32::AcknowledgementSignal { result, .. } => {
-                        u32::from_be_bytes([0x81, (result.command() as u8 ^ 0x80), 0x00, 0x00])
+                    receive::Step32::AcknowledgementSignal {
+                        result,
+                        command_xor,
+                        ..
+                    } => {
+                        let command_byte = if *command_xor {
+                            result.command() as u8 | 0x80
+                        } else {
+                            result.command() as u8
+                        };
+                        u32::from_be_bytes([0x81, command_byte, 0x00, 0x00])
                     }
                     _ => 0x4b_4b_4b_4b,
                 };
@@ -223,12 +240,12 @@ impl Packet {
                     receive::Step8Error::AcknowledgementSignalDevice { .. } => 0x81,
                     receive::Step8Error::AcknowledgementSignalCommand { .. } => {
                         if *attempt + 1 < MAX_RETRIES {
-                            error.command() as u8 ^ 0x80
+                            error.command() as u8 | 0x80
                         } else {
                             // Since we've errored on communication too much, it doesn't matter
                             // what we send here. We are going to error out the link session
                             // anyway.
-                            Command::Empty as u8 ^ 0x80
+                            Command::Empty as u8 | 0x80
                         }
                     }
                     _ => 0x4b,
@@ -248,12 +265,12 @@ impl Packet {
                 let bytes = match step {
                     receive::Step32Error::AcknowledgementSignal { .. } => {
                         let command_byte = if *attempt + 1 < MAX_RETRIES {
-                            error.command() as u8 ^ 0x80
+                            error.command() as u8 | 0x80
                         } else {
                             // Since we've errored on communication too much, it doesn't matter
                             // what we send here. We are going to error out the link session
                             // anyway.
-                            Command::Empty as u8 ^ 0x80
+                            Command::Empty as u8 | 0x80
                         };
                         u32::from_be_bytes([0x81, command_byte, 0x00, 0x00])
                     }
@@ -537,7 +554,6 @@ impl Packet {
                             checksum,
                             attempt,
                         })),
-                        0x4b => panic!("help"),
                         _ => Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::MagicByte2 { sink },
                             error: receive::Error::MagicValue1(byte),
@@ -556,48 +572,64 @@ impl Packet {
                             attempt,
                         })),
                     },
-                    receive::Step8::HeaderCommand { sink } => match Command::try_from(byte) {
-                        Ok(command) => match sink.parse(command) {
-                            Ok(sink) => Ok(Some(Self::Receive8 {
-                                step: receive::Step8::HeaderEmptyByte { sink },
-                                checksum: checksum.wrapping_add(byte as u16),
-                                attempt,
-                            })),
-                            Err((error, sink)) => Ok(Some(Self::Receive8Error {
+                    // TODO: This probably needs to accept either 0x80 or no 0x80. Then we need to take whatever this is and XOR it with 0x80 at the end again?
+                    receive::Step8::HeaderCommand { sink } => {
+                        let command_xor = byte & 0x80 == 0;
+                        match Command::try_from(byte & 0x7F) {
+                            Ok(command) => match sink.parse(command) {
+                                Ok(sink) => Ok(Some(Self::Receive8 {
+                                    step: receive::Step8::HeaderEmptyByte { sink, command_xor },
+                                    checksum: checksum.wrapping_add(byte as u16),
+                                    attempt,
+                                })),
+                                Err((error, sink)) => Ok(Some(Self::Receive8Error {
+                                    step: receive::Step8Error::HeaderEmptyByte { sink },
+                                    error: receive::Error::UnsupportedCommand(error),
+                                    attempt,
+                                })),
+                            },
+                            Err(unknown) => Ok(Some(Self::Receive8Error {
                                 step: receive::Step8Error::HeaderEmptyByte { sink },
-                                error: receive::Error::UnsupportedCommand(error),
+                                error: receive::Error::UnknownCommand(unknown),
                                 attempt,
                             })),
-                        },
-                        Err(unknown) => Ok(Some(Self::Receive8Error {
-                            step: receive::Step8Error::HeaderEmptyByte { sink },
-                            error: receive::Error::UnknownCommand(unknown),
+                        }
+                    }
+                    receive::Step8::HeaderEmptyByte { sink, command_xor } => {
+                        Ok(Some(Self::Receive8 {
+                            step: receive::Step8::HeaderLength1 { sink, command_xor },
+                            checksum: checksum.wrapping_add(byte as u16),
                             attempt,
-                        })),
-                    },
-                    receive::Step8::HeaderEmptyByte { sink } => Ok(Some(Self::Receive8 {
-                        step: receive::Step8::HeaderLength1 { sink },
-                        checksum: checksum.wrapping_add(byte as u16),
-                        attempt,
-                    })),
-                    receive::Step8::HeaderLength1 { sink } => Ok(Some(Self::Receive8 {
-                        step: receive::Step8::HeaderLength2 {
-                            first_byte: byte,
-                            sink,
-                        },
-                        checksum: checksum.wrapping_add(byte as u16),
-                        attempt,
-                    })),
-                    receive::Step8::HeaderLength2 { sink, first_byte } => {
+                        }))
+                    }
+                    receive::Step8::HeaderLength1 { sink, command_xor } => {
+                        Ok(Some(Self::Receive8 {
+                            step: receive::Step8::HeaderLength2 {
+                                first_byte: byte,
+                                sink,
+                                command_xor,
+                            },
+                            checksum: checksum.wrapping_add(byte as u16),
+                            attempt,
+                        }))
+                    }
+                    receive::Step8::HeaderLength2 {
+                        sink,
+                        first_byte,
+                        command_xor,
+                    } => {
                         let full_length = ((first_byte as u16) << 8) | (byte as u16);
                         match sink.parse(full_length) {
                             Ok(Either::Left(sink)) => Ok(Some(Self::Receive8 {
-                                step: receive::Step8::Data { sink },
+                                step: receive::Step8::Data { sink, command_xor },
                                 checksum: checksum.wrapping_add(byte as u16),
                                 attempt,
                             })),
                             Ok(Either::Right(result)) => Ok(Some(Self::Receive8 {
-                                step: receive::Step8::Checksum1 { result },
+                                step: receive::Step8::Checksum1 {
+                                    result,
+                                    command_xor,
+                                },
                                 checksum: checksum.wrapping_add(byte as u16),
                                 attempt,
                             })),
@@ -619,14 +651,17 @@ impl Packet {
                             },
                         }
                     }
-                    receive::Step8::Data { sink } => match sink.parse(byte) {
+                    receive::Step8::Data { sink, command_xor } => match sink.parse(byte) {
                         Ok(Either::Left(sink)) => Ok(Some(Self::Receive8 {
-                            step: receive::Step8::Data { sink },
+                            step: receive::Step8::Data { sink, command_xor },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
                         })),
                         Ok(Either::Right(result)) => Ok(Some(Self::Receive8 {
-                            step: receive::Step8::Checksum1 { result },
+                            step: receive::Step8::Checksum1 {
+                                result,
+                                command_xor,
+                            },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
                         })),
@@ -654,19 +689,30 @@ impl Packet {
                             }
                         }
                     },
-                    receive::Step8::Checksum1 { result } => Ok(Some(Self::Receive8 {
+                    receive::Step8::Checksum1 {
+                        result,
+                        command_xor,
+                    } => Ok(Some(Self::Receive8 {
                         step: receive::Step8::Checksum2 {
                             first_byte: byte,
                             result,
+                            command_xor,
                         },
                         checksum,
                         attempt,
                     })),
-                    receive::Step8::Checksum2 { result, first_byte } => {
+                    receive::Step8::Checksum2 {
+                        result,
+                        first_byte,
+                        command_xor,
+                    } => {
                         let full_checksum = ((first_byte as u16) << 8) | (byte as u16);
                         if full_checksum == checksum {
                             Ok(Some(Self::Receive8 {
-                                step: receive::Step8::AcknowledgementSignalDevice { result },
+                                step: receive::Step8::AcknowledgementSignalDevice {
+                                    result,
+                                    command_xor,
+                                },
                                 checksum,
                                 attempt,
                             }))
@@ -683,28 +729,31 @@ impl Packet {
                             }))
                         }
                     }
-                    receive::Step8::AcknowledgementSignalDevice { result } => {
-                        match Adapter::try_from(byte) {
-                            Ok(received_adapter) => Ok(Some(Self::Receive8 {
-                                step: receive::Step8::AcknowledgementSignalCommand {
-                                    result,
-                                    adapter: received_adapter,
-                                },
-                                checksum,
-                                attempt,
-                            })),
-                            Err(unknown) => Ok(Some(Self::Receive8Error {
-                                step: receive::Step8Error::AcknowledgementSignalCommand {
-                                    sink: result.revert(),
-                                },
-                                error: receive::Error::UnsupportedDevice(unknown),
-                                attempt,
-                            })),
-                        }
-                    }
+                    receive::Step8::AcknowledgementSignalDevice {
+                        result,
+                        command_xor,
+                    } => match Adapter::try_from(byte) {
+                        Ok(received_adapter) => Ok(Some(Self::Receive8 {
+                            step: receive::Step8::AcknowledgementSignalCommand {
+                                result,
+                                adapter: received_adapter,
+                                command_xor,
+                            },
+                            checksum,
+                            attempt,
+                        })),
+                        Err(unknown) => Ok(Some(Self::Receive8Error {
+                            step: receive::Step8Error::AcknowledgementSignalCommand {
+                                sink: result.revert(),
+                            },
+                            error: receive::Error::UnsupportedDevice(unknown),
+                            attempt,
+                        })),
+                    },
                     receive::Step8::AcknowledgementSignalCommand {
                         result,
                         adapter: received_adapter,
+                        ..
                     } => {
                         // The acknowledgement signal command we receive is expected to be 0x00.
                         match NonZeroU8::new(byte) {
@@ -761,27 +810,33 @@ impl Packet {
                             attempt,
                         })),
                         0x99 => match bytes[1] {
-                            0x66 => match Command::try_from(bytes[2]) {
-                                Ok(command) => match sink.parse(command) {
-                                    Ok(sink) => Ok(Some(Self::Receive32 {
-                                        step: receive::Step32::HeaderLength { sink },
-                                        checksum: checksum
-                                            .wrapping_add(bytes[2] as u16)
-                                            .wrapping_add(bytes[3] as u16),
-                                        attempt,
-                                    })),
-                                    Err((error, sink)) => Ok(Some(Self::Receive32Error {
+                            0x66 => {
+                                let command_xor = bytes[2] & 0x80 == 0;
+                                match Command::try_from(bytes[2] & 0x7f) {
+                                    Ok(command) => match sink.parse(command) {
+                                        Ok(sink) => Ok(Some(Self::Receive32 {
+                                            step: receive::Step32::HeaderLength {
+                                                sink,
+                                                command_xor,
+                                            },
+                                            checksum: checksum
+                                                .wrapping_add(bytes[2] as u16)
+                                                .wrapping_add(bytes[3] as u16),
+                                            attempt,
+                                        })),
+                                        Err((error, sink)) => Ok(Some(Self::Receive32Error {
+                                            step: receive::Step32Error::HeaderLength { sink },
+                                            error: receive::Error::UnsupportedCommand(error),
+                                            attempt,
+                                        })),
+                                    },
+                                    Err(unknown) => Ok(Some(Self::Receive32Error {
                                         step: receive::Step32Error::HeaderLength { sink },
-                                        error: receive::Error::UnsupportedCommand(error),
+                                        error: receive::Error::UnknownCommand(unknown),
                                         attempt,
                                     })),
-                                },
-                                Err(unknown) => Ok(Some(Self::Receive32Error {
-                                    step: receive::Step32Error::HeaderLength { sink },
-                                    error: receive::Error::UnknownCommand(unknown),
-                                    attempt,
-                                })),
-                            },
+                                }
+                            }
                             byte => Ok(Some(Self::Receive32Error {
                                 step: receive::Step32Error::HeaderLength { sink },
                                 error: receive::Error::MagicValue2(byte),
@@ -794,7 +849,7 @@ impl Packet {
                             attempt,
                         })),
                     },
-                    receive::Step32::HeaderLength { sink } => {
+                    receive::Step32::HeaderLength { sink, command_xor } => {
                         let full_length = ((bytes[0] as u16) << 8) | (bytes[1] as u16);
                         match sink.parse(full_length) {
                             Ok(Either::Left(sink)) => {
@@ -802,7 +857,7 @@ impl Packet {
                                 match sink.parse(bytes[2]) {
                                     Ok(Either::Left(sink)) => match sink.parse(bytes[3]) {
                                         Ok(Either::Left(sink)) => Ok(Some(Self::Receive32 {
-                                            step: receive::Step32::Data { sink },
+                                            step: receive::Step32::Data { sink, command_xor },
                                             checksum: checksum
                                                 .wrapping_add(bytes[0] as u16)
                                                 .wrapping_add(bytes[1] as u16)
@@ -811,7 +866,10 @@ impl Packet {
                                             attempt,
                                         })),
                                         Ok(Either::Right(result)) => Ok(Some(Self::Receive32 {
-                                            step: receive::Step32::Checksum { result },
+                                            step: receive::Step32::Checksum {
+                                                result,
+                                                command_xor,
+                                            },
                                             checksum: checksum
                                                 .wrapping_add(bytes[0] as u16)
                                                 .wrapping_add(bytes[1] as u16)
@@ -844,7 +902,10 @@ impl Packet {
                                         }
                                     },
                                     Ok(Either::Right(result)) => Ok(Some(Self::Receive32 {
-                                        step: receive::Step32::Checksum { result },
+                                        step: receive::Step32::Checksum {
+                                            result,
+                                            command_xor,
+                                        },
                                         checksum: checksum
                                             .wrapping_add(bytes[0] as u16)
                                             .wrapping_add(bytes[1] as u16)
@@ -882,7 +943,10 @@ impl Packet {
                                 let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                                 if full_checksum == checksum {
                                     Ok(Some(Self::Receive32 {
-                                        step: receive::Step32::AcknowledgementSignal { result },
+                                        step: receive::Step32::AcknowledgementSignal {
+                                            result,
+                                            command_xor,
+                                        },
                                         checksum,
                                         attempt,
                                     }))
@@ -906,7 +970,7 @@ impl Packet {
                             })),
                         }
                     }
-                    receive::Step32::Data { sink } => {
+                    receive::Step32::Data { sink, command_xor } => {
                         match sink.parse(bytes[0]) {
                             Ok(Either::Left(sink)) => {
                                 match sink.parse(bytes[1]) {
@@ -916,7 +980,10 @@ impl Packet {
                                                 match sink.parse(bytes[3]) {
                                                     Ok(Either::Left(sink)) => {
                                                         Ok(Some(Self::Receive32 {
-                                                            step: receive::Step32::Data { sink },
+                                                            step: receive::Step32::Data {
+                                                                sink,
+                                                                command_xor,
+                                                            },
                                                             checksum: checksum
                                                                 .wrapping_add(bytes[0] as u16)
                                                                 .wrapping_add(bytes[1] as u16)
@@ -929,6 +996,7 @@ impl Packet {
                                                         Ok(Some(Self::Receive32 {
                                                             step: receive::Step32::Checksum {
                                                                 result,
+                                                                command_xor,
                                                             },
                                                             checksum: checksum
                                                                 .wrapping_add(bytes[0] as u16)
@@ -975,7 +1043,10 @@ impl Packet {
                                             }
                                             Ok(Either::Right(result)) => {
                                                 Ok(Some(Self::Receive32 {
-                                                    step: receive::Step32::Checksum { result },
+                                                    step: receive::Step32::Checksum {
+                                                        result,
+                                                        command_xor,
+                                                    },
                                                     checksum: checksum
                                                         .wrapping_add(bytes[0] as u16)
                                                         .wrapping_add(bytes[1] as u16)
@@ -1022,6 +1093,7 @@ impl Packet {
                                             Ok(Some(Self::Receive32 {
                                                 step: receive::Step32::AcknowledgementSignal {
                                                     result,
+                                                    command_xor,
                                                 },
                                                 checksum: calculated_checksum,
                                                 attempt,
@@ -1074,7 +1146,10 @@ impl Packet {
                                 let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                                 if full_checksum == calculated_checksum {
                                     Ok(Some(Self::Receive32 {
-                                        step: receive::Step32::AcknowledgementSignal { result },
+                                        step: receive::Step32::AcknowledgementSignal {
+                                            result,
+                                            command_xor,
+                                        },
                                         checksum: calculated_checksum,
                                         attempt,
                                     }))
@@ -1116,7 +1191,10 @@ impl Packet {
                             }
                         }
                     }
-                    receive::Step32::Checksum { result } => {
+                    receive::Step32::Checksum {
+                        result,
+                        command_xor,
+                    } => {
                         // The checksum is contained in the last two bytes.
                         let calculated_checksum = checksum
                             .wrapping_add(bytes[0] as u16)
@@ -1124,7 +1202,10 @@ impl Packet {
                         let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                         if full_checksum == calculated_checksum {
                             Ok(Some(Self::Receive32 {
-                                step: receive::Step32::AcknowledgementSignal { result },
+                                step: receive::Step32::AcknowledgementSignal {
+                                    result,
+                                    command_xor,
+                                },
                                 checksum: calculated_checksum,
                                 attempt,
                             }))
@@ -1141,7 +1222,7 @@ impl Packet {
                             }))
                         }
                     }
-                    receive::Step32::AcknowledgementSignal { result } => {
+                    receive::Step32::AcknowledgementSignal { result, .. } => {
                         match Adapter::try_from(bytes[0]) {
                             Ok(received_adapter) => match NonZeroU8::new(bytes[1]) {
                                 None => {
