@@ -10,8 +10,7 @@ mod source;
 use either::Either;
 
 use crate::{
-    Timer,
-    link_p2p::{self, LinkP2P},
+    Timer, link_p2p,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -150,11 +149,16 @@ impl Engine {
                 request: state_request,
                 adapter,
                 transfer_length,
+                flow,
                 ..
             } => {
                 if let Some(request) = state_request.take() {
                     match request.serial(adapter, transfer_length, self.timer) {
-                        Ok(next_request) => *state_request = next_request,
+                        Ok(Some(next_request)) => *state_request = Some(next_request),
+                        Ok(None) => match flow.next() {
+                            Some(next_flow) => *flow = next_flow,
+                            None => self.state = State::P2P,
+                        },
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error)
                         }

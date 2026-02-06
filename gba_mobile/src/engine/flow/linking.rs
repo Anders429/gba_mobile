@@ -17,7 +17,7 @@ impl LinkingP2P {
         match self {
             Self::Waking => Request::new_wait_for_idle(),
             Self::BeginSession => Request::new_packet(transfer_length, Source::BeginSession),
-            Self::Sio32 => Request::new_packet(transfer_length, todo!()),
+            Self::Sio32 => Request::new_packet(transfer_length, Source::EnableSio32),
             Self::WaitForIdle => Request::new_wait_for_idle(),
         }
     }
