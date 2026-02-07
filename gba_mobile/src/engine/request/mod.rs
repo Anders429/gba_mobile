@@ -51,8 +51,24 @@ impl Request {
         transfer_length: TransferLength,
     ) -> Result<(), Timeout> {
         match self {
-            Self::Packet(_) => {
-                // TODO: Timeouts?
+            Self::Packet(packet) => {
+                packet.timeout().map_err(Timeout::Packet)?;
+
+                // The first byte when receiving a packet is triggered on vblank, not timer.
+                if let Packet::Receive8 {
+                    step: packet::receive::Step8::MagicByte1 { frame, .. },
+                    ..
+                }
+                | Packet::Receive32 {
+                    step: packet::receive::Step32::MagicByte { frame, .. },
+                    ..
+                } = packet
+                    && *frame % FRAMES_100_MILLISECONDS as u16 == 0
+                {
+                    packet.push();
+                    schedule_serial(transfer_length);
+                }
+
                 Ok(())
             }
             Self::WaitForIdle { frame } => {
@@ -97,7 +113,20 @@ impl Request {
                 .pull(adapter, transfer_length)
                 .map(|next_packet| {
                     next_packet.map(|packet| {
-                        schedule_timer(timer, *transfer_length);
+                        if !matches!(
+                            packet,
+                            Packet::Receive8 {
+                                step: packet::receive::Step8::MagicByte1 { .. },
+                                ..
+                            } | Packet::Receive32 {
+                                step: packet::receive::Step32::MagicByte { .. },
+                                ..
+                            }
+                        ) {
+                            // Only trigger the timer if this is not the start of a received packet.
+                            // The first byte of the received packet is triggered on vblank instead.
+                            schedule_timer(timer, *transfer_length);
+                        }
                         Self::Packet(packet)
                     })
                 })

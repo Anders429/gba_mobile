@@ -2,9 +2,12 @@ pub(in crate::engine) mod receive;
 pub(in crate::engine) mod send;
 
 mod error;
+mod timeout;
 
 pub(in crate::engine) use error::Error;
+pub(in crate::engine) use timeout::Timeout;
 
+use super::FRAMES_3_SECONDS;
 use crate::{
     engine::{Adapter, Command, Source, command, sink},
     mmio::serial::{SIOCNT, SIODATA8, SIODATA32, TransferLength},
@@ -13,6 +16,8 @@ use core::num::{NonZeroU8, NonZeroU16};
 use either::Either;
 
 pub(in crate::engine) const MAX_RETRIES: u8 = 5;
+
+const FRAMES_15_SECONDS: u16 = 900;
 
 /// In-progress communication.
 #[derive(Debug)]
@@ -24,6 +29,7 @@ pub(in crate::engine) enum Packet {
         checksum: u16,
 
         attempt: u8,
+        frame: u8,
     },
     /// Sending in SIO32 mode.
     Send32 {
@@ -32,6 +38,7 @@ pub(in crate::engine) enum Packet {
         checksum: u16,
 
         attempt: u8,
+        frame: u8,
     },
     /// Receiving in SIO8 mode.
     Receive8 {
@@ -39,6 +46,7 @@ pub(in crate::engine) enum Packet {
         checksum: u16,
 
         attempt: u8,
+        frame: u8,
     },
     /// Receiving in SIO32 mode.
     Receive32 {
@@ -46,6 +54,7 @@ pub(in crate::engine) enum Packet {
         checksum: u16,
 
         attempt: u8,
+        frame: u8,
     },
     /// Receiving in SIO8 mode while in an error state.
     Receive8Error {
@@ -53,6 +62,7 @@ pub(in crate::engine) enum Packet {
 
         error: receive::Error,
         attempt: u8,
+        frame: u8,
     },
     /// Receiving in SIO32 mode while in an error state.
     Receive32Error {
@@ -60,6 +70,7 @@ pub(in crate::engine) enum Packet {
 
         error: receive::Error,
         attempt: u8,
+        frame: u8,
     },
 }
 
@@ -71,14 +82,52 @@ impl Packet {
                 source,
                 checksum: 0,
                 attempt: 0,
+                frame: 0,
             },
             TransferLength::_32Bit => Self::Send32 {
                 step: send::Step32::MagicByte,
                 source,
                 checksum: 0,
                 attempt: 0,
+                frame: 0,
             },
         }
+    }
+
+    /// Increment the frame count and return a timeout if one has occurred.
+    pub(in crate::engine) fn timeout(&mut self) -> Result<(), Timeout> {
+        let (Self::Send8 { frame, .. }
+        | Self::Send32 { frame, .. }
+        | Self::Receive8 { frame, .. }
+        | Self::Receive32 { frame, .. }
+        | Self::Receive8Error { frame, .. }
+        | Self::Receive32Error { frame, .. }) = self;
+        if *frame > FRAMES_3_SECONDS {
+            return Err(Timeout::Serial);
+        } else {
+            *frame += 1;
+        }
+
+        if let Self::Receive8 {
+            step: receive::Step8::MagicByte1 {
+                frame: step_frame, ..
+            },
+            ..
+        }
+        | Self::Receive32 {
+            step: receive::Step32::MagicByte {
+                frame: step_frame, ..
+            },
+            ..
+        } = self
+        {
+            if *step_frame > FRAMES_15_SECONDS {
+                return Err(Timeout::Response);
+            }
+            *step_frame += 1;
+        }
+
+        Ok(())
     }
 
     /// Push bytes into SIO from this packet.
@@ -296,6 +345,7 @@ impl Packet {
                 source,
                 checksum,
                 attempt,
+                ..
             } => {
                 let byte = unsafe { SIODATA8.read_volatile() };
                 log::debug!("received byte {byte:#04x}");
@@ -305,30 +355,35 @@ impl Packet {
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::MagicByte2 => Ok(Some(Self::Send8 {
                         step: send::Step8::HeaderCommand,
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::HeaderCommand => Ok(Some(Self::Send8 {
                         step: send::Step8::HeaderEmptyByte,
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::HeaderEmptyByte => Ok(Some(Self::Send8 {
                         step: send::Step8::HeaderLength1,
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::HeaderLength1 => Ok(Some(Self::Send8 {
                         step: send::Step8::HeaderLength2,
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::HeaderLength2 => {
                         if source.length() > 0 {
@@ -337,6 +392,7 @@ impl Packet {
                                 source,
                                 checksum,
                                 attempt,
+                                frame: 0,
                             }))
                         } else {
                             Ok(Some(Self::Send8 {
@@ -344,6 +400,7 @@ impl Packet {
                                 source,
                                 checksum,
                                 attempt,
+                                frame: 0,
                             }))
                         }
                     }
@@ -355,6 +412,7 @@ impl Packet {
                                 source,
                                 checksum,
                                 attempt,
+                                frame: 0,
                             }))
                         } else {
                             Ok(Some(Self::Send8 {
@@ -362,6 +420,7 @@ impl Packet {
                                 source,
                                 checksum,
                                 attempt,
+                                frame: 0,
                             }))
                         }
                     }
@@ -370,18 +429,21 @@ impl Packet {
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::Checksum2 { .. } => Ok(Some(Self::Send8 {
                         step: send::Step8::AcknowledgementSignalDevice,
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::AcknowledgementSignalDevice => Ok(Some(Self::Send8 {
                         step: send::Step8::AcknowledgementSignalCommand,
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step8::AcknowledgementSignalCommand => {
                         let new_attempt = attempt + 1;
@@ -397,6 +459,7 @@ impl Packet {
                                     source,
                                     checksum: 0,
                                     attempt: new_attempt,
+                                    frame: 0,
                                 }))
                             }
                             Ok(Command::NotSupportedError) => {
@@ -420,10 +483,12 @@ impl Packet {
                                 Ok(Some(Self::Receive8 {
                                     step: receive::Step8::MagicByte1 {
                                         sink: source.sink(),
+                                        frame: 0,
                                     },
                                     checksum: 0,
 
                                     attempt: 0,
+                                    frame: 0,
                                 }))
                             }
                         }
@@ -439,6 +504,7 @@ impl Packet {
                 source,
                 checksum,
                 attempt,
+                ..
             } => {
                 let bytes = unsafe { SIODATA32.read_volatile() };
                 match step {
@@ -447,6 +513,7 @@ impl Packet {
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step32::HeaderLength => {
                         let new_step = match source.length() {
@@ -459,6 +526,7 @@ impl Packet {
                             source,
                             checksum,
                             attempt,
+                            frame: 0,
                         }))
                     }
                     send::Step32::Data { index } => {
@@ -476,6 +544,7 @@ impl Packet {
                             source,
                             checksum,
                             attempt,
+                            frame: 0,
                         }))
                     }
                     send::Step32::Checksum => Ok(Some(Self::Send32 {
@@ -483,6 +552,7 @@ impl Packet {
                         source,
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     send::Step32::AcknowledgementSignal => {
                         let new_attempt = attempt + 1;
@@ -498,6 +568,7 @@ impl Packet {
                                     source,
                                     checksum: 0,
                                     attempt: new_attempt,
+                                    frame: 0,
                                 }))
                             }
                             Ok(Command::NotSupportedError) => {
@@ -521,10 +592,12 @@ impl Packet {
                                 Ok(Some(Self::Receive32 {
                                     step: receive::Step32::MagicByte {
                                         sink: source.sink(),
+                                        frame: 0,
                                     },
                                     checksum: 0,
 
                                     attempt: 0,
+                                    frame: 0,
                                 }))
                             }
                         }
@@ -539,25 +612,35 @@ impl Packet {
                 step,
                 checksum,
                 attempt,
+                ..
             } => {
                 let byte = unsafe { SIODATA8.read_volatile() };
                 log::debug!("received byte {byte:#04x}");
                 match step {
-                    receive::Step8::MagicByte1 { sink } => match byte {
+                    receive::Step8::MagicByte1 {
+                        sink,
+                        frame: step_frame,
+                    } => match byte {
                         0x99 => Ok(Some(Self::Receive8 {
                             step: receive::Step8::MagicByte2 { sink },
                             checksum,
                             attempt,
+                            frame: 0,
                         })),
                         0xd2 => Ok(Some(Self::Receive8 {
-                            step: receive::Step8::MagicByte1 { sink },
+                            step: receive::Step8::MagicByte1 {
+                                sink,
+                                frame: step_frame,
+                            },
                             checksum,
                             attempt,
+                            frame: 0,
                         })),
                         _ => Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::MagicByte2 { sink },
                             error: receive::Error::MagicValue1(byte),
                             attempt,
+                            frame: 0,
                         })),
                     },
                     receive::Step8::MagicByte2 { sink } => match byte {
@@ -565,11 +648,13 @@ impl Packet {
                             step: receive::Step8::HeaderCommand { sink },
                             checksum,
                             attempt,
+                            frame: 0,
                         })),
                         _ => Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::HeaderCommand { sink },
                             error: receive::Error::MagicValue2(byte),
                             attempt,
+                            frame: 0,
                         })),
                     },
                     // TODO: This probably needs to accept either 0x80 or no 0x80. Then we need to take whatever this is and XOR it with 0x80 at the end again?
@@ -581,17 +666,20 @@ impl Packet {
                                     step: receive::Step8::HeaderEmptyByte { sink, command_xor },
                                     checksum: checksum.wrapping_add(byte as u16),
                                     attempt,
+                                    frame: 0,
                                 })),
                                 Err((error, sink)) => Ok(Some(Self::Receive8Error {
                                     step: receive::Step8Error::HeaderEmptyByte { sink },
                                     error: receive::Error::UnsupportedCommand(error),
                                     attempt,
+                                    frame: 0,
                                 })),
                             },
                             Err(unknown) => Ok(Some(Self::Receive8Error {
                                 step: receive::Step8Error::HeaderEmptyByte { sink },
                                 error: receive::Error::UnknownCommand(unknown),
                                 attempt,
+                                frame: 0,
                             })),
                         }
                     }
@@ -600,6 +688,7 @@ impl Packet {
                             step: receive::Step8::HeaderLength1 { sink, command_xor },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
+                            frame: 0,
                         }))
                     }
                     receive::Step8::HeaderLength1 { sink, command_xor } => {
@@ -611,6 +700,7 @@ impl Packet {
                             },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
+                            frame: 0,
                         }))
                     }
                     receive::Step8::HeaderLength2 {
@@ -624,6 +714,7 @@ impl Packet {
                                 step: receive::Step8::Data { sink, command_xor },
                                 checksum: checksum.wrapping_add(byte as u16),
                                 attempt,
+                                frame: 0,
                             })),
                             Ok(Either::Right(result)) => Ok(Some(Self::Receive8 {
                                 step: receive::Step8::Checksum1 {
@@ -632,6 +723,7 @@ impl Packet {
                                 },
                                 checksum: checksum.wrapping_add(byte as u16),
                                 attempt,
+                                frame: 0,
                             })),
                             Err((error, sink)) => match NonZeroU16::new(full_length) {
                                 Some(length) => Ok(Some(Self::Receive8Error {
@@ -642,11 +734,13 @@ impl Packet {
                                     },
                                     error: receive::Error::UnexpectedLength(error),
                                     attempt,
+                                    frame: 0,
                                 })),
                                 None => Ok(Some(Self::Receive8Error {
                                     step: receive::Step8Error::Checksum1 { sink },
                                     error: receive::Error::UnexpectedLength(error),
                                     attempt,
+                                    frame: 0,
                                 })),
                             },
                         }
@@ -656,6 +750,7 @@ impl Packet {
                             step: receive::Step8::Data { sink, command_xor },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
+                            frame: 0,
                         })),
                         Ok(Either::Right(result)) => Ok(Some(Self::Receive8 {
                             step: receive::Step8::Checksum1 {
@@ -664,6 +759,7 @@ impl Packet {
                             },
                             checksum: checksum.wrapping_add(byte as u16),
                             attempt,
+                            frame: 0,
                         })),
                         Err((error, index, length, sink)) => {
                             if let Some(next_index) = index.checked_add(1)
@@ -678,6 +774,7 @@ impl Packet {
                                     },
                                     error: receive::Error::MalformedData(error),
                                     attempt,
+                                    frame: 0,
                                 }))
                             } else {
                                 // The error happened on the last byte being received.
@@ -685,6 +782,7 @@ impl Packet {
                                     step: receive::Step8Error::Checksum1 { sink },
                                     error: receive::Error::MalformedData(error),
                                     attempt,
+                                    frame: 0,
                                 }))
                             }
                         }
@@ -700,6 +798,7 @@ impl Packet {
                         },
                         checksum,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step8::Checksum2 {
                         result,
@@ -715,6 +814,7 @@ impl Packet {
                                 },
                                 checksum,
                                 attempt,
+                                frame: 0,
                             }))
                         } else {
                             Ok(Some(Self::Receive8Error {
@@ -726,6 +826,7 @@ impl Packet {
                                     received: full_checksum,
                                 },
                                 attempt,
+                                frame: 0,
                             }))
                         }
                     }
@@ -741,6 +842,7 @@ impl Packet {
                             },
                             checksum,
                             attempt,
+                            frame: 0,
                         })),
                         Err(unknown) => Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::AcknowledgementSignalCommand {
@@ -748,6 +850,7 @@ impl Packet {
                             },
                             error: receive::Error::UnsupportedDevice(unknown),
                             attempt,
+                            frame: 0,
                         })),
                     },
                     receive::Step8::AcknowledgementSignalCommand {
@@ -800,14 +903,22 @@ impl Packet {
                 step,
                 checksum,
                 attempt,
+                ..
             } => {
                 let bytes = unsafe { SIODATA32.read_volatile().to_be_bytes() };
                 match step {
-                    receive::Step32::MagicByte { sink } => match bytes[0] {
+                    receive::Step32::MagicByte {
+                        sink,
+                        frame: step_frame,
+                    } => match bytes[0] {
                         0xd2 => Ok(Some(Self::Receive32 {
-                            step: receive::Step32::MagicByte { sink },
+                            step: receive::Step32::MagicByte {
+                                sink,
+                                frame: step_frame,
+                            },
                             checksum,
                             attempt,
+                            frame: 0,
                         })),
                         0x99 => match bytes[1] {
                             0x66 => {
@@ -823,17 +934,20 @@ impl Packet {
                                                 .wrapping_add(bytes[2] as u16)
                                                 .wrapping_add(bytes[3] as u16),
                                             attempt,
+                                            frame: 0,
                                         })),
                                         Err((error, sink)) => Ok(Some(Self::Receive32Error {
                                             step: receive::Step32Error::HeaderLength { sink },
                                             error: receive::Error::UnsupportedCommand(error),
                                             attempt,
+                                            frame: 0,
                                         })),
                                     },
                                     Err(unknown) => Ok(Some(Self::Receive32Error {
                                         step: receive::Step32Error::HeaderLength { sink },
                                         error: receive::Error::UnknownCommand(unknown),
                                         attempt,
+                                        frame: 0,
                                     })),
                                 }
                             }
@@ -841,12 +955,14 @@ impl Packet {
                                 step: receive::Step32Error::HeaderLength { sink },
                                 error: receive::Error::MagicValue2(byte),
                                 attempt,
+                                frame: 0,
                             })),
                         },
                         byte => Ok(Some(Self::Receive32Error {
                             step: receive::Step32Error::HeaderLength { sink },
                             error: receive::Error::MagicValue1(byte),
                             attempt,
+                            frame: 0,
                         })),
                     },
                     receive::Step32::HeaderLength { sink, command_xor } => {
@@ -864,6 +980,7 @@ impl Packet {
                                                 .wrapping_add(bytes[2] as u16)
                                                 .wrapping_add(bytes[3] as u16),
                                             attempt,
+                                            frame: 0,
                                         })),
                                         Ok(Either::Right(result)) => Ok(Some(Self::Receive32 {
                                             step: receive::Step32::Checksum {
@@ -876,6 +993,7 @@ impl Packet {
                                                 .wrapping_add(bytes[2] as u16)
                                                 .wrapping_add(bytes[3] as u16),
                                             attempt,
+                                            frame: 0,
                                         })),
                                         Err((error, index, length, sink)) => {
                                             if let Some(next_index) = index.checked_add(1)
@@ -890,6 +1008,7 @@ impl Packet {
                                                     },
                                                     error: receive::Error::MalformedData(error),
                                                     attempt,
+                                                    frame: 0,
                                                 }))
                                             } else {
                                                 // The error happened on the last byte being received.
@@ -897,6 +1016,7 @@ impl Packet {
                                                     step: receive::Step32Error::Checksum { sink },
                                                     error: receive::Error::MalformedData(error),
                                                     attempt,
+                                                    frame: 0,
                                                 }))
                                             }
                                         }
@@ -912,6 +1032,7 @@ impl Packet {
                                             .wrapping_add(bytes[2] as u16)
                                             .wrapping_add(bytes[3] as u16),
                                         attempt,
+                                        frame: 0,
                                     })),
                                     Err((error, index, length, sink)) => {
                                         if let Some(next_index) = index.checked_add(2)
@@ -926,6 +1047,7 @@ impl Packet {
                                                 },
                                                 error: receive::Error::MalformedData(error),
                                                 attempt,
+                                                frame: 0,
                                             }))
                                         } else {
                                             // The error happened on the last byte being received.
@@ -933,6 +1055,7 @@ impl Packet {
                                                 step: receive::Step32Error::Checksum { sink },
                                                 error: receive::Error::MalformedData(error),
                                                 attempt,
+                                                frame: 0,
                                             }))
                                         }
                                     }
@@ -949,6 +1072,7 @@ impl Packet {
                                         },
                                         checksum,
                                         attempt,
+                                        frame: 0,
                                     }))
                                 } else {
                                     Ok(Some(Self::Receive32Error {
@@ -960,6 +1084,7 @@ impl Packet {
                                             received: full_checksum,
                                         },
                                         attempt,
+                                        frame: 0,
                                     }))
                                 }
                             }
@@ -967,6 +1092,7 @@ impl Packet {
                                 step: receive::Step32Error::AcknowledgementSignal { sink },
                                 error: receive::Error::UnexpectedLength(error),
                                 attempt,
+                                frame: 0,
                             })),
                         }
                     }
@@ -990,6 +1116,7 @@ impl Packet {
                                                                 .wrapping_add(bytes[2] as u16)
                                                                 .wrapping_add(bytes[3] as u16),
                                                             attempt,
+                                                            frame: 0,
                                                         }))
                                                     }
                                                     Ok(Either::Right(result)) => {
@@ -1004,6 +1131,7 @@ impl Packet {
                                                                 .wrapping_add(bytes[2] as u16)
                                                                 .wrapping_add(bytes[3] as u16),
                                                             attempt,
+                                                            frame: 0,
                                                         }))
                                                     }
                                                     Err((error, index, length, sink)) => {
@@ -1023,6 +1151,7 @@ impl Packet {
                                                                         error,
                                                                     ),
                                                                 attempt,
+                                                                frame: 0,
                                                             }))
                                                         } else {
                                                             // The error happened on the last byte being received.
@@ -1036,6 +1165,7 @@ impl Packet {
                                                                         error,
                                                                     ),
                                                                 attempt,
+                                                                frame: 0,
                                                             }))
                                                         }
                                                     }
@@ -1053,6 +1183,7 @@ impl Packet {
                                                         .wrapping_add(bytes[2] as u16)
                                                         .wrapping_add(bytes[3] as u16),
                                                     attempt,
+                                                    frame: 0,
                                                 }))
                                             }
                                             Err((error, index, length, sink)) => {
@@ -1068,6 +1199,7 @@ impl Packet {
                                                         },
                                                         error: receive::Error::MalformedData(error),
                                                         attempt,
+                                                        frame: 0,
                                                     }))
                                                 } else {
                                                     // The error happened on the last byte being received.
@@ -1077,6 +1209,7 @@ impl Packet {
                                                         },
                                                         error: receive::Error::MalformedData(error),
                                                         attempt,
+                                                        frame: 0,
                                                     }))
                                                 }
                                             }
@@ -1097,6 +1230,7 @@ impl Packet {
                                                 },
                                                 checksum: calculated_checksum,
                                                 attempt,
+                                                frame: 0,
                                             }))
                                         } else {
                                             Ok(Some(Self::Receive32Error {
@@ -1108,6 +1242,7 @@ impl Packet {
                                                     received: full_checksum,
                                                 },
                                                 attempt,
+                                                frame: 0,
                                             }))
                                         }
                                     }
@@ -1124,6 +1259,7 @@ impl Packet {
                                                 },
                                                 error: receive::Error::MalformedData(error),
                                                 attempt,
+                                                frame: 0,
                                             }))
                                         } else {
                                             // The error happened on the last byte being received.
@@ -1133,6 +1269,7 @@ impl Packet {
                                                 },
                                                 error: receive::Error::MalformedData(error),
                                                 attempt,
+                                                frame: 0,
                                             }))
                                         }
                                     }
@@ -1152,6 +1289,7 @@ impl Packet {
                                         },
                                         checksum: calculated_checksum,
                                         attempt,
+                                        frame: 0,
                                     }))
                                 } else {
                                     Ok(Some(Self::Receive32Error {
@@ -1163,6 +1301,7 @@ impl Packet {
                                             received: full_checksum,
                                         },
                                         attempt,
+                                        frame: 0,
                                     }))
                                 }
                             }
@@ -1179,6 +1318,7 @@ impl Packet {
                                         },
                                         error: receive::Error::MalformedData(error),
                                         attempt,
+                                        frame: 0,
                                     }))
                                 } else {
                                     // The error happened on the last byte being received.
@@ -1186,6 +1326,7 @@ impl Packet {
                                         step: receive::Step32Error::AcknowledgementSignal { sink },
                                         error: receive::Error::MalformedData(error),
                                         attempt,
+                                        frame: 0,
                                     }))
                                 }
                             }
@@ -1208,6 +1349,7 @@ impl Packet {
                                 },
                                 checksum: calculated_checksum,
                                 attempt,
+                                frame: 0,
                             }))
                         } else {
                             Ok(Some(Self::Receive32Error {
@@ -1219,6 +1361,7 @@ impl Packet {
                                     received: full_checksum,
                                 },
                                 attempt,
+                                frame: 0,
                             }))
                         }
                     }
@@ -1276,6 +1419,7 @@ impl Packet {
                 step,
                 error,
                 attempt,
+                ..
             } => {
                 let byte = unsafe { SIODATA8.read_volatile() };
                 log::debug!("received byte {byte:#04x}");
@@ -1284,17 +1428,20 @@ impl Packet {
                         step: receive::Step8Error::HeaderCommand { sink },
                         error,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step8Error::HeaderCommand { sink } => Ok(Some(Self::Receive8Error {
                         step: receive::Step8Error::HeaderEmptyByte { sink },
                         error,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step8Error::HeaderEmptyByte { sink } => {
                         Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::HeaderLength1 { sink },
                             error,
                             attempt,
+                            frame: 0,
                         }))
                     }
                     receive::Step8Error::HeaderLength1 { sink } => Ok(Some(Self::Receive8Error {
@@ -1304,6 +1451,7 @@ impl Packet {
                         },
                         error,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step8Error::HeaderLength2 { sink, first_byte } => {
                         let full_length = ((first_byte as u16) << 8) | (byte as u16);
@@ -1316,11 +1464,13 @@ impl Packet {
                                 },
                                 error,
                                 attempt,
+                                frame: 0,
                             })),
                             None => Ok(Some(Self::Receive8Error {
                                 step: receive::Step8Error::Checksum1 { sink },
                                 error,
                                 attempt,
+                                frame: 0,
                             })),
                         }
                     }
@@ -1339,12 +1489,14 @@ impl Packet {
                                 },
                                 error,
                                 attempt,
+                                frame: 0,
                             }))
                         } else {
                             Ok(Some(Self::Receive8Error {
                                 step: receive::Step8Error::Checksum1 { sink },
                                 error,
                                 attempt,
+                                frame: 0,
                             }))
                         }
                     }
@@ -1352,17 +1504,20 @@ impl Packet {
                         step: receive::Step8Error::Checksum2 { sink },
                         error,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step8Error::Checksum2 { sink } => Ok(Some(Self::Receive8Error {
                         step: receive::Step8Error::AcknowledgementSignalDevice { sink },
                         error,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step8Error::AcknowledgementSignalDevice { sink } => {
                         Ok(Some(Self::Receive8Error {
                             step: receive::Step8Error::AcknowledgementSignalCommand { sink },
                             error,
                             attempt,
+                            frame: 0,
                         }))
                     }
                     receive::Step8Error::AcknowledgementSignalCommand { sink } => {
@@ -1370,9 +1525,10 @@ impl Packet {
                         if new_attempt < MAX_RETRIES {
                             // Retry.
                             Ok(Some(Self::Receive8 {
-                                step: receive::Step8::MagicByte1 { sink },
+                                step: receive::Step8::MagicByte1 { sink, frame: 0 },
                                 checksum: 0,
                                 attempt: new_attempt,
+                                frame: 0,
                             }))
                         } else {
                             // Too many retries. Stop trying and set error state.
@@ -1389,6 +1545,7 @@ impl Packet {
                 step,
                 error,
                 attempt,
+                ..
             } => {
                 let bytes = unsafe { SIODATA32.read_volatile().to_be_bytes() };
                 match step {
@@ -1401,6 +1558,7 @@ impl Packet {
                                         step: receive::Step32Error::Checksum { sink },
                                         error,
                                         attempt,
+                                        frame: 0,
                                     }))
                                 } else {
                                     Ok(Some(Self::Receive32Error {
@@ -1411,6 +1569,7 @@ impl Packet {
                                         },
                                         error,
                                         attempt,
+                                        frame: 0,
                                     }))
                                 }
                             }
@@ -1418,6 +1577,7 @@ impl Packet {
                                 step: receive::Step32Error::AcknowledgementSignal { sink },
                                 error,
                                 attempt,
+                                frame: 0,
                             })),
                         }
                     }
@@ -1432,6 +1592,7 @@ impl Packet {
                                 step: receive::Step32Error::AcknowledgementSignal { sink },
                                 error,
                                 attempt,
+                                frame: 0,
                             }))
                         } else if index + 4 >= length.get() {
                             // These are the last data bytes.
@@ -1439,6 +1600,7 @@ impl Packet {
                                 step: receive::Step32Error::Checksum { sink },
                                 error,
                                 attempt,
+                                frame: 0,
                             }))
                         } else {
                             // There is more data.
@@ -1450,6 +1612,7 @@ impl Packet {
                                 },
                                 error,
                                 attempt,
+                                frame: 0,
                             }))
                         }
                     }
@@ -1457,15 +1620,17 @@ impl Packet {
                         step: receive::Step32Error::AcknowledgementSignal { sink },
                         error,
                         attempt,
+                        frame: 0,
                     })),
                     receive::Step32Error::AcknowledgementSignal { sink } => {
                         let new_attempt = attempt + 1;
                         if new_attempt < MAX_RETRIES {
                             // Retry.
                             Ok(Some(Self::Receive32 {
-                                step: receive::Step32::MagicByte { sink },
+                                step: receive::Step32::MagicByte { sink, frame: 0 },
                                 checksum: 0,
                                 attempt: new_attempt,
+                                frame: 0,
                             }))
                         } else {
                             // Too many retries. Stop trying and set error state.

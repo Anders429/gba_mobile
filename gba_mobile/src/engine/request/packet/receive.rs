@@ -8,6 +8,7 @@ use core::{
 pub(in crate::engine) enum Step8 {
     MagicByte1 {
         sink: sink::Command,
+        frame: u16,
     },
     MagicByte2 {
         sink: sink::Command,
@@ -60,6 +61,7 @@ pub(in crate::engine) enum Step8 {
 pub(in crate::engine) enum Step32 {
     MagicByte {
         sink: sink::Command,
+        frame: u16,
     },
     HeaderLength {
         sink: sink::Length,
