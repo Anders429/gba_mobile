@@ -21,12 +21,14 @@ pub(in crate::driver) enum Destination {
 #[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
 enum Flow {
+    /// Waiting for the previous request.
+    PreviousRequest = 0,
     /// Send the end session command.
-    EndSession = 0,
+    EndSession = 1,
     /// Wait for idle to be returned.
     ///
     /// We must do this because the adapter will switch from SIO32 to SIO8.
-    WaitForIdle = 1,
+    WaitForIdle = 2,
 }
 
 #[derive(Clone, Copy)]
@@ -35,19 +37,27 @@ pub(in crate::driver) struct EndSession(u8);
 
 impl EndSession {
     pub(in crate::driver) fn new(destination: Destination) -> Self {
-        Self((destination as u8) << 4)
+        Self::from_raw_parts(destination, Flow::PreviousRequest)
+    }
+
+    fn from_raw_parts(destination: Destination, flow: Flow) -> Self {
+        Self(((destination as u8) << 4) | (flow as u8))
     }
 
     pub(in crate::driver) fn destination(self) -> Destination {
-        unsafe { transmute((self.0 & 0b0001_0000) >> 4) }
+        unsafe { transmute((self.0 & 0b1111_0000) >> 4) }
     }
 
     pub(in crate::driver) fn set_destination(self, destination: Destination) -> Self {
-        Self((self.0 & 0b1110_1111) | ((destination as u8) << 4))
+        Self((self.0 & 0b0000_1111) | ((destination as u8) << 4))
     }
 
     fn flow(self) -> Flow {
-        unsafe { transmute(self.0 & 0b0000_0001) }
+        unsafe { transmute(self.0 & 0b0000_1111) }
+    }
+
+    fn set_flow(self, flow: Flow) -> Self {
+        Self((self.0 & 0b1111_0000) | (flow as u8))
     }
 
     pub(in crate::driver) fn request(
@@ -56,6 +66,8 @@ impl EndSession {
         transfer_length: TransferLength,
     ) -> Request {
         match self.flow() {
+            // If we didn't have a previous request, we just send a single idle byte.
+            Flow::PreviousRequest => Request::new_idle(timer, transfer_length),
             Flow::EndSession => Request::new_packet(timer, transfer_length, Source::EndSession),
             Flow::WaitForIdle => Request::new_wait_for_idle(),
         }
@@ -63,7 +75,8 @@ impl EndSession {
 
     pub(in crate::driver) fn next(self) -> Option<Self> {
         match self.flow() {
-            Flow::EndSession => Some(Self((self.0 & 0b1111_1110) | (Flow::WaitForIdle as u8))),
+            Flow::PreviousRequest => Some(self.set_flow(Flow::EndSession)),
+            Flow::EndSession => Some(self.set_flow(Flow::WaitForIdle)),
             Flow::WaitForIdle => None,
         }
     }
@@ -117,15 +130,23 @@ mod tests {
     }
 
     #[test]
-    fn flow_end_session() {
+    fn flow_previous_request() {
         let end_session = EndSession::new(Destination::NotConnected);
+
+        assert_eq!(end_session.flow(), Flow::PreviousRequest);
+    }
+
+    #[test]
+    fn flow_end_session() {
+        let end_session = assert_some!(EndSession::new(Destination::NotConnected).next());
 
         assert_eq!(end_session.flow(), Flow::EndSession);
     }
 
     #[test]
     fn flow_wait_for_idle() {
-        let end_session = assert_some!(EndSession::new(Destination::NotConnected).next());
+        let end_session =
+            assert_some!(assert_some!(EndSession::new(Destination::NotConnected).next()).next());
 
         assert_eq!(end_session.flow(), Flow::WaitForIdle);
     }
@@ -136,7 +157,7 @@ mod tests {
 
         assert_eq!(
             format!("{end_session:?}"),
-            "EndSession { destination: NotConnected, flow: EndSession }"
+            "EndSession { destination: NotConnected, flow: PreviousRequest }"
         );
     }
 }

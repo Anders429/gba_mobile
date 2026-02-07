@@ -9,8 +9,8 @@ pub struct Pending {
 }
 
 impl Pending {
-    pub fn status(&self, engine: &Driver) -> Result<Option<LinkP2P>, Error> {
-        engine
+    pub fn status(&self, driver: &Driver) -> Result<Option<LinkP2P>, Error> {
+        driver
             .link_p2p_status(self.generation)
             .map(|finished| {
                 finished.then(|| LinkP2P {
@@ -18,5 +18,10 @@ impl Pending {
                 })
             })
             .map_err(|error| error.into())
+    }
+
+    /// Cancel this pending link.
+    pub fn cancel(self, driver: &mut Driver) {
+        driver.end_session(self.generation);
     }
 }

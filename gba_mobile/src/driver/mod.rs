@@ -182,6 +182,52 @@ impl Driver {
         }
     }
 
+    pub(crate) fn end_session(&mut self, generation: Generation) {
+        if generation != self.generation {
+            // This request came from an old connection. We should not honor it, since that old
+            // connection is already disconnected.
+            return;
+        }
+
+        let old_state = self.state.take();
+        self.state = match old_state {
+            State::NotConnected
+            | State::CommandError(_)
+            | State::RequestTimeout(_)
+            | State::RequestError(_) => State::NotConnected,
+            State::LinkingP2P {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            }
+            | State::P2P {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            } => State::EndSession {
+                adapter,
+                transfer_length,
+
+                request,
+                flow: flow::EndSession::new(flow::end_session::Destination::NotConnected),
+            },
+            State::EndSession {
+                adapter,
+                transfer_length,
+                request,
+                flow,
+            } => State::EndSession {
+                adapter,
+                transfer_length,
+
+                request,
+                flow: flow.set_destination(flow::end_session::Destination::NotConnected),
+            },
+        }
+    }
+
     pub fn vblank(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
@@ -364,18 +410,11 @@ impl Driver {
                                 }
                             }
                         },
-                        Err(_) => {
-                            // If we encounter an error while closing the session, we just move on
-                            // to whatever state we need to be in.
-                            self.state = match flow.destination() {
-                                flow::end_session::Destination::NotConnected => State::NotConnected,
-                                flow::end_session::Destination::LinkingP2P => State::LinkingP2P {
-                                    adapter: *adapter,
-                                    transfer_length: *transfer_length,
-                                    request: None,
-                                    flow: flow::LinkingP2P::BeginSession,
-                                },
-                            }
+                        Err(Either::Left(request_error)) => {
+                            self.state = State::RequestError(request_error)
+                        }
+                        Err(Either::Right(command_error)) => {
+                            self.state = State::CommandError(command_error)
                         }
                     }
                 }
