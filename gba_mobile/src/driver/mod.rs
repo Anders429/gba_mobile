@@ -81,7 +81,10 @@ impl Driver {
                 Timer::_3 => interrupt::Enable::TIMER3,
             };
             interrupt::ENABLE.write_volatile(
-                interrupt::Enable::VBLANK | timer_enable | interrupt::Enable::SERIAL,
+                interrupt::ENABLE.read_volatile()
+                    | interrupt::Enable::VBLANK
+                    | timer_enable
+                    | interrupt::Enable::SERIAL,
             );
         }
     }
