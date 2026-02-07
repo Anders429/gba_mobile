@@ -44,7 +44,7 @@ enum State {
 
         frame: u8,
     },
-    LinkingP2PError(command::Error),
+    CommandError(command::Error),
     RequestTimeout(request::Timeout),
     RequestError(request::Error),
 }
@@ -122,7 +122,7 @@ impl Driver {
             State::NotConnected => Err(error::link_p2p::Error::aborted()),
             State::LinkingP2P { .. } => Ok(false),
             State::P2P { .. } => Ok(true),
-            State::LinkingP2PError(error) => Err(error.clone().into()),
+            State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
         }
@@ -172,7 +172,7 @@ impl Driver {
                     *request = new_request;
                 }
             }
-            State::LinkingP2PError(_) => {}
+            State::CommandError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
         }
@@ -200,7 +200,7 @@ impl Driver {
                     .as_mut()
                     .map(|request| request.timer(*transfer_length));
             }
-            State::LinkingP2PError(_) => {}
+            State::CommandError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
         }
@@ -237,7 +237,7 @@ impl Driver {
                             self.state = State::RequestError(request_error)
                         }
                         Err(Either::Right(command_error)) => {
-                            self.state = State::LinkingP2PError(command_error)
+                            self.state = State::CommandError(command_error)
                         }
                     }
                 }
@@ -254,11 +254,13 @@ impl Driver {
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error)
                         }
-                        Err(Either::Right(command_error)) => todo!(),
+                        Err(Either::Right(command_error)) => {
+                            self.state = State::CommandError(command_error)
+                        }
                     }
                 }
             }
-            State::LinkingP2PError(_) => {}
+            State::CommandError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
         }
