@@ -1,4 +1,4 @@
-use crate::engine;
+use crate::driver;
 use core::{
     fmt,
     fmt::{Display, Formatter},
@@ -6,7 +6,7 @@ use core::{
 
 #[derive(Debug)]
 pub struct Error {
-    internal: engine::error::link_p2p::Error,
+    internal: driver::error::link_p2p::Error,
 }
 
 impl Display for Error {
@@ -21,8 +21,8 @@ impl core::error::Error for Error {
     }
 }
 
-impl From<engine::error::link_p2p::Error> for Error {
-    fn from(error: engine::error::link_p2p::Error) -> Self {
+impl From<driver::error::link_p2p::Error> for Error {
+    fn from(error: driver::error::link_p2p::Error) -> Self {
         Self { internal: error }
     }
 }

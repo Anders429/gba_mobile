@@ -8,7 +8,7 @@ use gba::prelude::*;
 use gba_mobile::Timer;
 
 #[unsafe(link_section = ".ewram")]
-static mut MOBILE_ENGINE: gba_mobile::Engine = gba_mobile::Engine::new(Timer::_0);
+static mut MOBILE_DRIVER: gba_mobile::Driver = gba_mobile::Driver::new(Timer::_0);
 
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
@@ -19,21 +19,21 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
 
 #[unsafe(link_section = ".iwram")]
 extern "C" fn irq_handler(bits: IrqBits) {
-    // To use gba_mobile, you must provide an interrupt handler that calls gba_mobile's interrupt
+    // To use gba_mobile, you must provide an interrupt handler that calls the driver's interrupt
     // handler functions.
     if bits.vblank() {
         unsafe {
-            MOBILE_ENGINE.vblank();
+            MOBILE_DRIVER.vblank();
         }
     }
     if bits.serial() {
         unsafe {
-            MOBILE_ENGINE.serial();
+            MOBILE_DRIVER.serial();
         }
     }
     if bits.timer0() {
         unsafe {
-            MOBILE_ENGINE.timer();
+            MOBILE_DRIVER.timer();
         }
     }
 }
@@ -55,14 +55,14 @@ pub fn main() {
     VBlankIntrWait();
 
     IME.write(false);
-    let pending_link = unsafe { MOBILE_ENGINE.link_p2p() };
+    let pending_link = unsafe { MOBILE_DRIVER.link_p2p() };
     IME.write(true);
 
     let status = loop {
         VBlankIntrWait();
 
         IME.write(false);
-        let status = unsafe { pending_link.status(&MOBILE_ENGINE) };
+        let status = unsafe { pending_link.status(&MOBILE_DRIVER) };
         IME.write(true);
 
         if let Ok(None) = status {

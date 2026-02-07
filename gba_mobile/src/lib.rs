@@ -9,12 +9,12 @@ extern crate alloc;
 
 pub mod link_p2p;
 
-mod engine;
+mod driver;
 mod generation;
 mod mmio;
 mod timer;
 
-pub use engine::Engine;
+pub use driver::Driver;
 pub use timer::Timer;
 
 use generation::Generation;
