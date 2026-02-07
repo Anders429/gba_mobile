@@ -18,6 +18,7 @@ use crate::{
 };
 use adapter::Adapter;
 use command::Command;
+use core::mem;
 use request::Request;
 use source::Source;
 
@@ -44,9 +45,24 @@ enum State {
 
         frame: u8,
     },
+
+    EndSession {
+        adapter: Adapter,
+        transfer_length: TransferLength,
+
+        request: Option<Request>,
+        flow: flow::EndSession,
+    },
+
     CommandError(command::Error),
     RequestTimeout(request::Timeout),
     RequestError(request::Error),
+}
+
+impl State {
+    fn take(&mut self) -> Self {
+        mem::replace(self, Self::NotConnected)
+    }
 }
 
 #[derive(Debug)]
@@ -93,16 +109,53 @@ impl Driver {
     /// Must take exclusive ownership over the serial registers and the timer registers related to
     /// the [`Timer`] used to construct this Engine.
     pub unsafe fn link_p2p(&mut self) -> link_p2p::Pending {
-        // TODO: Close any previous sessions.
-        self.enable_communication();
+        let old_state = self.state.take();
+        self.state = match old_state {
+            State::NotConnected
+            | State::CommandError(_)
+            | State::RequestTimeout(_)
+            | State::RequestError(_) => {
+                self.enable_communication();
+                State::LinkingP2P {
+                    adapter: Adapter::Blue,
+                    transfer_length: TransferLength::_8Bit,
 
-        self.state = State::LinkingP2P {
-            adapter: Adapter::Blue,
-            transfer_length: TransferLength::_8Bit,
+                    request: None,
+                    flow: flow::LinkingP2P::Waking,
+                }
+            }
+            State::LinkingP2P {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            }
+            | State::P2P {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            } => State::EndSession {
+                adapter,
+                transfer_length,
 
-            request: None,
-            flow: flow::LinkingP2P::Waking,
+                request,
+                flow: flow::EndSession::new(flow::end_session::Destination::LinkingP2P),
+            },
+            State::EndSession {
+                adapter,
+                transfer_length,
+                request,
+                flow,
+            } => State::EndSession {
+                adapter,
+                transfer_length,
+
+                request,
+                flow: flow.set_destination(flow::end_session::Destination::LinkingP2P),
+            },
         };
+
         self.generation = self.generation.increment();
 
         link_p2p::Pending {
@@ -122,6 +175,7 @@ impl Driver {
             State::NotConnected => Err(error::link_p2p::Error::aborted()),
             State::LinkingP2P { .. } => Ok(false),
             State::P2P { .. } => Ok(true),
+            State::EndSession { .. } => Ok(false),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
@@ -143,7 +197,6 @@ impl Driver {
                     }
                 } else {
                     // Schedule a new request.
-                    log::info!("Scheduling new request");
                     *request = Some(flow.request(self.timer, *transfer_length));
                 }
             }
@@ -172,6 +225,21 @@ impl Driver {
                     *request = new_request;
                 }
             }
+            State::EndSession {
+                transfer_length,
+                request,
+                flow,
+                ..
+            } => {
+                if let Some(request) = request {
+                    if let Err(timeout) = request.vblank(*transfer_length) {
+                        self.state = State::RequestTimeout(timeout);
+                    }
+                } else {
+                    // Schedule a new request.
+                    *request = Some(flow.request(self.timer, *transfer_length));
+                }
+            }
             State::CommandError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
@@ -192,6 +260,15 @@ impl Driver {
                     .map(|request| request.timer(*transfer_length));
             }
             State::P2P {
+                request,
+                transfer_length,
+                ..
+            } => {
+                request
+                    .as_mut()
+                    .map(|request| request.timer(*transfer_length));
+            }
+            State::EndSession {
                 request,
                 transfer_length,
                 ..
@@ -256,6 +333,49 @@ impl Driver {
                         }
                         Err(Either::Right(command_error)) => {
                             self.state = State::CommandError(command_error)
+                        }
+                    }
+                }
+            }
+            State::EndSession {
+                adapter,
+                transfer_length,
+                request: state_request,
+                flow,
+            } => {
+                if let Some(request) = state_request.take() {
+                    match request.serial(adapter, transfer_length, self.timer) {
+                        Ok(Some(next_request)) => *state_request = Some(next_request),
+                        Ok(None) => match flow.next() {
+                            Some(next_flow) => *flow = next_flow,
+                            None => {
+                                self.state = match flow.destination() {
+                                    flow::end_session::Destination::NotConnected => {
+                                        State::NotConnected
+                                    }
+                                    flow::end_session::Destination::LinkingP2P => {
+                                        State::LinkingP2P {
+                                            adapter: *adapter,
+                                            transfer_length: *transfer_length,
+                                            request: None,
+                                            flow: flow::LinkingP2P::BeginSession,
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        Err(_) => {
+                            // If we encounter an error while closing the session, we just move on
+                            // to whatever state we need to be in.
+                            self.state = match flow.destination() {
+                                flow::end_session::Destination::NotConnected => State::NotConnected,
+                                flow::end_session::Destination::LinkingP2P => State::LinkingP2P {
+                                    adapter: *adapter,
+                                    transfer_length: *transfer_length,
+                                    request: None,
+                                    flow: flow::LinkingP2P::BeginSession,
+                                },
+                            }
                         }
                     }
                 }

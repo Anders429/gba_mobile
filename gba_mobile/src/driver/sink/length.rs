@@ -12,6 +12,9 @@ pub(in crate::driver) enum Length {
 
     EnableSio32(bool),
     EnableSio32CommandError,
+
+    EndSession,
+    EndSessionCommandError,
 }
 
 impl Length {
@@ -54,6 +57,23 @@ impl Length {
                     Err((Error::CommandError(length), Command::EnableSio32))
                 }
             }
+
+            Self::EndSession => {
+                if let Some(nonzero_length) = NonZeroU16::new(length) {
+                    Err((Error::EndSession(nonzero_length), Command::EndSession))
+                } else {
+                    Ok(Either::Right(Parsed::EndSession))
+                }
+            }
+            Self::EndSessionCommandError => {
+                if length == 2 {
+                    Ok(Either::Left(Data::EndSessionCommandError(
+                        data::command_error::Data::Command,
+                    )))
+                } else {
+                    Err((Error::CommandError(length), Command::EndSession))
+                }
+            }
         }
     }
 }
@@ -63,6 +83,8 @@ pub(in crate::driver) enum Error {
     BeginSession(u16),
     EnableSio32(NonZeroU16),
 
+    EndSession(NonZeroU16),
+
     CommandError(u16),
 }
 
@@ -71,6 +93,9 @@ impl Display for Error {
         match self {
             Self::BeginSession(length) => write!(formatter, "received {length}; expected 8"),
             Self::EnableSio32(nonzero_length) => {
+                write!(formatter, "received {nonzero_length}; expected 0")
+            }
+            Self::EndSession(nonzero_length) => {
                 write!(formatter, "received {nonzero_length}; expected 0")
             }
             Self::CommandError(length) => write!(formatter, "received {length}; expected 2"),

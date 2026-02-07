@@ -7,6 +7,8 @@ use crate::driver::{Command, HANDSHAKE, sink};
 pub(in crate::driver) enum Source {
     BeginSession,
     EnableSio32,
+
+    EndSession,
 }
 
 impl Source {
@@ -14,6 +16,8 @@ impl Source {
         match self {
             Self::BeginSession => Command::BeginSession,
             Self::EnableSio32 => Command::Sio32Mode,
+
+            Self::EndSession => Command::EndSession,
         }
     }
 
@@ -21,6 +25,8 @@ impl Source {
         match self {
             Self::BeginSession => HANDSHAKE.len() as u8,
             Self::EnableSio32 => 1,
+
+            Self::EndSession => 0,
         }
     }
 
@@ -29,6 +35,8 @@ impl Source {
         match self {
             Self::BeginSession => HANDSHAKE.get(index as usize).copied().unwrap_or(0x00),
             Self::EnableSio32 => 0x01,
+
+            Self::EndSession => 0x00,
         }
     }
 
@@ -36,6 +44,8 @@ impl Source {
         match self {
             Self::BeginSession => sink::Command::BeginSession,
             Self::EnableSio32 => sink::Command::EnableSio32,
+
+            Self::EndSession => sink::Command::EndSession,
         }
     }
 }

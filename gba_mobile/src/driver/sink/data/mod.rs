@@ -16,6 +16,8 @@ pub(in crate::driver) enum Data {
     BeginSessionCommandError(command_error::Data),
 
     EnableSio32CommandError(command_error::Data),
+
+    EndSessionCommandError(command_error::Data),
 }
 
 impl Data {
@@ -58,7 +60,19 @@ impl Data {
                     Error::CommandError(error),
                     index,
                     unsafe { NonZeroU16::new_unchecked(2) },
-                    Command::BeginSession,
+                    Command::EnableSio32,
+                )),
+            },
+            Self::EndSessionCommandError(data) => match data.parse(byte) {
+                Ok(Either::Left(data)) => Ok(Either::Left(Self::EndSessionCommandError(data))),
+                Ok(Either::Right(command_error)) => {
+                    Ok(Either::Right(Parsed::EndSessionCommandError(command_error)))
+                }
+                Err((error, index)) => Err((
+                    Error::CommandError(error),
+                    index,
+                    unsafe { NonZeroU16::new_unchecked(2) },
+                    Command::EndSession,
                 )),
             },
         }

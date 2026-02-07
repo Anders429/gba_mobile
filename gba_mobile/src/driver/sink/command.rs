@@ -9,6 +9,8 @@ use core::{
 pub(in crate::driver) enum Command {
     BeginSession,
     EnableSio32,
+
+    EndSession,
 }
 
 impl Command {
@@ -28,6 +30,12 @@ impl Command {
                 driver::Command::CommandError => Ok(Length::EnableSio32CommandError),
                 _ => Err((Error::EnableSio32(command), self)),
             },
+
+            Self::EndSession => match command {
+                driver::Command::EndSession => Ok(Length::EndSession),
+                driver::Command::CommandError => Ok(Length::EndSessionCommandError),
+                _ => Err((Error::EndSession(command), self)),
+            },
         }
     }
 }
@@ -36,6 +44,8 @@ impl Command {
 pub(in crate::driver) enum Error {
     BeginSession(driver::Command),
     EnableSio32(driver::Command),
+
+    EndSession(driver::Command),
 }
 
 impl Error {
@@ -76,6 +86,12 @@ impl Display for Error {
                     driver::Command::Reset,
                     driver::Command::CommandError,
                 ],
+            ),
+
+            Self::EndSession(command) => Self::fmt_error(
+                formatter,
+                *command,
+                &[driver::Command::EndSession, driver::Command::CommandError],
             ),
         }
     }

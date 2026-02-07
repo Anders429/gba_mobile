@@ -11,6 +11,9 @@ pub(in crate::driver) enum Parsed {
 
     EnableSio32(bool),
     EnableSio32CommandError(command::Error),
+
+    EndSession,
+    EndSessionCommandError(command::Error),
 }
 
 impl Parsed {
@@ -21,6 +24,9 @@ impl Parsed {
             Self::EnableSio32(true) => driver::Command::Sio32Mode,
             Self::EnableSio32(false) => driver::Command::Reset,
             Self::EnableSio32CommandError(_) => driver::Command::CommandError,
+
+            Self::EndSession => driver::Command::EndSession,
+            Self::EndSessionCommandError(_) => driver::Command::CommandError,
         }
     }
 
@@ -30,6 +36,9 @@ impl Parsed {
             Self::BeginSessionCommandError(_) => Command::BeginSession,
             Self::EnableSio32(_) => Command::EnableSio32,
             Self::EnableSio32CommandError(_) => Command::EnableSio32,
+
+            Self::EndSession => Command::EndSession,
+            Self::EndSessionCommandError(_) => Command::EndSession,
         }
     }
 
@@ -41,6 +50,10 @@ impl Parsed {
             Self::EnableSio32(true) => Finished::TransferLength(TransferLength::_32Bit),
             Self::EnableSio32(false) => Finished::TransferLength(TransferLength::_8Bit),
             Self::EnableSio32CommandError(error) => Finished::CommandError(error),
+
+            // Ending the session will reset transfer length back to 8-bit mode.
+            Self::EndSession => Finished::TransferLength(TransferLength::_8Bit),
+            Self::EndSessionCommandError(error) => Finished::CommandError(error),
         }
     }
 }
