@@ -8,6 +8,7 @@ use core::{
 pub(in crate::driver) enum Timeout {
     Packet(packet::Timeout),
     WaitForIdle,
+    Idle,
 }
 
 impl Display for Timeout {
@@ -15,7 +16,8 @@ impl Display for Timeout {
         match self {
             Self::Packet(_) => formatter.write_str("timeout in packet communication"),
             Self::WaitForIdle => formatter
-                .write_str("timeout while waiting for the adapter to return an idle byte (0x4b)"),
+                .write_str("timeout while waiting for the adapter to return an idle byte (0xd2)"),
+            Self::Idle => formatter.write_str("timeout while waiting for idle response (0xd2)"),
         }
     }
 }
@@ -25,6 +27,7 @@ impl core::error::Error for Timeout {
         match self {
             Self::Packet(timeout) => Some(timeout),
             Self::WaitForIdle => None,
+            Self::Idle => None,
         }
     }
 }

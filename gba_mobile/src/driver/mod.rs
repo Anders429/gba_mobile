@@ -23,6 +23,7 @@ use source::Source;
 
 /// Handshake for beginning a session.
 const HANDSHAKE: [u8; 8] = [0x4e, 0x49, 0x4e, 0x54, 0x45, 0x4e, 0x44, 0x4f];
+const FRAMES_1_SECOND: u8 = 60;
 
 #[derive(Debug)]
 enum State {
@@ -34,7 +35,15 @@ enum State {
         request: Option<Request>,
         flow: flow::LinkingP2P,
     },
-    P2P,
+    P2P {
+        adapter: Adapter,
+        transfer_length: TransferLength,
+
+        request: Option<Request>,
+        flow: flow::P2P,
+
+        frame: u8,
+    },
     LinkingP2PError(command::Error),
     RequestTimeout(request::Timeout),
     RequestError(request::Error),
@@ -109,7 +118,7 @@ impl Driver {
         match &self.state {
             State::NotConnected => Err(error::link_p2p::Error::aborted()),
             State::LinkingP2P { .. } => Ok(false),
-            State::P2P => Ok(true),
+            State::P2P { .. } => Ok(true),
             State::LinkingP2PError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
@@ -135,7 +144,31 @@ impl Driver {
                     *request = Some(flow.request(self.timer, *transfer_length));
                 }
             }
-            State::P2P => todo!(),
+            State::P2P {
+                frame,
+                flow,
+                transfer_length,
+                request,
+                ..
+            } => {
+                if *frame >= FRAMES_1_SECOND {
+                    *flow = flow::P2P::IDLE;
+                    *frame = 0;
+                } else {
+                    *frame += 1;
+                }
+
+                if let Some(request) = request {
+                    if let Err(timeout) = request.vblank(*transfer_length) {
+                        self.state = State::RequestTimeout(timeout);
+                    }
+                } else {
+                    // Schedule a new request.
+                    let (new_flow, new_request) = flow.request(self.timer, *transfer_length);
+                    *flow = new_flow;
+                    *request = new_request;
+                }
+            }
             State::LinkingP2PError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
@@ -155,7 +188,15 @@ impl Driver {
                     .as_mut()
                     .map(|request| request.timer(*transfer_length));
             }
-            State::P2P => todo!(),
+            State::P2P {
+                request,
+                transfer_length,
+                ..
+            } => {
+                request
+                    .as_mut()
+                    .map(|request| request.timer(*transfer_length));
+            }
             State::LinkingP2PError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
@@ -177,7 +218,17 @@ impl Driver {
                         Ok(Some(next_request)) => *state_request = Some(next_request),
                         Ok(None) => match flow.next() {
                             Some(next_flow) => *flow = next_flow,
-                            None => self.state = State::P2P,
+                            None => {
+                                self.state = State::P2P {
+                                    adapter: *adapter,
+                                    transfer_length: *transfer_length,
+
+                                    request: None,
+                                    flow: flow::P2P::NONE,
+
+                                    frame: 0,
+                                }
+                            }
                         },
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error)
@@ -188,7 +239,22 @@ impl Driver {
                     }
                 }
             }
-            State::P2P => todo!(),
+            State::P2P {
+                request: state_request,
+                adapter,
+                transfer_length,
+                ..
+            } => {
+                if let Some(request) = state_request.take() {
+                    match request.serial(adapter, transfer_length, self.timer) {
+                        Ok(next_request) => *state_request = next_request,
+                        Err(Either::Left(request_error)) => {
+                            self.state = State::RequestError(request_error)
+                        }
+                        Err(Either::Right(command_error)) => todo!(),
+                    }
+                }
+            }
             State::LinkingP2PError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}

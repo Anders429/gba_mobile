@@ -26,10 +26,8 @@ const TIMER_400_MICROSECONDS: u16 = u16::MIN.wrapping_sub(7);
 #[derive(Debug)]
 pub(in crate::driver) enum Request {
     Packet(Packet),
-    WaitForIdle {
-        // TODO: Separate this all out into another module?
-        frame: u8,
-    },
+    WaitForIdle { frame: u8 },
+    Idle { frame: u8 },
 }
 
 impl Request {
@@ -44,6 +42,11 @@ impl Request {
 
     pub(in crate::driver) fn new_wait_for_idle() -> Self {
         Self::WaitForIdle { frame: 0 }
+    }
+
+    pub(in crate::driver) fn new_idle(timer: Timer, transfer_length: TransferLength) -> Self {
+        schedule_timer(timer, transfer_length);
+        Self::Idle { frame: 0 }
     }
 
     pub(in crate::driver) fn vblank(
@@ -89,6 +92,14 @@ impl Request {
                     Ok(())
                 }
             }
+            Self::Idle { frame } => {
+                if *frame > FRAMES_3_SECONDS {
+                    Err(Timeout::Idle)
+                } else {
+                    *frame += 1;
+                    Ok(())
+                }
+            }
         }
     }
 
@@ -99,6 +110,15 @@ impl Request {
                 schedule_serial(transfer_length);
             }
             Self::WaitForIdle { .. } => {}
+            Self::Idle { .. } => {
+                match transfer_length {
+                    TransferLength::_8Bit => unsafe { SIODATA8.write_volatile(0x4b) },
+                    TransferLength::_32Bit => unsafe {
+                        SIODATA32.write_volatile(0x4b_4b_4b_4b);
+                    },
+                }
+                schedule_serial(transfer_length);
+            }
         }
     }
 
@@ -144,6 +164,24 @@ impl Request {
                         Ok(None)
                     } else {
                         Ok(Some(self))
+                    }
+                }
+            },
+            Self::Idle { .. } => match transfer_length {
+                TransferLength::_8Bit => {
+                    let byte = unsafe { SIODATA8.read_volatile() };
+                    if byte == 0xd2 {
+                        Ok(None)
+                    } else {
+                        Err(Either::Left(Error::NotIdle8(byte)))
+                    }
+                }
+                TransferLength::_32Bit => {
+                    let bytes = unsafe { SIODATA32.read_volatile() };
+                    if bytes == 0xd2_d2_d2_d2 {
+                        Ok(None)
+                    } else {
+                        Err(Either::Left(Error::NotIdle32(bytes)))
                     }
                 }
             },
