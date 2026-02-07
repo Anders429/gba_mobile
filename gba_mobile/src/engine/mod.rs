@@ -10,7 +10,7 @@ mod source;
 use either::Either;
 
 use crate::{
-    Timer, link_p2p,
+    Generation, Timer, link_p2p,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -44,6 +44,7 @@ enum State {
 pub struct Engine {
     state: State,
     timer: Timer,
+    generation: Generation,
 }
 
 impl Engine {
@@ -52,6 +53,7 @@ impl Engine {
         Self {
             state: State::NotConnected,
             timer,
+            generation: Generation::new(),
         }
     }
 
@@ -89,11 +91,21 @@ impl Engine {
             request: None,
             flow: flow::LinkingP2P::Waking,
         };
+        self.generation = self.generation.increment();
 
-        link_p2p::Pending {}
+        link_p2p::Pending {
+            generation: self.generation,
+        }
     }
 
-    pub(crate) fn link_p2p_status(&self) -> Result<bool, error::link_p2p::Error> {
+    pub(crate) fn link_p2p_status(
+        &self,
+        generation: Generation,
+    ) -> Result<bool, error::link_p2p::Error> {
+        if generation != self.generation {
+            return Err(error::link_p2p::Error::superseded());
+        }
+
         match &self.state {
             State::NotConnected => Err(error::link_p2p::Error::aborted()),
             State::LinkingP2P { .. } => Ok(false),

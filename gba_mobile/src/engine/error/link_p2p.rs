@@ -15,6 +15,12 @@ impl Error {
             kind: Kind::Aborted,
         }
     }
+
+    pub(in crate::engine) fn superseded() -> Self {
+        Self {
+            kind: Kind::Superseded,
+        }
+    }
 }
 
 impl Display for Error {
@@ -59,6 +65,7 @@ enum Kind {
     Timeout(request::Timeout),
     Command(command::Error),
     Aborted,
+    Superseded,
 }
 
 impl Display for Kind {
@@ -70,6 +77,7 @@ impl Display for Kind {
             Self::Timeout(_) => formatter.write_str("the request timed out"),
             Self::Command(_) => formatter.write_str("the adapter responded with an error"),
             Self::Aborted => formatter.write_str("the link attempt was aborted"),
+            Self::Superseded => formatter.write_str("the link attempt was superseded"),
         }
     }
 }
@@ -81,6 +89,7 @@ impl core::error::Error for Kind {
             Self::Timeout(timeout) => Some(timeout),
             Self::Command(error) => Some(error),
             Self::Aborted => None,
+            Self::Superseded => None,
         }
     }
 }
