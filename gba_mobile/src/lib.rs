@@ -7,7 +7,7 @@
 #[cfg(test)]
 extern crate alloc;
 
-pub mod link_p2p;
+pub mod link;
 
 mod driver;
 mod generation;

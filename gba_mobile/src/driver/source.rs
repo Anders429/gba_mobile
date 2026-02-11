@@ -8,6 +8,8 @@ pub(in crate::driver) enum Source {
     BeginSession,
     EnableSio32,
 
+    WaitForCall,
+
     EndSession,
 }
 
@@ -17,6 +19,8 @@ impl Source {
             Self::BeginSession => Command::BeginSession,
             Self::EnableSio32 => Command::Sio32Mode,
 
+            Self::WaitForCall => Command::WaitForTelephoneCall,
+
             Self::EndSession => Command::EndSession,
         }
     }
@@ -25,6 +29,8 @@ impl Source {
         match self {
             Self::BeginSession => HANDSHAKE.len() as u8,
             Self::EnableSio32 => 1,
+
+            Self::WaitForCall => 0,
 
             Self::EndSession => 0,
         }
@@ -36,6 +42,8 @@ impl Source {
             Self::BeginSession => HANDSHAKE.get(index as usize).copied().unwrap_or(0x00),
             Self::EnableSio32 => 0x01,
 
+            Self::WaitForCall => 0x00,
+
             Self::EndSession => 0x00,
         }
     }
@@ -44,6 +52,8 @@ impl Source {
         match self {
             Self::BeginSession => sink::Command::BeginSession,
             Self::EnableSio32 => sink::Command::EnableSio32,
+
+            Self::WaitForCall => sink::Command::WaitForCall,
 
             Self::EndSession => sink::Command::EndSession,
         }

@@ -55,7 +55,7 @@ pub fn main() {
     VBlankIntrWait();
 
     IME.write(false);
-    let pending_link = unsafe { MOBILE_DRIVER.link_p2p() };
+    let pending_link = unsafe { MOBILE_DRIVER.link() };
     IME.write(true);
 
     let status = loop {
@@ -72,6 +72,12 @@ pub fn main() {
     };
 
     log::info!("link connection status: {status:?}");
+
+    if let Ok(Some(mut link)) = status {
+        IME.write(false);
+        let _ = link.accept(unsafe { &mut MOBILE_DRIVER });
+        IME.write(true);
+    }
 
     loop {
         VBlankIntrWait();

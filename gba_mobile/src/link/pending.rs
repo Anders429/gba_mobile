@@ -1,6 +1,6 @@
 use crate::{
     Driver, Generation,
-    link_p2p::{Error, LinkP2P},
+    link::{Error, Link},
 };
 
 #[derive(Debug)]
@@ -9,11 +9,11 @@ pub struct Pending {
 }
 
 impl Pending {
-    pub fn status(&self, driver: &Driver) -> Result<Option<LinkP2P>, Error> {
+    pub fn status(&self, driver: &Driver) -> Result<Option<Link>, Error> {
         driver
-            .link_p2p_status(self.generation)
+            .link_status(self.generation)
             .map(|finished| {
-                finished.then(|| LinkP2P {
+                finished.then(|| Link {
                     generation: self.generation,
                 })
             })

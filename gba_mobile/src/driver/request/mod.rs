@@ -10,15 +10,13 @@ pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
     Timer,
-    driver::{Adapter, Source, command},
+    driver::{Adapter, Source, command, frames},
     mmio::{
         serial::{self, SIOCNT, SIODATA8, SIODATA32, TransferLength},
         timer::{self, TM0CNT, TM0VAL, TM1CNT, TM1VAL, TM2CNT, TM2VAL, TM3CNT, TM3VAL},
     },
 };
 
-const FRAMES_100_MILLISECONDS: u8 = 7;
-const FRAMES_3_SECONDS: u8 = 180;
 // These are at a rate of ~60us per tick.
 const TIMER_200_MICROSECONDS: u16 = u16::MIN.wrapping_sub(4);
 const TIMER_400_MICROSECONDS: u16 = u16::MIN.wrapping_sub(7);
@@ -66,7 +64,7 @@ impl Request {
                     step: packet::receive::Step32::MagicByte { frame, .. },
                     ..
                 } = packet
-                    && *frame % FRAMES_100_MILLISECONDS as u16 == 0
+                    && *frame % frames::ONE_HUNDRED_MILLISECONDS as u16 == 0
                 {
                     packet.push();
                     schedule_serial(transfer_length);
@@ -75,7 +73,7 @@ impl Request {
                 Ok(())
             }
             Self::WaitForIdle { frame } => {
-                if *frame % FRAMES_100_MILLISECONDS == 0 {
+                if *frame % frames::ONE_HUNDRED_MILLISECONDS == 0 {
                     // Send a new idle byte.
                     match transfer_length {
                         TransferLength::_8Bit => unsafe { SIODATA8.write_volatile(0x4b) },
@@ -85,7 +83,7 @@ impl Request {
                     }
                     schedule_serial(transfer_length);
                 }
-                if *frame > FRAMES_3_SECONDS {
+                if *frame > frames::THREE_SECONDS {
                     Err(Timeout::WaitForIdle)
                 } else {
                     *frame += 1;
@@ -93,7 +91,7 @@ impl Request {
                 }
             }
             Self::Idle { frame } => {
-                if *frame > FRAMES_3_SECONDS {
+                if *frame > frames::THREE_SECONDS {
                     Err(Timeout::Idle)
                 } else {
                     *frame += 1;

@@ -3,6 +3,7 @@ pub(crate) mod error;
 mod adapter;
 mod command;
 mod flow;
+mod frames;
 mod request;
 mod sink;
 mod source;
@@ -10,7 +11,7 @@ mod source;
 use either::Either;
 
 use crate::{
-    Generation, Timer, link_p2p,
+    Generation, Timer, link,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -24,26 +25,31 @@ use source::Source;
 
 /// Handshake for beginning a session.
 const HANDSHAKE: [u8; 8] = [0x4e, 0x49, 0x4e, 0x54, 0x45, 0x4e, 0x44, 0x4f];
-const FRAMES_1_SECOND: u8 = 60;
 
 #[derive(Debug)]
 enum State {
     NotConnected,
-    LinkingP2P {
+    Linking {
         adapter: Adapter,
         transfer_length: TransferLength,
 
         request: Option<Request>,
-        flow: flow::LinkingP2P,
+        flow: flow::Linking,
     },
-    P2P {
+    Linked {
         adapter: Adapter,
         transfer_length: TransferLength,
 
         request: Option<Request>,
-        flow: flow::P2P,
+        flow: flow::Linked,
+    },
 
-        frame: u8,
+    WaitingForCall {
+        adapter: Adapter,
+        transfer_length: TransferLength,
+
+        request: Option<Request>,
+        flow: flow::WaitingForCall,
     },
 
     EndSession {
@@ -108,7 +114,7 @@ impl Driver {
     /// # Safety
     /// Must take exclusive ownership over the serial registers and the timer registers related to
     /// the [`Timer`] used to construct this Engine.
-    pub unsafe fn link_p2p(&mut self) -> link_p2p::Pending {
+    pub unsafe fn link(&mut self) -> link::Pending {
         let old_state = self.state.take();
         self.state = match old_state {
             State::NotConnected
@@ -116,21 +122,27 @@ impl Driver {
             | State::RequestTimeout(_)
             | State::RequestError(_) => {
                 self.enable_communication();
-                State::LinkingP2P {
+                State::Linking {
                     adapter: Adapter::Blue,
                     transfer_length: TransferLength::_8Bit,
 
                     request: None,
-                    flow: flow::LinkingP2P::Waking,
+                    flow: flow::Linking::Waking,
                 }
             }
-            State::LinkingP2P {
+            State::Linking {
                 adapter,
                 transfer_length,
                 request,
                 ..
             }
-            | State::P2P {
+            | State::Linked {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            }
+            | State::WaitingForCall {
                 adapter,
                 transfer_length,
                 request,
@@ -158,28 +170,63 @@ impl Driver {
 
         self.generation = self.generation.increment();
 
-        link_p2p::Pending {
+        link::Pending {
             generation: self.generation,
         }
     }
 
-    pub(crate) fn link_p2p_status(
-        &self,
-        generation: Generation,
-    ) -> Result<bool, error::link_p2p::Error> {
+    pub(crate) fn link_status(&self, generation: Generation) -> Result<bool, error::link::Error> {
         if generation != self.generation {
-            return Err(error::link_p2p::Error::superseded());
+            return Err(error::link::Error::superseded());
         }
 
         match &self.state {
-            State::NotConnected => Err(error::link_p2p::Error::aborted()),
-            State::LinkingP2P { .. } => Ok(false),
-            State::P2P { .. } => Ok(true),
-            State::EndSession { .. } => Ok(false),
+            State::NotConnected => Err(error::link::Error::aborted()),
+            State::Linking { .. } => Ok(false),
+            State::Linked { .. } => Ok(true),
+            State::WaitingForCall { .. } => Ok(true),
+            State::EndSession { .. } => Err(error::link::Error::aborted()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
         }
+    }
+
+    pub(crate) fn wait_for_call(
+        &mut self,
+        generation: Generation,
+    ) -> Result<(), error::link::Error> {
+        if generation != self.generation {
+            return Err(error::link::Error::superseded());
+        }
+
+        let old_state = self.state.take();
+        self.state = match old_state {
+            State::Linked {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            }
+            | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            } => Ok(State::WaitingForCall {
+                adapter,
+                transfer_length,
+                request,
+                flow: flow::WaitingForCall::new(),
+            }),
+            State::Linking { .. } => Err(error::link::Error::superseded()),
+            State::NotConnected | State::EndSession { .. } => Err(error::link::Error::aborted()),
+            State::CommandError(error) => Err(error.clone().into()),
+            State::RequestTimeout(timeout) => Err(timeout.clone().into()),
+            State::RequestError(error) => Err(error.clone().into()),
+        }?;
+
+        Ok(())
     }
 
     pub(crate) fn end_session(&mut self, generation: Generation) {
@@ -195,13 +242,19 @@ impl Driver {
             | State::CommandError(_)
             | State::RequestTimeout(_)
             | State::RequestError(_) => State::NotConnected,
-            State::LinkingP2P {
+            State::Linking {
                 adapter,
                 transfer_length,
                 request,
                 ..
             }
-            | State::P2P {
+            | State::Linked {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            }
+            | State::WaitingForCall {
                 adapter,
                 transfer_length,
                 request,
@@ -231,7 +284,7 @@ impl Driver {
     pub fn vblank(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
-            State::LinkingP2P {
+            State::Linking {
                 transfer_length,
                 request,
                 flow,
@@ -246,20 +299,29 @@ impl Driver {
                     *request = Some(flow.request(self.timer, *transfer_length));
                 }
             }
-            State::P2P {
-                frame,
+            State::Linked {
                 flow,
                 transfer_length,
                 request,
                 ..
             } => {
-                if *frame >= FRAMES_1_SECOND {
-                    *flow = flow::P2P::IDLE;
-                    *frame = 0;
+                if let Some(request) = request {
+                    if let Err(timeout) = request.vblank(*transfer_length) {
+                        self.state = State::RequestTimeout(timeout);
+                    }
                 } else {
-                    *frame += 1;
+                    // Schedule a new request.
+                    let (new_flow, new_request) = flow.request(self.timer, *transfer_length);
+                    *flow = new_flow;
+                    *request = new_request;
                 }
-
+            }
+            State::WaitingForCall {
+                flow,
+                transfer_length,
+                request,
+                ..
+            } => {
                 if let Some(request) = request {
                     if let Err(timeout) = request.vblank(*transfer_length) {
                         self.state = State::RequestTimeout(timeout);
@@ -296,7 +358,7 @@ impl Driver {
         self.timer.stop();
         match &mut self.state {
             State::NotConnected => {}
-            State::LinkingP2P {
+            State::Linking {
                 request,
                 transfer_length,
                 ..
@@ -305,7 +367,16 @@ impl Driver {
                     .as_mut()
                     .map(|request| request.timer(*transfer_length));
             }
-            State::P2P {
+            State::Linked {
+                request,
+                transfer_length,
+                ..
+            } => {
+                request
+                    .as_mut()
+                    .map(|request| request.timer(*transfer_length));
+            }
+            State::WaitingForCall {
                 request,
                 transfer_length,
                 ..
@@ -332,7 +403,7 @@ impl Driver {
     pub fn serial(&mut self) {
         match &mut self.state {
             State::NotConnected => {}
-            State::LinkingP2P {
+            State::Linking {
                 request: state_request,
                 adapter,
                 transfer_length,
@@ -345,14 +416,12 @@ impl Driver {
                         Ok(None) => match flow.next() {
                             Some(next_flow) => *flow = next_flow,
                             None => {
-                                self.state = State::P2P {
+                                self.state = State::Linked {
                                     adapter: *adapter,
                                     transfer_length: *transfer_length,
 
                                     request: None,
-                                    flow: flow::P2P::NONE,
-
-                                    frame: 0,
+                                    flow: flow::Linked::new(),
                                 }
                             }
                         },
@@ -365,7 +434,7 @@ impl Driver {
                     }
                 }
             }
-            State::P2P {
+            State::Linked {
                 request: state_request,
                 adapter,
                 transfer_length,
@@ -378,6 +447,31 @@ impl Driver {
                             self.state = State::RequestError(request_error)
                         }
                         Err(Either::Right(command_error)) => {
+                            self.state = State::CommandError(command_error)
+                        }
+                    }
+                }
+            }
+            State::WaitingForCall {
+                request: state_request,
+                adapter,
+                transfer_length,
+                ..
+            } => {
+                if let Some(request) = state_request.take() {
+                    match request.serial(adapter, transfer_length, self.timer) {
+                        Ok(Some(next_request)) => *state_request = Some(next_request),
+                        Ok(None) => todo!("connection is established"),
+                        Err(Either::Left(request_error)) => {
+                            self.state = State::RequestError(request_error)
+                        }
+                        Err(Either::Right(command::Error::WaitForTelephoneCall(
+                            command::error::wait_for_telephone_call::Error::NoCallReceived,
+                        ))) => {
+                            // We don't set any new request here. The state's flow will set a new packet through vblank.
+                        }
+                        Err(Either::Right(command_error)) => {
+                            // TODO: How do I set this to only be relevant to the pending connection, and not error the link out completely?
                             self.state = State::CommandError(command_error)
                         }
                     }
@@ -399,14 +493,12 @@ impl Driver {
                                     flow::end_session::Destination::NotConnected => {
                                         State::NotConnected
                                     }
-                                    flow::end_session::Destination::LinkingP2P => {
-                                        State::LinkingP2P {
-                                            adapter: *adapter,
-                                            transfer_length: *transfer_length,
-                                            request: None,
-                                            flow: flow::LinkingP2P::BeginSession,
-                                        }
-                                    }
+                                    flow::end_session::Destination::LinkingP2P => State::Linking {
+                                        adapter: *adapter,
+                                        transfer_length: *transfer_length,
+                                        request: None,
+                                        flow: flow::Linking::BeginSession,
+                                    },
                                 }
                             }
                         },

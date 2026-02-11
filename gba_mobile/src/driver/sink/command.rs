@@ -10,6 +10,8 @@ pub(in crate::driver) enum Command {
     BeginSession,
     EnableSio32,
 
+    WaitForCall,
+
     EndSession,
 }
 
@@ -31,6 +33,12 @@ impl Command {
                 _ => Err((Error::EnableSio32(command), self)),
             },
 
+            Self::WaitForCall => match command {
+                driver::Command::WaitForTelephoneCall => Ok(Length::WaitForCall),
+                driver::Command::CommandError => Ok(Length::WaitForCallCommandError),
+                _ => Err((Error::WaitForCall(command), self)),
+            },
+
             Self::EndSession => match command {
                 driver::Command::EndSession => Ok(Length::EndSession),
                 driver::Command::CommandError => Ok(Length::EndSessionCommandError),
@@ -44,6 +52,8 @@ impl Command {
 pub(in crate::driver) enum Error {
     BeginSession(driver::Command),
     EnableSio32(driver::Command),
+
+    WaitForCall(driver::Command),
 
     EndSession(driver::Command),
 }
@@ -84,6 +94,15 @@ impl Display for Error {
                 &[
                     driver::Command::Sio32Mode,
                     driver::Command::Reset,
+                    driver::Command::CommandError,
+                ],
+            ),
+
+            Self::WaitForCall(command) => Self::fmt_error(
+                formatter,
+                *command,
+                &[
+                    driver::Command::WaitForTelephoneCall,
                     driver::Command::CommandError,
                 ],
             ),

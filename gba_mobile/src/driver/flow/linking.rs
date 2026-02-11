@@ -6,14 +6,14 @@ use crate::{
 
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
-pub(in crate::driver) enum LinkingP2P {
+pub(in crate::driver) enum Linking {
     Waking,
     BeginSession,
     Sio32,
     WaitForIdle,
 }
 
-impl LinkingP2P {
+impl Linking {
     pub(in crate::driver) fn request(
         self,
         timer: Timer,

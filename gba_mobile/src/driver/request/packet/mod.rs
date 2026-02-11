@@ -7,17 +7,14 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::FRAMES_3_SECONDS;
 use crate::{
-    driver::{Adapter, Command, Source, command, sink},
+    driver::{Adapter, Command, Source, command, frames, sink},
     mmio::serial::{SIOCNT, SIODATA8, SIODATA32, TransferLength},
 };
 use core::num::{NonZeroU8, NonZeroU16};
 use either::Either;
 
 pub(in crate::driver) const MAX_RETRIES: u8 = 5;
-
-const FRAMES_15_SECONDS: u16 = 900;
 
 /// In-progress communication.
 #[derive(Debug)]
@@ -102,7 +99,7 @@ impl Packet {
         | Self::Receive32 { frame, .. }
         | Self::Receive8Error { frame, .. }
         | Self::Receive32Error { frame, .. }) = self;
-        if *frame > FRAMES_3_SECONDS {
+        if *frame > frames::THREE_SECONDS {
             return Err(Timeout::Serial);
         } else {
             *frame += 1;
@@ -121,7 +118,7 @@ impl Packet {
             ..
         } = self
         {
-            if *step_frame > FRAMES_15_SECONDS {
+            if *step_frame > frames::FIFTEEN_SECONDS {
                 return Err(Timeout::Response);
             }
             *step_frame += 1;
