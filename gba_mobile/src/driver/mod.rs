@@ -42,6 +42,9 @@ enum State {
 
         request: Option<Request>,
         flow: flow::Linked,
+
+        call_generation: Generation,
+        call_error: Option<command::Error>,
     },
 
     WaitingForCall {
@@ -50,6 +53,8 @@ enum State {
 
         request: Option<Request>,
         flow: flow::WaitingForCall,
+
+        call_generation: Generation,
     },
 
     EndSession {
@@ -181,11 +186,11 @@ impl Driver {
         }
 
         match &self.state {
-            State::NotConnected => Err(error::link::Error::aborted()),
+            State::NotConnected => Err(error::link::Error::closed()),
             State::Linking { .. } => Ok(false),
             State::Linked { .. } => Ok(true),
             State::WaitingForCall { .. } => Ok(true),
-            State::EndSession { .. } => Err(error::link::Error::aborted()),
+            State::EndSession { .. } => Err(error::link::Error::closed()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
@@ -195,38 +200,84 @@ impl Driver {
     pub(crate) fn wait_for_call(
         &mut self,
         generation: Generation,
-    ) -> Result<(), error::link::Error> {
+    ) -> Result<Generation, error::link::Error> {
         if generation != self.generation {
             return Err(error::link::Error::superseded());
         }
 
         let old_state = self.state.take();
-        self.state = match old_state {
+        let (call_generation, new_state) = match old_state {
             State::Linked {
                 adapter,
                 transfer_length,
                 request,
+                call_generation,
                 ..
             }
             | State::WaitingForCall {
                 adapter,
                 transfer_length,
                 request,
+                call_generation,
                 ..
-            } => Ok(State::WaitingForCall {
-                adapter,
-                transfer_length,
-                request,
-                flow: flow::WaitingForCall::new(),
-            }),
+            } => {
+                let new_call_generation = call_generation.increment();
+                Ok((
+                    new_call_generation,
+                    State::WaitingForCall {
+                        adapter,
+                        transfer_length,
+
+                        request,
+                        flow: flow::WaitingForCall::new(),
+
+                        call_generation: new_call_generation,
+                    },
+                ))
+            }
             State::Linking { .. } => Err(error::link::Error::superseded()),
-            State::NotConnected | State::EndSession { .. } => Err(error::link::Error::aborted()),
+            State::NotConnected | State::EndSession { .. } => Err(error::link::Error::closed()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
         }?;
+        self.state = new_state;
 
-        Ok(())
+        Ok(call_generation)
+    }
+
+    pub(crate) fn p2p_status(
+        &self,
+        generation: Generation,
+        call_generation: Generation,
+    ) -> Result<bool, error::p2p::Error> {
+        if generation != self.generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::NotConnected => Err(error::link::Error::closed().into()),
+            State::Linking { .. } => Err(error::link::Error::superseded().into()),
+            State::Linked {
+                call_generation: current_call_generation,
+                call_error: Some(error),
+                ..
+            } if call_generation == *current_call_generation => Err(error.clone().into()),
+            State::Linked {
+                call_generation: current_call_generation,
+                ..
+            } if call_generation == *current_call_generation => Err(error::p2p::Error::closed()),
+            State::Linked { .. } => Err(error::p2p::Error::superseded()),
+            State::WaitingForCall {
+                call_generation: current_call_generation,
+                ..
+            } if call_generation == *current_call_generation => Ok(false),
+            State::WaitingForCall { .. } => Err(error::p2p::Error::superseded()),
+            State::EndSession { .. } => Err(error::link::Error::closed().into()),
+            State::CommandError(error) => Err(error::link::Error::from(error.clone()).into()),
+            State::RequestTimeout(timeout) => Err(error::link::Error::from(timeout.clone()).into()),
+            State::RequestError(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
     }
 
     pub(crate) fn end_session(&mut self, generation: Generation) {
@@ -422,6 +473,9 @@ impl Driver {
 
                                     request: None,
                                     flow: flow::Linked::new(),
+
+                                    call_generation: Generation::new(),
+                                    call_error: None,
                                 }
                             }
                         },
@@ -456,6 +510,7 @@ impl Driver {
                 request: state_request,
                 adapter,
                 transfer_length,
+                call_generation,
                 ..
             } => {
                 if let Some(request) = state_request.take() {
@@ -471,8 +526,14 @@ impl Driver {
                             // We don't set any new request here. The state's flow will set a new packet through vblank.
                         }
                         Err(Either::Right(command_error)) => {
-                            // TODO: How do I set this to only be relevant to the pending connection, and not error the link out completely?
-                            self.state = State::CommandError(command_error)
+                            self.state = State::Linked {
+                                adapter: *adapter,
+                                transfer_length: *transfer_length,
+                                request: None,
+                                flow: flow::Linked::new(),
+                                call_generation: *call_generation,
+                                call_error: Some(command_error),
+                            };
                         }
                     }
                 }

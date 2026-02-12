@@ -75,8 +75,25 @@ pub fn main() {
 
     if let Ok(Some(mut link)) = status {
         IME.write(false);
-        let _ = link.accept(unsafe { &mut MOBILE_DRIVER });
+        let pending_p2p = link
+            .accept(unsafe { &mut MOBILE_DRIVER })
+            .expect("p2p connection failed");
         IME.write(true);
+
+        let p2p_status = loop {
+            VBlankIntrWait();
+
+            IME.write(false);
+            let status = unsafe { pending_p2p.status(&MOBILE_DRIVER) };
+            IME.write(true);
+
+            if let Ok(None) = status {
+                continue;
+            }
+            break status;
+        };
+
+        log::info!("p2p connection status: {p2p_status:?}");
     }
 
     loop {

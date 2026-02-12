@@ -1,8 +1,9 @@
-use crate::driver::{command, request};
 use core::{
     fmt,
     fmt::{Display, Formatter},
 };
+
+use crate::driver::{command, error::link};
 
 #[derive(Debug)]
 pub(crate) struct Error {
@@ -33,18 +34,10 @@ impl core::error::Error for Error {
     }
 }
 
-impl From<request::Error> for Error {
-    fn from(error: request::Error) -> Self {
+impl From<link::Error> for Error {
+    fn from(error: link::Error) -> Self {
         Self {
-            kind: Kind::Request(error),
-        }
-    }
-}
-
-impl From<request::Timeout> for Error {
-    fn from(timeout: request::Timeout) -> Self {
-        Self {
-            kind: Kind::Timeout(timeout),
+            kind: Kind::Link(error),
         }
     }
 }
@@ -59,23 +52,21 @@ impl From<command::Error> for Error {
 
 #[derive(Debug)]
 enum Kind {
-    Request(request::Error),
-    Timeout(request::Timeout),
     Command(command::Error),
     Closed,
     Superseded,
+
+    Link(link::Error),
 }
 
 impl Display for Kind {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::Request(_) => {
-                formatter.write_str("an error occurred while processing the request")
-            }
-            Self::Timeout(_) => formatter.write_str("the request timed out"),
             Self::Command(_) => formatter.write_str("the adapter responded with an error"),
-            Self::Closed => formatter.write_str("the link connection was closed"),
-            Self::Superseded => formatter.write_str("the link connection was superseded"),
+            Self::Closed => formatter.write_str("the connection was closed"),
+            Self::Superseded => formatter.write_str("the connection attempt was superseded"),
+
+            Self::Link(_) => formatter.write_str("link connection error"),
         }
     }
 }
@@ -83,11 +74,11 @@ impl Display for Kind {
 impl core::error::Error for Kind {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::Request(error) => Some(error),
-            Self::Timeout(timeout) => Some(timeout),
             Self::Command(error) => Some(error),
             Self::Closed => None,
             Self::Superseded => None,
+
+            Self::Link(error) => Some(error),
         }
     }
 }

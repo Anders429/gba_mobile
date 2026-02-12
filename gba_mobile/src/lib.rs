@@ -8,6 +8,7 @@
 extern crate alloc;
 
 pub mod link;
+pub mod p2p;
 
 mod driver;
 mod generation;
