@@ -9,6 +9,7 @@ extern crate alloc;
 
 pub mod link;
 pub mod p2p;
+pub mod phone_number;
 
 mod driver;
 mod generation;
@@ -16,6 +17,7 @@ mod mmio;
 mod timer;
 
 pub use driver::Driver;
+pub use phone_number::PhoneNumber;
 pub use timer::Timer;
 
 use generation::Generation;

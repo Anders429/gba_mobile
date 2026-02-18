@@ -18,6 +18,7 @@ pub(in crate::driver) enum Data {
     EnableSio32CommandError(command_error::Data),
 
     WaitForCallCommandError(command_error::Data),
+    CallCommandError(command_error::Data),
 
     EndSessionCommandError(command_error::Data),
 }
@@ -75,6 +76,18 @@ impl Data {
                     index,
                     unsafe { NonZeroU16::new_unchecked(2) },
                     Command::WaitForCall,
+                )),
+            },
+            Self::CallCommandError(data) => match data.parse(byte) {
+                Ok(Either::Left(data)) => Ok(Either::Left(Self::CallCommandError(data))),
+                Ok(Either::Right(command_error)) => {
+                    Ok(Either::Right(Parsed::CallCommandError(command_error)))
+                }
+                Err((error, index)) => Err((
+                    Error::CommandError(error),
+                    index,
+                    unsafe { NonZeroU16::new_unchecked(2) },
+                    Command::Call,
                 )),
             },
             Self::EndSessionCommandError(data) => match data.parse(byte) {

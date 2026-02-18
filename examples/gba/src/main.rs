@@ -4,6 +4,8 @@
 #![no_main]
 #![allow(static_mut_refs)]
 
+use core::net::Ipv4Addr;
+
 use gba::prelude::*;
 use gba_mobile::Timer;
 
@@ -73,12 +75,27 @@ pub fn main() {
 
     log::info!("link connection status: {status:?}");
 
-    if let Ok(Some(mut link)) = status {
-        IME.write(false);
-        let pending_p2p = link
-            .accept(unsafe { &mut MOBILE_DRIVER })
-            .expect("p2p connection failed");
-        IME.write(true);
+    if let Ok(Some(link)) = status {
+        let pending_p2p = loop {
+            let keys = gba::mmio::KEYINPUT.read();
+            if keys.a() {
+                log::info!("connecting!");
+                IME.write(false);
+                let pending_p2p = link
+                    .connect(Ipv4Addr::LOCALHOST, unsafe { &mut MOBILE_DRIVER })
+                    .expect("p2p connection failed");
+                IME.write(true);
+                break pending_p2p;
+            } else if keys.b() {
+                log::info!("accepting!");
+                IME.write(false);
+                let pending_p2p: gba_mobile::p2p::Pending = link
+                    .accept(unsafe { &mut MOBILE_DRIVER })
+                    .expect("p2p connection failed");
+                IME.write(true);
+                break pending_p2p;
+            }
+        };
 
         let p2p_status = loop {
             VBlankIntrWait();

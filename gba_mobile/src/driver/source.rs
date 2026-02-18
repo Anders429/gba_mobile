@@ -1,4 +1,7 @@
-use crate::driver::{Command, HANDSHAKE, sink};
+use crate::{
+    PhoneNumber,
+    driver::{Adapter, Command, HANDSHAKE, sink},
+};
 
 /// A data source.
 ///
@@ -9,6 +12,10 @@ pub(in crate::driver) enum Source {
     EnableSio32,
 
     WaitForCall,
+    Call {
+        adapter: Adapter,
+        phone_number: PhoneNumber,
+    },
 
     EndSession,
 }
@@ -20,6 +27,7 @@ impl Source {
             Self::EnableSio32 => Command::Sio32Mode,
 
             Self::WaitForCall => Command::WaitForTelephoneCall,
+            Self::Call { .. } => Command::DialTelephone,
 
             Self::EndSession => Command::EndSession,
         }
@@ -31,6 +39,10 @@ impl Source {
             Self::EnableSio32 => 1,
 
             Self::WaitForCall => 0,
+            Self::Call { phone_number, .. } => {
+                // One extra byte for the adapter.
+                1 + phone_number.len()
+            }
 
             Self::EndSession => 0,
         }
@@ -43,6 +55,19 @@ impl Source {
             Self::EnableSio32 => 0x01,
 
             Self::WaitForCall => 0x00,
+            Self::Call {
+                adapter,
+                phone_number,
+            } => {
+                if index == 0 {
+                    adapter.dial_byte()
+                } else {
+                    phone_number
+                        .get(index - 1)
+                        .map(|digit| digit.into())
+                        .unwrap_or(0x00)
+                }
+            }
 
             Self::EndSession => 0x00,
         }
@@ -54,6 +79,7 @@ impl Source {
             Self::EnableSio32 => sink::Command::EnableSio32,
 
             Self::WaitForCall => sink::Command::WaitForCall,
+            Self::Call { .. } => sink::Command::Call,
 
             Self::EndSession => sink::Command::EndSession,
         }

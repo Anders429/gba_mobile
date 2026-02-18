@@ -29,6 +29,20 @@ pub(in crate::driver) enum Adapter {
     Red = 0x8b,
 }
 
+impl Adapter {
+    /// The byte used when dialing a number.
+    ///
+    /// The required byte is different depending on the adapter being used.
+    pub(in crate::driver) fn dial_byte(self) -> u8 {
+        match self {
+            Self::Blue => 0,
+            Self::Yellow => 2,
+            Self::Green => 1,
+            Self::Red => 1,
+        }
+    }
+}
+
 impl TryFrom<u8> for Adapter {
     type Error = Unknown;
 
@@ -49,6 +63,26 @@ mod tests {
     use alloc::format;
     use claims::{assert_err_eq, assert_ok_eq};
     use gba_test::test;
+
+    #[test]
+    fn dial_byte_blue() {
+        assert_eq!(Adapter::Blue.dial_byte(), 0);
+    }
+
+    #[test]
+    fn dial_byte_yellow() {
+        assert_eq!(Adapter::Yellow.dial_byte(), 2);
+    }
+
+    #[test]
+    fn dial_byte_green() {
+        assert_eq!(Adapter::Green.dial_byte(), 1);
+    }
+
+    #[test]
+    fn dial_byte_red() {
+        assert_eq!(Adapter::Red.dial_byte(), 1);
+    }
 
     #[test]
     fn try_from_blue() {

@@ -11,6 +11,7 @@ debug = true
 lto = true
 
 [dependencies]
+deranged = "0.5.6"
 either = {version = "1.15.0", default-features = false}
 log = "0.4.29"
 

@@ -16,6 +16,9 @@ pub(in crate::driver) enum Length {
     WaitForCall,
     WaitForCallCommandError,
 
+    Call,
+    CallCommandError,
+
     EndSession,
     EndSessionCommandError,
 }
@@ -77,6 +80,22 @@ impl Length {
                     Err((Error::CommandError(length), Command::WaitForCall))
                 }
             }
+            Self::Call => {
+                if let Some(nonzero_length) = NonZeroU16::new(length) {
+                    Err((Error::Call(nonzero_length), Command::Call))
+                } else {
+                    Ok(Either::Right(Parsed::Call))
+                }
+            }
+            Self::CallCommandError => {
+                if length == 2 {
+                    Ok(Either::Left(Data::CallCommandError(
+                        data::command_error::Data::Command,
+                    )))
+                } else {
+                    Err((Error::CommandError(length), Command::Call))
+                }
+            }
 
             Self::EndSession => {
                 if let Some(nonzero_length) = NonZeroU16::new(length) {
@@ -104,6 +123,7 @@ pub(in crate::driver) enum Error {
     EnableSio32(NonZeroU16),
 
     WaitForCall(NonZeroU16),
+    Call(NonZeroU16),
 
     EndSession(NonZeroU16),
 
@@ -118,6 +138,9 @@ impl Display for Error {
                 write!(formatter, "received {nonzero_length}; expected 0")
             }
             Self::WaitForCall(nonzero_length) => {
+                write!(formatter, "received {nonzero_length}; expected 0")
+            }
+            Self::Call(nonzero_length) => {
                 write!(formatter, "received {nonzero_length}; expected 0")
             }
             Self::EndSession(nonzero_length) => {

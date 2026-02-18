@@ -11,7 +11,7 @@ mod source;
 use either::Either;
 
 use crate::{
-    Generation, Timer, link,
+    Generation, PhoneNumber, Timer, link,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -53,6 +53,15 @@ enum State {
 
         request: Option<Request>,
         flow: flow::WaitingForCall,
+
+        call_generation: Generation,
+    },
+    Call {
+        adapter: Adapter,
+        transfer_length: TransferLength,
+
+        request: Option<Request>,
+        flow: flow::Call,
 
         call_generation: Generation,
     },
@@ -152,6 +161,12 @@ impl Driver {
                 transfer_length,
                 request,
                 ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
+                request,
+                ..
             } => State::EndSession {
                 adapter,
                 transfer_length,
@@ -190,6 +205,7 @@ impl Driver {
             State::Linking { .. } => Ok(false),
             State::Linked { .. } => Ok(true),
             State::WaitingForCall { .. } => Ok(true),
+            State::Call { .. } => Ok(true),
             State::EndSession { .. } => Err(error::link::Error::closed()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
@@ -220,6 +236,13 @@ impl Driver {
                 request,
                 call_generation,
                 ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
+                request,
+                call_generation,
+                ..
             } => {
                 let new_call_generation = call_generation.increment();
                 Ok((
@@ -230,6 +253,63 @@ impl Driver {
 
                         request,
                         flow: flow::WaitingForCall::new(),
+
+                        call_generation: new_call_generation,
+                    },
+                ))
+            }
+            State::Linking { .. } => Err(error::link::Error::superseded()),
+            State::NotConnected | State::EndSession { .. } => Err(error::link::Error::closed()),
+            State::CommandError(error) => Err(error.clone().into()),
+            State::RequestTimeout(timeout) => Err(timeout.clone().into()),
+            State::RequestError(error) => Err(error.clone().into()),
+        }?;
+        self.state = new_state;
+
+        Ok(call_generation)
+    }
+
+    pub(crate) fn call(
+        &mut self,
+        phone_number: PhoneNumber,
+        generation: Generation,
+    ) -> Result<Generation, error::link::Error> {
+        if generation != self.generation {
+            return Err(error::link::Error::superseded());
+        }
+
+        let old_state = self.state.take();
+        let (call_generation, new_state) = match old_state {
+            State::Linked {
+                adapter,
+                transfer_length,
+                request,
+                call_generation,
+                ..
+            }
+            | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                request,
+                call_generation,
+                ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
+                request,
+                call_generation,
+                ..
+            } => {
+                let new_call_generation = call_generation.increment();
+                Ok((
+                    new_call_generation,
+                    State::Call {
+                        adapter,
+                        transfer_length,
+
+                        request,
+                        flow: flow::Call::new(phone_number),
 
                         call_generation: new_call_generation,
                     },
@@ -272,7 +352,12 @@ impl Driver {
                 call_generation: current_call_generation,
                 ..
             } if call_generation == *current_call_generation => Ok(false),
+            State::Call {
+                call_generation: current_call_generation,
+                ..
+            } if call_generation == *current_call_generation => Ok(false),
             State::WaitingForCall { .. } => Err(error::p2p::Error::superseded()),
+            State::Call { .. } => Err(error::p2p::Error::superseded()),
             State::EndSession { .. } => Err(error::link::Error::closed().into()),
             State::CommandError(error) => Err(error::link::Error::from(error.clone()).into()),
             State::RequestTimeout(timeout) => Err(error::link::Error::from(timeout.clone()).into()),
@@ -306,6 +391,12 @@ impl Driver {
                 ..
             }
             | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                request,
+                ..
+            }
+            | State::Call {
                 adapter,
                 transfer_length,
                 request,
@@ -384,6 +475,22 @@ impl Driver {
                     *request = new_request;
                 }
             }
+            State::Call {
+                flow,
+                transfer_length,
+                request,
+                adapter,
+                ..
+            } => {
+                if let Some(request) = request {
+                    if let Err(timeout) = request.vblank(*transfer_length) {
+                        self.state = State::RequestTimeout(timeout);
+                    }
+                } else {
+                    // Schedule a new request.
+                    *request = Some(flow.request(self.timer, *transfer_length, *adapter));
+                }
+            }
             State::EndSession {
                 transfer_length,
                 request,
@@ -428,6 +535,15 @@ impl Driver {
                     .map(|request| request.timer(*transfer_length));
             }
             State::WaitingForCall {
+                request,
+                transfer_length,
+                ..
+            } => {
+                request
+                    .as_mut()
+                    .map(|request| request.timer(*transfer_length));
+            }
+            State::Call {
                 request,
                 transfer_length,
                 ..
@@ -516,7 +632,7 @@ impl Driver {
                 if let Some(request) = state_request.take() {
                     match request.serial(adapter, transfer_length, self.timer) {
                         Ok(Some(next_request)) => *state_request = Some(next_request),
-                        Ok(None) => todo!("connection is established"),
+                        Ok(None) => todo!("connection is established"), // TODO: Is it though? It could also be a previous request.
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error)
                         }
@@ -534,6 +650,38 @@ impl Driver {
                                 call_generation: *call_generation,
                                 call_error: Some(command_error),
                             };
+                        }
+                    }
+                }
+            }
+            State::Call {
+                request: state_request,
+                adapter,
+                transfer_length,
+                flow,
+                call_generation,
+            } => {
+                if let Some(request) = state_request.take() {
+                    match request.serial(adapter, transfer_length, self.timer) {
+                        Ok(Some(next_request)) => *state_request = Some(next_request),
+                        Ok(None) => match flow.clone().next() {
+                            Some(next_flow) => *flow = next_flow,
+                            None => {
+                                todo!("connection is established")
+                            }
+                        },
+                        Err(Either::Left(request_error)) => {
+                            self.state = State::RequestError(request_error);
+                        }
+                        Err(Either::Right(command_error)) => {
+                            self.state = State::Linked {
+                                adapter: *adapter,
+                                transfer_length: *transfer_length,
+                                request: None,
+                                flow: flow::Linked::new(),
+                                call_generation: *call_generation,
+                                call_error: Some(command_error),
+                            }
                         }
                     }
                 }
