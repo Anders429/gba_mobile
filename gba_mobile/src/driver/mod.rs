@@ -626,13 +626,16 @@ impl Driver {
                 request: state_request,
                 adapter,
                 transfer_length,
+                flow,
                 call_generation,
-                ..
             } => {
                 if let Some(request) = state_request.take() {
                     match request.serial(adapter, transfer_length, self.timer) {
                         Ok(Some(next_request)) => *state_request = Some(next_request),
-                        Ok(None) => todo!("connection is established"), // TODO: Is it though? It could also be a previous request.
+                        Ok(None) => match flow.next() {
+                            Some(next_flow) => *flow = next_flow,
+                            None => todo!("connection is established"),
+                        },
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error)
                         }
