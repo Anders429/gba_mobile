@@ -60,8 +60,7 @@ enum State {
         adapter: Adapter,
         transfer_length: TransferLength,
 
-        request: Option<Request>,
-        flow: flow::Call,
+        request: Either<Request, PhoneNumber>,
 
         call_generation: Generation,
     },
@@ -72,6 +71,21 @@ enum State {
 
         request: Option<Request>,
         flow: flow::EndSession,
+    },
+
+    /// Intermediate state for transitioning from a previous state to a new state.
+    ///
+    /// When a state transition is requested, we sometimes are still completing a request in the
+    /// previous state. Since we can't stop processing that request, we move to this intermediate
+    /// state where we can finish the request before fully transitioning. This allows us to handle
+    /// all command errors for the old request in one place, rather than every other state having
+    /// to know whether it is processing a previous state's request or not.
+    Transition {
+        adapter: Adapter,
+        transfer_length: TransferLength,
+
+        request: Request,
+        destination: flow::transition::Destination,
     },
 
     CommandError(command::Error),
@@ -147,31 +161,65 @@ impl Driver {
             State::Linking {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 ..
             }
             | State::Linked {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 ..
             }
             | State::WaitingForCall {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 ..
             }
             | State::Call {
                 adapter,
                 transfer_length,
+                request: Either::Left(request),
+                ..
+            }
+            | State::Transition {
+                adapter,
+                transfer_length,
                 request,
+                ..
+            } => State::Transition {
+                adapter,
+                transfer_length,
+
+                request,
+                destination: flow::transition::Destination::EndSession(
+                    flow::end_session::Destination::LinkingP2P,
+                ),
+            },
+            State::Linking {
+                adapter,
+                transfer_length,
+                ..
+            }
+            | State::Linked {
+                adapter,
+                transfer_length,
+                ..
+            }
+            | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
                 ..
             } => State::EndSession {
                 adapter,
                 transfer_length,
 
-                request,
+                request: None,
                 flow: flow::EndSession::new(flow::end_session::Destination::LinkingP2P),
             },
             State::EndSession {
@@ -204,9 +252,21 @@ impl Driver {
             State::NotConnected => Err(error::link::Error::closed()),
             State::Linking { .. } => Ok(false),
             State::Linked { .. } => Ok(true),
-            State::WaitingForCall { .. } => Ok(true),
-            State::Call { .. } => Ok(true),
-            State::EndSession { .. } => Err(error::link::Error::closed()),
+            State::WaitingForCall { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::WaitingForCall { .. },
+                ..
+            } => Ok(true),
+            State::Call { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::Call { .. },
+                ..
+            } => Ok(true),
+            State::EndSession { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::EndSession(_),
+                ..
+            } => Err(error::link::Error::closed()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
@@ -226,21 +286,62 @@ impl Driver {
             State::Linked {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 call_generation,
                 ..
             }
             | State::WaitingForCall {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 call_generation,
                 ..
             }
             | State::Call {
                 adapter,
                 transfer_length,
+                request: Either::Left(request),
+                call_generation,
+                ..
+            }
+            | State::Transition {
+                adapter,
+                transfer_length,
                 request,
+                destination:
+                    flow::transition::Destination::WaitingForCall { call_generation }
+                    | flow::transition::Destination::Call {
+                        call_generation, ..
+                    },
+            } => {
+                let new_call_generation = call_generation.increment();
+                Ok((
+                    new_call_generation,
+                    State::Transition {
+                        adapter,
+                        transfer_length,
+                        request,
+                        destination: flow::transition::Destination::WaitingForCall {
+                            call_generation: new_call_generation,
+                        },
+                    },
+                ))
+            }
+            State::Linked {
+                adapter,
+                transfer_length,
+                call_generation,
+                ..
+            }
+            | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                call_generation,
+                ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
                 call_generation,
                 ..
             } => {
@@ -251,7 +352,7 @@ impl Driver {
                         adapter,
                         transfer_length,
 
-                        request,
+                        request: None,
                         flow: flow::WaitingForCall::new(),
 
                         call_generation: new_call_generation,
@@ -259,7 +360,12 @@ impl Driver {
                 ))
             }
             State::Linking { .. } => Err(error::link::Error::superseded()),
-            State::NotConnected | State::EndSession { .. } => Err(error::link::Error::closed()),
+            State::NotConnected
+            | State::EndSession { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::EndSession(_),
+                ..
+            } => Err(error::link::Error::closed()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
@@ -283,21 +389,64 @@ impl Driver {
             State::Linked {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 call_generation,
                 ..
             }
             | State::WaitingForCall {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 call_generation,
                 ..
             }
             | State::Call {
                 adapter,
                 transfer_length,
+                request: Either::Left(request),
+                call_generation,
+                ..
+            }
+            | State::Transition {
+                adapter,
+                transfer_length,
                 request,
+                destination:
+                    flow::transition::Destination::WaitingForCall { call_generation }
+                    | flow::transition::Destination::Call {
+                        call_generation, ..
+                    },
+            } => {
+                let new_call_generation = call_generation.increment();
+                Ok((
+                    new_call_generation,
+                    State::Transition {
+                        adapter,
+                        transfer_length,
+
+                        request,
+                        destination: flow::transition::Destination::Call {
+                            call_generation: new_call_generation,
+                            phone_number,
+                        },
+                    },
+                ))
+            }
+            State::Linked {
+                adapter,
+                transfer_length,
+                call_generation,
+                ..
+            }
+            | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                call_generation,
+                ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
                 call_generation,
                 ..
             } => {
@@ -308,15 +457,19 @@ impl Driver {
                         adapter,
                         transfer_length,
 
-                        request,
-                        flow: flow::Call::new(phone_number),
+                        request: Either::Right(phone_number),
 
                         call_generation: new_call_generation,
                     },
                 ))
             }
             State::Linking { .. } => Err(error::link::Error::superseded()),
-            State::NotConnected | State::EndSession { .. } => Err(error::link::Error::closed()),
+            State::NotConnected
+            | State::EndSession { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::EndSession(_),
+                ..
+            } => Err(error::link::Error::closed()),
             State::CommandError(error) => Err(error.clone().into()),
             State::RequestTimeout(timeout) => Err(timeout.clone().into()),
             State::RequestError(error) => Err(error.clone().into()),
@@ -351,14 +504,41 @@ impl Driver {
             State::WaitingForCall {
                 call_generation: current_call_generation,
                 ..
+            }
+            | State::Transition {
+                destination:
+                    flow::transition::Destination::WaitingForCall {
+                        call_generation: current_call_generation,
+                    },
+                ..
             } if call_generation == *current_call_generation => Ok(false),
             State::Call {
                 call_generation: current_call_generation,
                 ..
+            }
+            | State::Transition {
+                destination:
+                    flow::transition::Destination::Call {
+                        call_generation: current_call_generation,
+                        ..
+                    },
+                ..
             } if call_generation == *current_call_generation => Ok(false),
-            State::WaitingForCall { .. } => Err(error::p2p::Error::superseded()),
-            State::Call { .. } => Err(error::p2p::Error::superseded()),
-            State::EndSession { .. } => Err(error::link::Error::closed().into()),
+            State::WaitingForCall { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::WaitingForCall { .. },
+                ..
+            } => Err(error::p2p::Error::superseded()),
+            State::Call { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::Call { .. },
+                ..
+            } => Err(error::p2p::Error::superseded()),
+            State::EndSession { .. }
+            | State::Transition {
+                destination: flow::transition::Destination::EndSession(_),
+                ..
+            } => Err(error::link::Error::closed().into()),
             State::CommandError(error) => Err(error::link::Error::from(error.clone()).into()),
             State::RequestTimeout(timeout) => Err(error::link::Error::from(timeout.clone()).into()),
             State::RequestError(error) => Err(error::link::Error::from(error.clone()).into()),
@@ -381,31 +561,64 @@ impl Driver {
             State::Linking {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 ..
             }
             | State::Linked {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 ..
             }
             | State::WaitingForCall {
                 adapter,
                 transfer_length,
-                request,
+                request: Some(request),
                 ..
             }
             | State::Call {
                 adapter,
                 transfer_length,
+                request: Either::Left(request),
+                ..
+            }
+            | State::Transition {
+                adapter,
+                transfer_length,
                 request,
+                ..
+            } => State::Transition {
+                adapter,
+                transfer_length,
+                request,
+                destination: flow::transition::Destination::EndSession(
+                    flow::end_session::Destination::NotConnected,
+                ),
+            },
+            State::Linking {
+                adapter,
+                transfer_length,
+                ..
+            }
+            | State::Linked {
+                adapter,
+                transfer_length,
+                ..
+            }
+            | State::WaitingForCall {
+                adapter,
+                transfer_length,
+                ..
+            }
+            | State::Call {
+                adapter,
+                transfer_length,
                 ..
             } => State::EndSession {
                 adapter,
                 transfer_length,
 
-                request,
+                request: None,
                 flow: flow::EndSession::new(flow::end_session::Destination::NotConnected),
             },
             State::EndSession {
@@ -476,19 +689,28 @@ impl Driver {
                 }
             }
             State::Call {
-                flow,
                 transfer_length,
                 request,
                 adapter,
                 ..
             } => {
-                if let Some(request) = request {
-                    if let Err(timeout) = request.vblank(*transfer_length) {
-                        self.state = State::RequestTimeout(timeout);
+                match request {
+                    Either::Left(request) => {
+                        if let Err(timeout) = request.vblank(*transfer_length) {
+                            self.state = State::RequestTimeout(timeout);
+                        }
                     }
-                } else {
-                    // Schedule a new request.
-                    *request = Some(flow.request(self.timer, *transfer_length, *adapter));
+                    Either::Right(phone_number) => {
+                        // Schedule a new request.
+                        *request = Either::Left(Request::new_packet(
+                            self.timer,
+                            *transfer_length,
+                            Source::Call {
+                                adapter: *adapter,
+                                phone_number: phone_number.clone(),
+                            },
+                        ));
+                    }
                 }
             }
             State::EndSession {
@@ -504,6 +726,15 @@ impl Driver {
                 } else {
                     // Schedule a new request.
                     *request = Some(flow.request(self.timer, *transfer_length));
+                }
+            }
+            State::Transition {
+                transfer_length,
+                request,
+                ..
+            } => {
+                if let Err(timeout) = request.vblank(*transfer_length) {
+                    self.state = State::RequestTimeout(timeout);
                 }
             }
             State::CommandError(_) => {}
@@ -550,7 +781,7 @@ impl Driver {
             } => {
                 request
                     .as_mut()
-                    .map(|request| request.timer(*transfer_length));
+                    .map_left(|request| request.timer(*transfer_length));
             }
             State::EndSession {
                 request,
@@ -561,6 +792,11 @@ impl Driver {
                     .as_mut()
                     .map(|request| request.timer(*transfer_length));
             }
+            State::Transition {
+                request,
+                transfer_length,
+                ..
+            } => request.timer(*transfer_length),
             State::CommandError(_) => {}
             State::RequestTimeout(_) => {}
             State::RequestError(_) => {}
@@ -626,16 +862,13 @@ impl Driver {
                 request: state_request,
                 adapter,
                 transfer_length,
-                flow,
                 call_generation,
+                ..
             } => {
                 if let Some(request) = state_request.take() {
                     match request.serial(adapter, transfer_length, self.timer) {
                         Ok(Some(next_request)) => *state_request = Some(next_request),
-                        Ok(None) => match flow.next() {
-                            Some(next_flow) => *flow = next_flow,
-                            None => todo!("connection is established"),
-                        },
+                        Ok(None) => todo!("connection is established"),
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error)
                         }
@@ -661,18 +894,13 @@ impl Driver {
                 request: state_request,
                 adapter,
                 transfer_length,
-                flow,
                 call_generation,
             } => {
-                if let Some(request) = state_request.take() {
+                if let Either::Left(mut_request) = state_request {
+                    let request = mem::replace(mut_request, Request::new_wait_for_idle());
                     match request.serial(adapter, transfer_length, self.timer) {
-                        Ok(Some(next_request)) => *state_request = Some(next_request),
-                        Ok(None) => match flow.clone().next() {
-                            Some(next_flow) => *flow = next_flow,
-                            None => {
-                                todo!("connection is established")
-                            }
-                        },
+                        Ok(Some(next_request)) => *state_request = Either::Left(next_request),
+                        Ok(None) => todo!("connection is established"),
                         Err(Either::Left(request_error)) => {
                             self.state = State::RequestError(request_error);
                         }
@@ -720,6 +948,51 @@ impl Driver {
                         Err(Either::Right(command_error)) => {
                             self.state = State::CommandError(command_error)
                         }
+                    }
+                }
+            }
+            State::Transition {
+                adapter,
+                transfer_length,
+                request: state_request,
+                destination,
+            } => {
+                // TODO: I don't like that I have to do this here.
+                let request = mem::replace(state_request, Request::new_wait_for_idle());
+                match request.serial(adapter, transfer_length, self.timer) {
+                    Ok(Some(next_request)) => *state_request = next_request,
+                    Ok(None) | Err(Either::Right(_)) => {
+                        self.state = match destination {
+                            flow::transition::Destination::WaitingForCall { call_generation } => {
+                                State::WaitingForCall {
+                                    adapter: *adapter,
+                                    transfer_length: *transfer_length,
+                                    request: None,
+                                    flow: flow::WaitingForCall::new(),
+                                    call_generation: *call_generation,
+                                }
+                            }
+                            flow::transition::Destination::Call {
+                                call_generation,
+                                phone_number,
+                            } => State::Call {
+                                adapter: *adapter,
+                                transfer_length: *transfer_length,
+                                request: Either::Right(phone_number.clone()),
+                                call_generation: *call_generation,
+                            },
+                            flow::transition::Destination::EndSession(destination) => {
+                                State::EndSession {
+                                    adapter: *adapter,
+                                    transfer_length: *transfer_length,
+                                    request: None,
+                                    flow: flow::EndSession::new(*destination),
+                                }
+                            }
+                        }
+                    }
+                    Err(Either::Left(request_error)) => {
+                        self.state = State::RequestError(request_error)
                     }
                 }
             }

@@ -10,7 +10,7 @@ use core::{
 };
 
 /// The next state to switch to after the session has been ended.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::driver) enum Destination {
     NotConnected = 0,
@@ -21,14 +21,12 @@ pub(in crate::driver) enum Destination {
 #[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
 enum Flow {
-    /// Waiting for the previous request.
-    PreviousRequest = 0,
     /// Send the end session command.
-    EndSession = 1,
+    EndSession = 0,
     /// Wait for idle to be returned.
     ///
     /// We must do this because the adapter will switch from SIO32 to SIO8.
-    WaitForIdle = 2,
+    WaitForIdle = 1,
 }
 
 #[derive(Clone, Copy)]
@@ -37,7 +35,7 @@ pub(in crate::driver) struct EndSession(u8);
 
 impl EndSession {
     pub(in crate::driver) fn new(destination: Destination) -> Self {
-        Self::from_raw_parts(destination, Flow::PreviousRequest)
+        Self::from_raw_parts(destination, Flow::EndSession)
     }
 
     fn from_raw_parts(destination: Destination, flow: Flow) -> Self {
@@ -66,8 +64,6 @@ impl EndSession {
         transfer_length: TransferLength,
     ) -> Request {
         match self.flow() {
-            // If we didn't have a previous request, we just send a single idle byte.
-            Flow::PreviousRequest => Request::new_idle(timer, transfer_length),
             Flow::EndSession => Request::new_packet(timer, transfer_length, Source::EndSession),
             Flow::WaitForIdle => Request::new_wait_for_idle(),
         }
@@ -75,7 +71,6 @@ impl EndSession {
 
     pub(in crate::driver) fn next(self) -> Option<Self> {
         match self.flow() {
-            Flow::PreviousRequest => Some(self.set_flow(Flow::EndSession)),
             Flow::EndSession => Some(self.set_flow(Flow::WaitForIdle)),
             Flow::WaitForIdle => None,
         }
@@ -130,23 +125,15 @@ mod tests {
     }
 
     #[test]
-    fn flow_previous_request() {
-        let end_session = EndSession::new(Destination::NotConnected);
-
-        assert_eq!(end_session.flow(), Flow::PreviousRequest);
-    }
-
-    #[test]
     fn flow_end_session() {
-        let end_session = assert_some!(EndSession::new(Destination::NotConnected).next());
+        let end_session = EndSession::new(Destination::NotConnected);
 
         assert_eq!(end_session.flow(), Flow::EndSession);
     }
 
     #[test]
     fn flow_wait_for_idle() {
-        let end_session =
-            assert_some!(assert_some!(EndSession::new(Destination::NotConnected).next()).next());
+        let end_session = assert_some!(EndSession::new(Destination::NotConnected).next());
 
         assert_eq!(end_session.flow(), Flow::WaitForIdle);
     }
@@ -157,7 +144,7 @@ mod tests {
 
         assert_eq!(
             format!("{end_session:?}"),
-            "EndSession { destination: NotConnected, flow: PreviousRequest }"
+            "EndSession { destination: NotConnected, flow: EndSession }"
         );
     }
 }
