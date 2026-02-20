@@ -1,4 +1,4 @@
-use crate::{Generation, PhoneNumber, driver::flow::end_session};
+use crate::{ArrayVec, Generation, driver::flow::end_session, phone_number::Digit};
 
 #[derive(Debug)]
 pub(in crate::driver) enum Destination {
@@ -7,7 +7,7 @@ pub(in crate::driver) enum Destination {
     },
     Call {
         call_generation: Generation,
-        phone_number: PhoneNumber,
+        phone_number: ArrayVec<Digit, 32>,
     },
     EndSession(end_session::Destination),
 }

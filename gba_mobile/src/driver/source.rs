@@ -1,6 +1,7 @@
 use crate::{
-    PhoneNumber,
+    ArrayVec,
     driver::{Adapter, Command, HANDSHAKE, sink},
+    phone_number::Digit,
 };
 
 /// A data source.
@@ -14,7 +15,7 @@ pub(in crate::driver) enum Source {
     WaitForCall,
     Call {
         adapter: Adapter,
-        phone_number: PhoneNumber,
+        phone_number: ArrayVec<Digit, 32>,
     },
 
     EndSession,
@@ -64,7 +65,7 @@ impl Source {
                 } else {
                     phone_number
                         .get(index - 1)
-                        .map(|digit| digit.into())
+                        .map(|&digit| digit.into())
                         .unwrap_or(0x00)
                 }
             }

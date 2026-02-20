@@ -4,7 +4,7 @@ mod pending;
 pub use error::Error;
 pub use pending::Pending;
 
-use crate::{Driver, Generation, p2p};
+use crate::{ArrayVec, Driver, Generation, p2p, phone_number::IntoDigits};
 
 #[derive(Debug)]
 pub struct Link {
@@ -31,9 +31,12 @@ impl Link {
         driver: &mut Driver,
     ) -> Result<p2p::Pending, Error>
     where
-        PhoneNumber: Into<crate::PhoneNumber>,
+        PhoneNumber: IntoDigits,
     {
-        let call_generation = driver.call(phone_number.into(), self.generation)?;
+        let call_generation = driver.call(
+            ArrayVec::try_from_iter(phone_number.into_digits()).expect("FIX ME"),
+            self.generation,
+        )?;
 
         Ok(p2p::Pending {
             generation: self.generation,

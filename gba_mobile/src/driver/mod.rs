@@ -11,11 +11,12 @@ mod source;
 use either::Either;
 
 use crate::{
-    Generation, PhoneNumber, Timer, link,
+    ArrayVec, Generation, Timer, link,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
     },
+    phone_number::Digit,
 };
 use adapter::Adapter;
 use command::Command;
@@ -60,7 +61,7 @@ enum State {
         adapter: Adapter,
         transfer_length: TransferLength,
 
-        request: Either<Request, PhoneNumber>,
+        request: Either<Request, ArrayVec<Digit, 32>>,
 
         call_generation: Generation,
     },
@@ -377,7 +378,7 @@ impl Driver {
 
     pub(crate) fn call(
         &mut self,
-        phone_number: PhoneNumber,
+        phone_number: ArrayVec<Digit, 32>,
         generation: Generation,
     ) -> Result<Generation, error::link::Error> {
         if generation != self.generation {

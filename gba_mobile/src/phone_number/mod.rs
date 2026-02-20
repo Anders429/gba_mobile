@@ -1,28 +1,20 @@
 pub mod digit;
 
+mod into_digits;
+
 pub use digit::Digit;
+pub use into_digits::IntoDigits;
 
 use crate::phone_number::digit::Pair;
 use core::{
     fmt::{self, Debug, Display, Formatter},
-    iter,
-    net::Ipv4Addr,
-    slice,
+    iter, slice,
 };
-use deranged::RangedU8;
 
 #[derive(Clone, Default, Eq, PartialEq)]
 pub struct PhoneNumber([digit::Pair; 16]);
 
 impl PhoneNumber {
-    pub fn len(&self) -> u8 {
-        self.into_iter().count() as u8
-    }
-
-    pub fn get(&self, index: u8) -> Option<Digit> {
-        self.into_iter().nth(index as usize)
-    }
-
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         for digit in self.into_iter() {
             write!(formatter, "{digit}")?;
@@ -40,16 +32,6 @@ impl Debug for PhoneNumber {
 impl Display for PhoneNumber {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         self.fmt(formatter)
-    }
-}
-
-impl From<Ipv4Addr> for PhoneNumber {
-    fn from(ip: Ipv4Addr) -> Self {
-        ip.octets()
-            .into_iter()
-            .flat_map(|octet| [octet / 100, (octet % 100) / 10, octet % 10])
-            .map(|digit| Digit::new(unsafe { RangedU8::new_unchecked(digit) }))
-            .collect()
     }
 }
 
@@ -85,6 +67,14 @@ impl<'a> IntoIterator for &'a PhoneNumber {
 
     fn into_iter(self) -> Self::IntoIter {
         Iter::new(self.0.as_slice())
+    }
+}
+
+impl<'a> IntoDigits for &'a PhoneNumber {
+    type Digits = Iter<'a>;
+
+    fn into_digits(self) -> Self::Digits {
+        self.into_iter()
     }
 }
 
@@ -135,81 +125,8 @@ mod tests {
     use super::{Digit, PhoneNumber};
     use alloc::format;
     use claims::{assert_none, assert_some_eq};
-    use core::net::Ipv4Addr;
     use deranged::RangedU8;
     use gba_test::test;
-
-    #[test]
-    fn from_ipv4_localhost() {
-        let phone_number: PhoneNumber = Ipv4Addr::LOCALHOST.into();
-        assert_eq!(
-            phone_number,
-            [
-                Digit::new(RangedU8::new_static::<1>()),
-                Digit::new(RangedU8::new_static::<2>()),
-                Digit::new(RangedU8::new_static::<7>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<1>()),
-            ]
-            .into_iter()
-            .collect()
-        );
-    }
-
-    #[test]
-    fn from_ipv4_unspecified() {
-        let phone_number: PhoneNumber = Ipv4Addr::UNSPECIFIED.into();
-        assert_eq!(
-            phone_number,
-            [
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-                Digit::new(RangedU8::new_static::<0>()),
-            ]
-            .into_iter()
-            .collect()
-        );
-    }
-
-    #[test]
-    fn from_ipv4_broadcast() {
-        let phone_number: PhoneNumber = Ipv4Addr::BROADCAST.into();
-        assert_eq!(
-            phone_number,
-            [
-                Digit::new(RangedU8::new_static::<2>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<2>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<2>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<2>()),
-                Digit::new(RangedU8::new_static::<5>()),
-                Digit::new(RangedU8::new_static::<5>()),
-            ]
-            .into_iter()
-            .collect()
-        );
-    }
 
     #[test]
     fn debug() {

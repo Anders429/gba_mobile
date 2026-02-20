@@ -11,6 +11,7 @@ pub mod link;
 pub mod p2p;
 pub mod phone_number;
 
+mod arrayvec;
 mod driver;
 mod generation;
 mod mmio;
@@ -20,6 +21,7 @@ pub use driver::Driver;
 pub use phone_number::PhoneNumber;
 pub use timer::Timer;
 
+use arrayvec::ArrayVec;
 use generation::Generation;
 
 #[cfg(test)]
