@@ -1,3 +1,5 @@
+pub mod connect;
+
 use crate::driver;
 use core::{
     fmt,

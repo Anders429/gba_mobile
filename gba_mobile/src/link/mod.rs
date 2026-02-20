@@ -29,12 +29,12 @@ impl Link {
         &self,
         phone_number: PhoneNumber,
         driver: &mut Driver,
-    ) -> Result<p2p::Pending, Error>
+    ) -> Result<p2p::Pending, error::connect::Error>
     where
         PhoneNumber: IntoDigits,
     {
         let call_generation = driver.call(
-            ArrayVec::try_from_iter(phone_number.into_digits()).expect("FIX ME"),
+            ArrayVec::try_from_iter(phone_number.into_digits())?,
             self.generation,
         )?;
 
