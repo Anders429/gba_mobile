@@ -1,6 +1,8 @@
 mod end_link;
 mod linked;
 mod linking;
+mod recover_link;
+mod reset_link;
 mod waiting_for_call;
 
 use crate::{
@@ -44,6 +46,11 @@ impl Active {
         call_generation: Generation,
     ) -> Result<bool, error::p2p::Error> {
         self.state.p2p_status(call_generation)
+    }
+
+    pub(in crate::driver) fn reset_link(mut self, timer: Timer) -> Self {
+        self.state = self.state.reset_link(timer, self.transfer_length);
+        self
     }
 
     pub(in crate::driver) fn end_link(mut self, timer: Timer) -> Self {
@@ -106,7 +113,9 @@ enum PreviousRequest {
     Linked(Request),
     WaitingForCall(Request),
     Call(Request),
-    EndSession(Request),
+    ResetLink(Request),
+    EndLink(Request),
+    RecoverLink(Request),
 }
 
 impl PreviousRequest {
@@ -116,7 +125,9 @@ impl PreviousRequest {
             Self::Linked(request) => request.vblank(transfer_length),
             Self::WaitingForCall(request) => request.vblank(transfer_length),
             Self::Call(request) => request.vblank(transfer_length),
-            Self::EndSession(request) => request.vblank(transfer_length),
+            Self::ResetLink(request) => request.vblank(transfer_length),
+            Self::EndLink(request) => request.vblank(transfer_length),
+            Self::RecoverLink(request) => request.vblank(transfer_length),
         }
     }
 
@@ -126,7 +137,9 @@ impl PreviousRequest {
             Self::Linked(request) => request.timer(transfer_length),
             Self::WaitingForCall(request) => request.timer(transfer_length),
             Self::Call(request) => request.timer(transfer_length),
-            Self::EndSession(request) => request.timer(transfer_length),
+            Self::ResetLink(request) => request.timer(transfer_length),
+            Self::EndLink(request) => request.timer(transfer_length),
+            Self::RecoverLink(request) => request.timer(transfer_length),
         }
     }
 
@@ -159,8 +172,18 @@ impl PreviousRequest {
                 Err(Either::Left(request_error)) => Err(request_error),
                 Err(Either::Right(_)) => Ok(None),
             },
-            Self::EndSession(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::EndSession)),
+            Self::ResetLink(request) => match request.serial(adapter, transfer_length, timer) {
+                Ok(new_request) => Ok(new_request.map(Self::EndLink)),
+                Err(Either::Left(request_error)) => Err(request_error),
+                Err(Either::Right(_)) => Ok(None),
+            },
+            Self::EndLink(request) => match request.serial(adapter, transfer_length, timer) {
+                Ok(new_request) => Ok(new_request.map(Self::EndLink)),
+                Err(Either::Left(request_error)) => Err(request_error),
+                Err(Either::Right(_)) => Ok(None),
+            },
+            Self::RecoverLink(request) => match request.serial(adapter, transfer_length, timer) {
+                Ok(new_request) => Ok(new_request.map(Self::RecoverLink)),
                 Err(Either::Left(request_error)) => Err(request_error),
                 Err(Either::Right(_)) => Ok(None),
             },
@@ -212,10 +235,18 @@ enum State {
         phone_number: ArrayVec<Digit, 32>,
         call_generation: Generation,
     },
-    // TODO: Also add a `ResetSession` state for when we're trying to re-link an active link.
+
+    ResetLink {
+        request: ProcessingRequest,
+        state: reset_link::State,
+    },
     EndLink {
         request: ProcessingRequest,
         state: end_link::State,
+    },
+    RecoverLink {
+        request: ProcessingRequest,
+        state: recover_link::State,
     },
 }
 
@@ -250,7 +281,9 @@ impl State {
                 }
             }
             Self::Call { request, .. } => request.vblank(transfer_length),
+            Self::ResetLink { request, .. } => request.vblank(transfer_length),
             Self::EndLink { request, .. } => request.vblank(transfer_length),
+            Self::RecoverLink { request, .. } => request.vblank(transfer_length),
         }
     }
 
@@ -268,7 +301,9 @@ impl State {
                     .map(|request| request.timer(transfer_length));
             }
             Self::Call { request, .. } => request.timer(transfer_length),
+            Self::ResetLink { request, .. } => request.timer(transfer_length),
             Self::EndLink { request, .. } => request.timer(transfer_length),
+            Self::RecoverLink { request, .. } => request.timer(transfer_length),
         }
     }
 
@@ -432,6 +467,48 @@ impl State {
                     }
                 }
             },
+            Self::ResetLink { request, state } => match request {
+                ProcessingRequest::Current(request) => {
+                    match request.serial(adapter, transfer_length, timer) {
+                        Ok(Some(next_request)) => Ok(Some(Self::ResetLink {
+                            request: ProcessingRequest::Current(next_request),
+                            state,
+                        })),
+                        Ok(None) => {
+                            if let Some(new_state) = state.next() {
+                                let new_request = new_state.request(timer, *transfer_length);
+                                Ok(Some(Self::ResetLink {
+                                    request: ProcessingRequest::Current(new_request),
+                                    state: new_state,
+                                }))
+                            } else {
+                                Ok(Some(Self::Linked {
+                                    request: None,
+                                    state: linked::State::new(),
+                                    call_generation: Generation::new(),
+                                    call_error: None,
+                                }))
+                            }
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                ProcessingRequest::Previous(request) => {
+                    match request.serial(adapter, transfer_length, timer) {
+                        Ok(Some(next_request)) => Ok(Some(Self::ResetLink {
+                            request: ProcessingRequest::Previous(next_request),
+                            state,
+                        })),
+                        Ok(None) => Ok(Some(Self::ResetLink {
+                            request: ProcessingRequest::Current(
+                                state.request(timer, *transfer_length),
+                            ),
+                            state,
+                        })),
+                        Err(error) => Err(Either::Left(error)),
+                    }
+                }
+            },
             Self::EndLink { request, state } => match request {
                 ProcessingRequest::Current(request) => {
                     match request.serial(adapter, transfer_length, timer) {
@@ -469,6 +546,48 @@ impl State {
                     }
                 }
             },
+            Self::RecoverLink { request, state } => match request {
+                ProcessingRequest::Current(request) => {
+                    match request.serial(adapter, transfer_length, timer) {
+                        Ok(Some(next_request)) => Ok(Some(Self::RecoverLink {
+                            request: ProcessingRequest::Current(next_request),
+                            state,
+                        })),
+                        Ok(None) => {
+                            if let Some(new_state) = state.next() {
+                                let new_request = new_state.request(timer, *transfer_length);
+                                Ok(Some(Self::RecoverLink {
+                                    request: ProcessingRequest::Current(new_request),
+                                    state: new_state,
+                                }))
+                            } else {
+                                Ok(Some(Self::Linked {
+                                    request: None,
+                                    state: linked::State::new(),
+                                    call_generation: Generation::new(),
+                                    call_error: None,
+                                }))
+                            }
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                ProcessingRequest::Previous(request) => {
+                    match request.serial(adapter, transfer_length, timer) {
+                        Ok(Some(next_request)) => Ok(Some(Self::RecoverLink {
+                            request: ProcessingRequest::Previous(next_request),
+                            state,
+                        })),
+                        Ok(None) => Ok(Some(Self::RecoverLink {
+                            request: ProcessingRequest::Current(
+                                state.request(timer, *transfer_length),
+                            ),
+                            state,
+                        })),
+                        Err(error) => Err(Either::Left(error)),
+                    }
+                }
+            },
         }
     }
 
@@ -478,7 +597,9 @@ impl State {
             Self::Linked { .. } => Ok(true),
             Self::WaitingForCall { .. } => Ok(true),
             Self::Call { .. } => Ok(true),
+            Self::ResetLink { .. } => Ok(false),
             Self::EndLink { .. } => Err(error::link::Error::closed()),
+            Self::RecoverLink { .. } => Ok(false),
         }
     }
 
@@ -506,7 +627,83 @@ impl State {
                 ..
             } if call_generation == *state_call_generation => Ok(false),
             Self::Call { .. } => Err(error::p2p::Error::superseded()),
+            Self::ResetLink { .. } => Err(error::link::Error::superseded().into()),
             Self::EndLink { .. } => Err(error::link::Error::closed().into()),
+            Self::RecoverLink { .. } => Err(error::link::Error::superseded().into()),
+        }
+    }
+
+    fn reset_link(self, timer: Timer, transfer_length: TransferLength) -> Self {
+        match self {
+            // If we are already trying to establish a link, we simply continue without resetting.
+            Self::Linking { request, state } => Self::Linking { request, state },
+            Self::ResetLink { request, state } => Self::ResetLink { request, state },
+            Self::RecoverLink { request, state } => Self::RecoverLink { request, state },
+
+            // If we are currently ending the link, we can't stop it from happening. Therefore, we
+            // begin the process of recovering the link.
+            Self::EndLink {
+                request:
+                    ProcessingRequest::Current(request)
+                    | ProcessingRequest::Previous(PreviousRequest::EndLink(request)),
+                ..
+            } => Self::RecoverLink {
+                request: ProcessingRequest::Previous(PreviousRequest::EndLink(request)),
+                state: recover_link::State::new(),
+            },
+
+            Self::Linked {
+                request: Some(request),
+                ..
+            } => Self::ResetLink {
+                request: ProcessingRequest::Previous(PreviousRequest::Linked(request)),
+                state: reset_link::State::new(),
+            },
+            Self::WaitingForCall {
+                request: Some(ProcessingRequest::Current(request)),
+                ..
+            } => Self::ResetLink {
+                request: ProcessingRequest::Previous(PreviousRequest::WaitingForCall(request)),
+                state: reset_link::State::new(),
+            },
+            Self::WaitingForCall {
+                request: Some(ProcessingRequest::Previous(request)),
+                ..
+            } => Self::ResetLink {
+                request: ProcessingRequest::Previous(request),
+                state: reset_link::State::new(),
+            },
+            Self::Call {
+                request: ProcessingRequest::Current(request),
+                ..
+            } => Self::ResetLink {
+                request: ProcessingRequest::Previous(PreviousRequest::Call(request)),
+                state: reset_link::State::new(),
+            },
+            Self::Call {
+                request: ProcessingRequest::Previous(request),
+                ..
+            } => Self::ResetLink {
+                request: ProcessingRequest::Previous(request),
+                state: reset_link::State::new(),
+            },
+            Self::EndLink {
+                request: ProcessingRequest::Previous(request),
+                ..
+            } => Self::ResetLink {
+                request: ProcessingRequest::Previous(request),
+                state: reset_link::State::new(),
+            },
+
+            Self::Linked { request: None, .. } | Self::WaitingForCall { request: None, .. } => {
+                let reset_link_state = reset_link::State::new();
+                Self::ResetLink {
+                    request: ProcessingRequest::Current(
+                        reset_link_state.request(timer, transfer_length),
+                    ),
+                    state: reset_link_state,
+                }
+            }
         }
     }
 
@@ -551,6 +748,34 @@ impl State {
                 request: ProcessingRequest::Previous(request),
                 state: end_link::State::new(),
             },
+            Self::ResetLink {
+                request: ProcessingRequest::Current(request),
+                ..
+            } => Self::EndLink {
+                request: ProcessingRequest::Previous(PreviousRequest::ResetLink(request)),
+                state: end_link::State::new(),
+            },
+            Self::ResetLink {
+                request: ProcessingRequest::Previous(request),
+                ..
+            } => Self::EndLink {
+                request: ProcessingRequest::Previous(request),
+                state: end_link::State::new(),
+            },
+            Self::RecoverLink {
+                request: ProcessingRequest::Current(request),
+                ..
+            } => Self::EndLink {
+                request: ProcessingRequest::Previous(PreviousRequest::RecoverLink(request)),
+                state: end_link::State::new(),
+            },
+            Self::RecoverLink {
+                request: ProcessingRequest::Previous(request),
+                ..
+            } => Self::EndLink {
+                request: ProcessingRequest::Previous(request),
+                state: end_link::State::new(),
+            },
 
             Self::Linked { request: None, .. } | Self::WaitingForCall { request: None, .. } => {
                 let end_link_state = end_link::State::new();
@@ -568,7 +793,10 @@ impl State {
 
     fn wait_for_call(self) -> Result<(Self, Generation), error::link::Error> {
         match self {
-            Self::Linking { .. } | Self::EndLink { .. } => Err(error::link::Error::superseded()),
+            Self::Linking { .. }
+            | Self::ResetLink { .. }
+            | Self::EndLink { .. }
+            | Self::RecoverLink { .. } => Err(error::link::Error::superseded()),
             Self::Linked {
                 request: Some(request),
                 call_generation,
@@ -674,7 +902,10 @@ impl State {
         adapter: Adapter,
     ) -> Result<(Self, Generation), error::link::Error> {
         match self {
-            Self::Linking { .. } | Self::EndLink { .. } => Err(error::link::Error::superseded()),
+            Self::Linking { .. }
+            | Self::ResetLink { .. }
+            | Self::EndLink { .. }
+            | Self::RecoverLink { .. } => Err(error::link::Error::superseded()),
             Self::Linked {
                 request: Some(request),
                 call_generation,

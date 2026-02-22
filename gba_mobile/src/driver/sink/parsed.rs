@@ -18,6 +18,9 @@ pub(in crate::driver) enum Parsed {
     Call,
     CallCommandError(command::Error),
 
+    Reset,
+    ResetCommandError(command::Error),
+
     EndSession,
     EndSessionCommandError(command::Error),
 }
@@ -36,6 +39,8 @@ impl Parsed {
             Self::Call => driver::Command::DialTelephone,
             Self::CallCommandError(_) => driver::Command::CommandError,
 
+            Self::Reset => driver::Command::Reset,
+            Self::ResetCommandError(_) => driver::Command::CommandError,
             Self::EndSession => driver::Command::EndSession,
             Self::EndSessionCommandError(_) => driver::Command::CommandError,
         }
@@ -53,6 +58,8 @@ impl Parsed {
             Self::Call => Command::Call,
             Self::CallCommandError(_) => Command::Call,
 
+            Self::Reset => Command::Reset,
+            Self::ResetCommandError(_) => Command::Reset,
             Self::EndSession => Command::EndSession,
             Self::EndSessionCommandError(_) => Command::EndSession,
         }
@@ -72,7 +79,9 @@ impl Parsed {
             Self::Call => Finished::Success,
             Self::CallCommandError(error) => Finished::CommandError(error),
 
-            // Ending the session will reset transfer length back to 8-bit mode.
+            // Ending or resetting the session will reset transfer length back to 8-bit mode.
+            Self::Reset => Finished::TransferLength(TransferLength::_8Bit),
+            Self::ResetCommandError(error) => Finished::CommandError(error),
             Self::EndSession => Finished::TransferLength(TransferLength::_8Bit),
             Self::EndSessionCommandError(error) => Finished::CommandError(error),
         }

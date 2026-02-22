@@ -96,7 +96,7 @@ impl Driver {
                 self.enable_communication();
                 State::Active(Active::new(self.timer))
             }
-            State::Active(active) => todo!("need to create a \"reset link\" active state"),
+            State::Active(active) => State::Active(active.reset_link(self.timer)),
         };
 
         self.generation = self.generation.increment();

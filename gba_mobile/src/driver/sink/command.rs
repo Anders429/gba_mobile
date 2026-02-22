@@ -13,6 +13,7 @@ pub(in crate::driver) enum Command {
     WaitForCall,
     Call,
 
+    Reset,
     EndSession,
 }
 
@@ -45,6 +46,11 @@ impl Command {
                 _ => Err((Error::Call(command), self)),
             },
 
+            Self::Reset => match command {
+                driver::Command::Reset => Ok(Length::Reset),
+                driver::Command::CommandError => Ok(Length::ResetCommandError),
+                _ => Err((Error::Reset(command), self)),
+            },
             Self::EndSession => match command {
                 driver::Command::EndSession => Ok(Length::EndSession),
                 driver::Command::CommandError => Ok(Length::EndSessionCommandError),
@@ -62,6 +68,7 @@ pub(in crate::driver) enum Error {
     WaitForCall(driver::Command),
     Call(driver::Command),
 
+    Reset(driver::Command),
     EndSession(driver::Command),
 }
 
@@ -122,6 +129,11 @@ impl Display for Error {
                 ],
             ),
 
+            Self::Reset(command) => Self::fmt_error(
+                formatter,
+                *command,
+                &[driver::Command::Reset, driver::Command::CommandError],
+            ),
             Self::EndSession(command) => Self::fmt_error(
                 formatter,
                 *command,

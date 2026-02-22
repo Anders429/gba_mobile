@@ -20,6 +20,7 @@ pub(in crate::driver) enum Source {
         phone_number: ArrayVec<Digit, 32>,
     },
 
+    Reset,
     EndSession,
 }
 
@@ -32,6 +33,7 @@ impl Source {
             Self::WaitForCall => Command::WaitForTelephoneCall,
             Self::Call { .. } => Command::DialTelephone,
 
+            Self::Reset => Command::Reset,
             Self::EndSession => Command::EndSession,
         }
     }
@@ -47,6 +49,7 @@ impl Source {
                 1 + phone_number.len()
             }
 
+            Self::Reset => 0,
             Self::EndSession => 0,
         }
     }
@@ -72,6 +75,7 @@ impl Source {
                 }
             }
 
+            Self::Reset => 0x00,
             Self::EndSession => 0x00,
         }
     }
@@ -84,6 +88,7 @@ impl Source {
             Self::WaitForCall => sink::Command::WaitForCall,
             Self::Call { .. } => sink::Command::Call,
 
+            Self::Reset => sink::Command::Reset,
             Self::EndSession => sink::Command::EndSession,
         }
     }
