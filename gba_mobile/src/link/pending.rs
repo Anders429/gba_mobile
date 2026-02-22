@@ -11,7 +11,7 @@ pub struct Pending {
 impl Pending {
     pub fn status(&self, driver: &Driver) -> Result<Option<Link>, Error> {
         driver
-            .link_status(self.generation)
+            .linking_status(self.generation)
             .map(|finished| {
                 finished.then(|| Link {
                     generation: self.generation,

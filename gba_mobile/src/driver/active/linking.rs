@@ -5,20 +5,19 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-pub(in crate::driver) enum Linking {
+pub(super) enum State {
     Waking,
     BeginSession,
     Sio32,
     WaitForIdle,
 }
 
-impl Linking {
-    pub(in crate::driver) fn request(
-        self,
-        timer: Timer,
-        transfer_length: TransferLength,
-    ) -> Request {
+impl State {
+    pub(super) fn new() -> Self {
+        Self::Waking
+    }
+
+    pub(super) fn request(self, timer: Timer, transfer_length: TransferLength) -> Request {
         match self {
             Self::Waking => Request::new_wait_for_idle(),
             Self::BeginSession => Request::new_packet(timer, transfer_length, Source::BeginSession),
@@ -27,7 +26,7 @@ impl Linking {
         }
     }
 
-    pub(in crate::driver) fn next(self) -> Option<Self> {
+    pub(super) fn next(self) -> Option<Self> {
         match self {
             Self::Waking => Some(Self::BeginSession),
             Self::BeginSession => Some(Self::Sio32),

@@ -5,14 +5,14 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug)]
-pub(in crate::driver) struct Linked(u8);
+pub(super) struct State(u8);
 
-impl Linked {
-    pub(in crate::driver) fn new() -> Self {
+impl State {
+    pub(super) fn new() -> Self {
         Self(0)
     }
 
-    pub(in crate::driver) fn request(
+    pub(super) fn request(
         self,
         timer: Timer,
         transfer_length: TransferLength,

@@ -14,6 +14,8 @@ pub(in crate::driver) enum Source {
 
     WaitForCall,
     Call {
+        // TODO: Somehow make it so I don't need to have these here, since they already
+        // exist on the active state.
         adapter: Adapter,
         phone_number: ArrayVec<Digit, 32>,
     },
