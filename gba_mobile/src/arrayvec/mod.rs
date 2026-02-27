@@ -109,6 +109,12 @@ where
     }
 }
 
+impl<T, const CAP: usize> Default for ArrayVec<T, CAP> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T, const CAP: usize> Debug for ArrayVec<T, CAP>
 where
     T: Debug,

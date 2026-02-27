@@ -1,14 +1,15 @@
-mod end_link;
-mod linked;
-mod linking;
-mod recover_link;
-mod reset_link;
-mod waiting_for_call;
+pub(in crate::driver) mod call;
+pub(in crate::driver) mod end_link;
+pub(in crate::driver) mod linked;
+pub(in crate::driver) mod linking;
+pub(in crate::driver) mod recover_link;
+pub(in crate::driver) mod reset_link;
+pub(in crate::driver) mod waiting_for_call;
 
 use crate::{
     Generation, Timer,
     arrayvec::ArrayVec,
-    driver::{Adapter, Request, Source, command, error, request},
+    driver::{self, Adapter, Request, command, error, request},
     mmio::serial::TransferLength,
     phone_number::Digit,
 };
@@ -109,37 +110,37 @@ impl Active {
 /// We still need to process this, but we don't care about its result.
 #[derive(Debug)]
 enum PreviousRequest {
-    Linking(Request),
-    Linked(Request),
-    WaitingForCall(Request),
-    Call(Request),
-    ResetLink(Request),
-    EndLink(Request),
-    RecoverLink(Request),
+    Linking(Request<linking::Source>),
+    Linked(Request<linked::Source>),
+    WaitingForCall(Request<waiting_for_call::Source>),
+    Call(Request<call::Source>),
+    ResetLink(Request<reset_link::Source>),
+    EndLink(Request<end_link::Source>),
+    RecoverLink(Request<recover_link::Source>),
 }
 
 impl PreviousRequest {
     fn vblank(&mut self, transfer_length: TransferLength) -> Result<(), request::Timeout> {
         match self {
-            Self::Linking(request) => request.vblank(transfer_length),
-            Self::Linked(request) => request.vblank(transfer_length),
-            Self::WaitingForCall(request) => request.vblank(transfer_length),
-            Self::Call(request) => request.vblank(transfer_length),
-            Self::ResetLink(request) => request.vblank(transfer_length),
-            Self::EndLink(request) => request.vblank(transfer_length),
-            Self::RecoverLink(request) => request.vblank(transfer_length),
+            Self::Linking(request) => request.vblank(transfer_length, &Default::default()),
+            Self::Linked(request) => request.vblank(transfer_length, &Default::default()),
+            Self::WaitingForCall(request) => request.vblank(transfer_length, &Default::default()),
+            Self::Call(request) => request.vblank(transfer_length, &Default::default()),
+            Self::ResetLink(request) => request.vblank(transfer_length, &Default::default()),
+            Self::EndLink(request) => request.vblank(transfer_length, &Default::default()),
+            Self::RecoverLink(request) => request.vblank(transfer_length, &Default::default()),
         }
     }
 
     fn timer(&mut self, transfer_length: TransferLength) {
         match self {
-            Self::Linking(request) => request.timer(transfer_length),
-            Self::Linked(request) => request.timer(transfer_length),
-            Self::WaitingForCall(request) => request.timer(transfer_length),
-            Self::Call(request) => request.timer(transfer_length),
-            Self::ResetLink(request) => request.timer(transfer_length),
-            Self::EndLink(request) => request.timer(transfer_length),
-            Self::RecoverLink(request) => request.timer(transfer_length),
+            Self::Linking(request) => request.timer(transfer_length, &Default::default()),
+            Self::Linked(request) => request.timer(transfer_length, &Default::default()),
+            Self::WaitingForCall(request) => request.timer(transfer_length, &Default::default()),
+            Self::Call(request) => request.timer(transfer_length, &Default::default()),
+            Self::ResetLink(request) => request.timer(transfer_length, &Default::default()),
+            Self::EndLink(request) => request.timer(transfer_length, &Default::default()),
+            Self::RecoverLink(request) => request.timer(transfer_length, &Default::default()),
         }
     }
 
@@ -150,64 +151,83 @@ impl PreviousRequest {
         timer: Timer,
     ) -> Result<Option<Self>, request::Error> {
         match self {
-            Self::Linking(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::Linking)),
-                Err(Either::Left(request_error)) => Err(request_error),
-                Err(Either::Right(_)) => Ok(None),
-            },
-            Self::Linked(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::Linked)),
-                Err(Either::Left(request_error)) => Err(request_error),
-                Err(Either::Right(_)) => Ok(None),
-            },
+            Self::Linking(request) => {
+                match request.serial(adapter, transfer_length, timer, &Default::default()) {
+                    Ok(new_request) => Ok(new_request.map(Self::Linking)),
+                    Err(Either::Left(request_error)) => Err(request_error),
+                    Err(Either::Right(_)) => Ok(None),
+                }
+            }
+            Self::Linked(request) => {
+                match request.serial(adapter, transfer_length, timer, &Default::default()) {
+                    Ok(new_request) => Ok(new_request.map(Self::Linked)),
+                    Err(Either::Left(request_error)) => Err(request_error),
+                    Err(Either::Right(_)) => Ok(None),
+                }
+            }
             Self::WaitingForCall(request) => {
-                match request.serial(adapter, transfer_length, timer) {
+                match request.serial(adapter, transfer_length, timer, &()) {
                     Ok(new_request) => Ok(new_request.map(Self::WaitingForCall)),
                     Err(Either::Left(request_error)) => Err(request_error),
                     Err(Either::Right(_)) => Ok(None),
                 }
             }
-            Self::Call(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::Call)),
-                Err(Either::Left(request_error)) => Err(request_error),
-                Err(Either::Right(_)) => Ok(None),
-            },
-            Self::ResetLink(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::EndLink)),
-                Err(Either::Left(request_error)) => Err(request_error),
-                Err(Either::Right(_)) => Ok(None),
-            },
-            Self::EndLink(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::EndLink)),
-                Err(Either::Left(request_error)) => Err(request_error),
-                Err(Either::Right(_)) => Ok(None),
-            },
-            Self::RecoverLink(request) => match request.serial(adapter, transfer_length, timer) {
-                Ok(new_request) => Ok(new_request.map(Self::RecoverLink)),
-                Err(Either::Left(request_error)) => Err(request_error),
-                Err(Either::Right(_)) => Ok(None),
-            },
+            Self::Call(request) => {
+                match request.serial(adapter, transfer_length, timer, &Default::default()) {
+                    Ok(new_request) => Ok(new_request.map(Self::Call)),
+                    Err(Either::Left(request_error)) => Err(request_error),
+                    Err(Either::Right(_)) => Ok(None),
+                }
+            }
+            Self::ResetLink(request) => {
+                match request.serial(adapter, transfer_length, timer, &Default::default()) {
+                    Ok(new_request) => Ok(new_request.map(Self::ResetLink)),
+                    Err(Either::Left(request_error)) => Err(request_error),
+                    Err(Either::Right(_)) => Ok(None),
+                }
+            }
+            Self::EndLink(request) => {
+                match request.serial(adapter, transfer_length, timer, &Default::default()) {
+                    Ok(new_request) => Ok(new_request.map(Self::EndLink)),
+                    Err(Either::Left(request_error)) => Err(request_error),
+                    Err(Either::Right(_)) => Ok(None),
+                }
+            }
+            Self::RecoverLink(request) => {
+                match request.serial(adapter, transfer_length, timer, &Default::default()) {
+                    Ok(new_request) => Ok(new_request.map(Self::RecoverLink)),
+                    Err(Either::Left(request_error)) => Err(request_error),
+                    Err(Either::Right(_)) => Ok(None),
+                }
+            }
         }
     }
 }
 
 #[derive(Debug)]
-enum ProcessingRequest {
-    Current(Request),
+enum ProcessingRequest<Source> {
+    Current(Request<Source>),
     Previous(PreviousRequest),
 }
 
-impl ProcessingRequest {
-    fn vblank(&mut self, transfer_length: TransferLength) -> Result<(), request::Timeout> {
+impl<Source> ProcessingRequest<Source>
+where
+    Source: driver::Source,
+{
+    fn vblank(
+        &mut self,
+        transfer_length: TransferLength,
+        context: &Source::Context,
+    ) -> Result<(), request::Timeout> {
         match self {
-            Self::Current(request) => request.vblank(transfer_length),
+            Self::Current(request) => request.vblank(transfer_length, context),
             Self::Previous(request) => request.vblank(transfer_length),
         }
     }
 
-    fn timer(&mut self, transfer_length: TransferLength) {
+    fn timer(&mut self, transfer_length: TransferLength, context: &Source::Context) {
         match self {
-            Self::Current(request) => request.timer(transfer_length),
+            Self::Current(request) => request.timer(transfer_length, context),
             Self::Previous(request) => request.timer(transfer_length),
         }
     }
@@ -216,36 +236,36 @@ impl ProcessingRequest {
 #[derive(Debug)]
 enum State {
     Linking {
-        request: Request,
+        request: Request<linking::Source>,
         state: linking::State,
     },
     Linked {
-        request: Option<Request>,
+        request: Option<Request<linked::Source>>,
         state: linked::State,
         call_generation: Generation,
         call_error: Option<command::Error>,
     },
     WaitingForCall {
-        request: Option<ProcessingRequest>,
+        request: Option<ProcessingRequest<waiting_for_call::Source>>,
         state: waiting_for_call::State,
         call_generation: Generation,
     },
     Call {
-        request: ProcessingRequest,
-        phone_number: ArrayVec<Digit, 32>,
+        request: ProcessingRequest<call::Source>,
+        context: call::Context,
         call_generation: Generation,
     },
 
     ResetLink {
-        request: ProcessingRequest,
+        request: ProcessingRequest<reset_link::Source>,
         state: reset_link::State,
     },
     EndLink {
-        request: ProcessingRequest,
+        request: ProcessingRequest<end_link::Source>,
         state: end_link::State,
     },
     RecoverLink {
-        request: ProcessingRequest,
+        request: ProcessingRequest<recover_link::Source>,
         state: recover_link::State,
     },
 }
@@ -257,10 +277,10 @@ impl State {
         timer: Timer,
     ) -> Result<(), request::Timeout> {
         match self {
-            Self::Linking { request, .. } => request.vblank(transfer_length),
+            Self::Linking { request, .. } => request.vblank(transfer_length, &()),
             Self::Linked { request, state, .. } => {
                 if let Some(request) = request {
-                    request.vblank(transfer_length)
+                    request.vblank(transfer_length, &())
                 } else {
                     // Schedule a new request.
                     let (new_state, new_request) = state.request(timer, transfer_length);
@@ -271,7 +291,7 @@ impl State {
             }
             Self::WaitingForCall { request, state, .. } => {
                 if let Some(request) = request {
-                    request.vblank(transfer_length)
+                    request.vblank(transfer_length, &())
                 } else {
                     // Schedule a new request.
                     let (new_state, new_request) = state.request(timer, transfer_length);
@@ -280,30 +300,34 @@ impl State {
                     Ok(())
                 }
             }
-            Self::Call { request, .. } => request.vblank(transfer_length),
-            Self::ResetLink { request, .. } => request.vblank(transfer_length),
-            Self::EndLink { request, .. } => request.vblank(transfer_length),
-            Self::RecoverLink { request, .. } => request.vblank(transfer_length),
+            Self::Call {
+                request, context, ..
+            } => request.vblank(transfer_length, &context),
+            Self::ResetLink { request, .. } => request.vblank(transfer_length, &()),
+            Self::EndLink { request, .. } => request.vblank(transfer_length, &()),
+            Self::RecoverLink { request, .. } => request.vblank(transfer_length, &()),
         }
     }
 
     fn timer(&mut self, transfer_length: TransferLength) {
         match self {
-            Self::Linking { request, .. } => request.timer(transfer_length),
+            Self::Linking { request, .. } => request.timer(transfer_length, &()),
             Self::Linked { request, .. } => {
                 request
                     .as_mut()
-                    .map(|request| request.timer(transfer_length));
+                    .map(|request| request.timer(transfer_length, &()));
             }
             Self::WaitingForCall { request, .. } => {
                 request
                     .as_mut()
-                    .map(|request| request.timer(transfer_length));
+                    .map(|request| request.timer(transfer_length, &()));
             }
-            Self::Call { request, .. } => request.timer(transfer_length),
-            Self::ResetLink { request, .. } => request.timer(transfer_length),
-            Self::EndLink { request, .. } => request.timer(transfer_length),
-            Self::RecoverLink { request, .. } => request.timer(transfer_length),
+            Self::Call {
+                request, context, ..
+            } => request.timer(transfer_length, &context),
+            Self::ResetLink { request, .. } => request.timer(transfer_length, &()),
+            Self::EndLink { request, .. } => request.timer(transfer_length, &()),
+            Self::RecoverLink { request, .. } => request.timer(transfer_length, &()),
         }
     }
 
@@ -322,7 +346,7 @@ impl State {
     ) -> Result<Option<Self>, Either<request::Error, command::Error>> {
         match self {
             Self::Linking { request, state } => {
-                match request.serial(adapter, transfer_length, timer) {
+                match request.serial(adapter, transfer_length, timer, &()) {
                     Ok(Some(next_request)) => Ok(Some(Self::Linking {
                         request: next_request,
                         state,
@@ -354,7 +378,7 @@ impl State {
             } => {
                 if let Some(request) = request {
                     request
-                        .serial(adapter, transfer_length, timer)
+                        .serial(adapter, transfer_length, timer, &())
                         .map(|request| {
                             Some(Self::Linked {
                                 request,
@@ -379,7 +403,7 @@ impl State {
             } => {
                 match request {
                     Some(ProcessingRequest::Current(request)) => {
-                        match request.serial(adapter, transfer_length, timer) {
+                        match request.serial(adapter, transfer_length, timer, &()) {
                             Ok(Some(next_request)) => Ok(Some(Self::WaitingForCall {
                                 request: Some(ProcessingRequest::Current(next_request)),
                                 state,
@@ -424,14 +448,14 @@ impl State {
             }
             Self::Call {
                 request,
-                phone_number,
+                context,
                 call_generation,
             } => match request {
                 ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
+                    match request.serial(adapter, transfer_length, timer, &context) {
                         Ok(Some(next_request)) => Ok(Some(Self::Call {
                             request: ProcessingRequest::Current(next_request),
-                            phone_number,
+                            context,
                             call_generation,
                         })),
                         Ok(None) => todo!("connection esetablished"),
@@ -448,19 +472,16 @@ impl State {
                     match request.serial(adapter, transfer_length, timer) {
                         Ok(Some(next_request)) => Ok(Some(Self::Call {
                             request: ProcessingRequest::Previous(next_request),
-                            phone_number,
+                            context,
                             call_generation,
                         })),
                         Ok(None) => Ok(Some(Self::Call {
                             request: ProcessingRequest::Current(Request::new_packet(
                                 timer,
                                 *transfer_length,
-                                Source::Call {
-                                    adapter: *adapter,
-                                    phone_number: phone_number.clone(),
-                                },
+                                call::Source::Call,
                             )),
-                            phone_number,
+                            context,
                             call_generation,
                         })),
                         Err(error) => Err(Either::Left(error)),
@@ -469,7 +490,7 @@ impl State {
             },
             Self::ResetLink { request, state } => match request {
                 ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
+                    match request.serial(adapter, transfer_length, timer, &()) {
                         Ok(Some(next_request)) => Ok(Some(Self::ResetLink {
                             request: ProcessingRequest::Current(next_request),
                             state,
@@ -511,7 +532,7 @@ impl State {
             },
             Self::EndLink { request, state } => match request {
                 ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
+                    match request.serial(adapter, transfer_length, timer, &()) {
                         Ok(Some(next_request)) => Ok(Some(Self::EndLink {
                             request: ProcessingRequest::Current(next_request),
                             state,
@@ -548,7 +569,7 @@ impl State {
             },
             Self::RecoverLink { request, state } => match request {
                 ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
+                    match request.serial(adapter, transfer_length, timer, &()) {
                         Ok(Some(next_request)) => Ok(Some(Self::RecoverLink {
                             request: ProcessingRequest::Current(next_request),
                             state,
@@ -877,14 +898,14 @@ impl State {
                 ))
             }
             Self::Call {
-                request,
+                request: ProcessingRequest::Previous(request),
                 call_generation,
                 ..
             } => {
                 let new_call_generation = call_generation.increment();
                 Ok((
                     State::WaitingForCall {
-                        request: Some(request),
+                        request: Some(ProcessingRequest::Previous(request)),
                         state: waiting_for_call::State::new(),
                         call_generation: new_call_generation,
                     },
@@ -915,7 +936,10 @@ impl State {
                 Ok((
                     State::Call {
                         request: ProcessingRequest::Previous(PreviousRequest::Linked(request)),
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,
@@ -932,12 +956,12 @@ impl State {
                         request: ProcessingRequest::Current(Request::new_packet(
                             timer,
                             transfer_length,
-                            Source::Call {
-                                adapter,
-                                phone_number: phone_number.clone(),
-                            },
+                            call::Source::Call,
                         )),
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,
@@ -954,7 +978,10 @@ impl State {
                         request: ProcessingRequest::Previous(PreviousRequest::WaitingForCall(
                             request,
                         )),
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,
@@ -969,7 +996,10 @@ impl State {
                 Ok((
                     State::Call {
                         request: ProcessingRequest::Previous(request),
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,
@@ -986,12 +1016,12 @@ impl State {
                         request: ProcessingRequest::Current(Request::new_packet(
                             timer,
                             transfer_length,
-                            Source::Call {
-                                adapter,
-                                phone_number: phone_number.clone(),
-                            },
+                            call::Source::Call,
                         )),
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,
@@ -1006,7 +1036,10 @@ impl State {
                 Ok((
                     State::Call {
                         request: ProcessingRequest::Previous(PreviousRequest::Call(request)),
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,
@@ -1021,7 +1054,10 @@ impl State {
                 Ok((
                     State::Call {
                         request,
-                        phone_number,
+                        context: call::Context {
+                            phone_number,
+                            adapter,
+                        },
                         call_generation: new_call_generation,
                     },
                     new_call_generation,

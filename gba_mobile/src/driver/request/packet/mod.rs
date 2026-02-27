@@ -8,7 +8,7 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
-    driver::{Adapter, Command, Source, command, frames, sink},
+    driver::{self, Adapter, Command, command, frames, sink},
     mmio::serial::{SIOCNT, SIODATA8, SIODATA32, TransferLength},
 };
 use core::num::{NonZeroU8, NonZeroU16};
@@ -18,7 +18,7 @@ pub(in crate::driver) const MAX_RETRIES: u8 = 5;
 
 /// In-progress communication.
 #[derive(Debug)]
-pub(in crate::driver) enum Packet {
+pub(in crate::driver) enum Packet<Source> {
     /// Sending in SIO8 mode.
     Send8 {
         step: send::Step8,
@@ -71,7 +71,10 @@ pub(in crate::driver) enum Packet {
     },
 }
 
-impl Packet {
+impl<Source> Packet<Source>
+where
+    Source: driver::Source,
+{
     pub(in crate::driver) fn new(transfer_length: TransferLength, source: Source) -> Self {
         match transfer_length {
             TransferLength::_8Bit => Self::Send8 {
@@ -128,7 +131,7 @@ impl Packet {
     }
 
     /// Push bytes into SIO from this packet.
-    pub(in crate::driver) fn push(&mut self) {
+    pub(in crate::driver) fn push(&mut self, context: &Source::Context) {
         match self {
             // /-----------\
             // | SIO8 Send |
@@ -150,12 +153,12 @@ impl Packet {
                     send::Step8::HeaderEmptyByte => 0x00,
                     send::Step8::HeaderLength1 => 0x00,
                     send::Step8::HeaderLength2 => {
-                        let byte = source.length();
+                        let byte = source.length(context);
                         *checksum = checksum.wrapping_add(byte as u16);
                         byte
                     }
                     send::Step8::Data { index } => {
-                        let byte = source.get(*index);
+                        let byte = source.get(*index, context);
                         *checksum = checksum.wrapping_add(byte as u16);
                         byte
                     }
@@ -184,7 +187,7 @@ impl Packet {
                         u32::from_be_bytes([0x99, 0x66, command, 0x00])
                     }
                     send::Step32::HeaderLength => {
-                        let length = source.length();
+                        let length = source.length(context);
                         *checksum = checksum.wrapping_add(length as u16);
                         if length == 0 {
                             // If not sending any data, we skip straight to sending the checksum.
@@ -195,8 +198,8 @@ impl Packet {
                                 *checksum as u8,
                             ])
                         } else {
-                            let data_0 = source.get(0);
-                            let data_1 = source.get(1);
+                            let data_0 = source.get(0, context);
+                            let data_1 = source.get(1, context);
                             *checksum = checksum
                                 .wrapping_add(data_0 as u16)
                                 .wrapping_add(data_1 as u16);
@@ -204,11 +207,11 @@ impl Packet {
                         }
                     }
                     send::Step32::Data { index } => {
-                        let length = source.length();
+                        let length = source.length(context);
                         let mut bytes = [0x00; 4];
                         let mut offset = 0;
                         while offset < 4 && *index + offset < length {
-                            let byte = source.get(*index + offset);
+                            let byte = source.get(*index + offset, context);
                             *checksum = checksum.wrapping_add(byte as u16);
                             bytes[offset as usize] = byte;
                             offset += 1;
@@ -332,6 +335,7 @@ impl Packet {
         self,
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
+        context: &Source::Context,
     ) -> Result<Option<Self>, Either<Error, command::Error>> {
         match self {
             // /-----------\
@@ -383,7 +387,7 @@ impl Packet {
                         frame: 0,
                     })),
                     send::Step8::HeaderLength2 => {
-                        if source.length() > 0 {
+                        if source.length(context) > 0 {
                             Ok(Some(Self::Send8 {
                                 step: send::Step8::Data { index: 0 },
                                 source,
@@ -403,7 +407,7 @@ impl Packet {
                     }
                     send::Step8::Data { index } => {
                         let next_index = index + 1;
-                        if source.length() > next_index {
+                        if source.length(context) > next_index {
                             Ok(Some(Self::Send8 {
                                 step: send::Step8::Data { index: next_index },
                                 source,
@@ -513,7 +517,7 @@ impl Packet {
                         frame: 0,
                     })),
                     send::Step32::HeaderLength => {
-                        let new_step = match source.length() {
+                        let new_step = match source.length(context) {
                             0 => send::Step32::AcknowledgementSignal,
                             1..=2 => send::Step32::Checksum,
                             _ => send::Step32::Data { index: 2 },
@@ -527,7 +531,7 @@ impl Packet {
                         }))
                     }
                     send::Step32::Data { index } => {
-                        let length = source.length();
+                        let length = source.length(context);
                         let new_step = if index + 2 >= length {
                             // We can fit the checksum in here.
                             send::Step32::AcknowledgementSignal
@@ -1644,7 +1648,7 @@ impl Packet {
 mod tests {
     use super::Packet;
     use crate::{
-        driver::{Adapter, Command, HANDSHAKE, Source, command},
+        driver::{Adapter, Command, HANDSHAKE, active::linking, command},
         mmio::serial::{self, Mode, RCNT, SIOCNT, SIODATA8, SIODATA32, TransferLength},
     };
     use claims::{assert_err_eq, assert_none, assert_ok, assert_some};
@@ -1655,33 +1659,40 @@ mod tests {
         ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
             #[allow(unused_assignments)] // It's okay if we don't use the packet after this.
             {
-                $packet.push();
+                $packet.push(&());
                 assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
                 unsafe { SIODATA8.write_volatile($receive) };
-                $packet = assert_some!(assert_ok!(
-                    $packet.pull(&mut $adapter, &mut $transfer_length)
-                ));
+                $packet = assert_some!(assert_ok!($packet.pull(
+                    &mut $adapter,
+                    &mut $transfer_length,
+                    &()
+                )));
             }
         };
     }
 
     macro_rules! assert_sio_8_final {
         ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
-            $packet.push();
+            $packet.push(&());
             assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
             unsafe { SIODATA8.write_volatile($receive) };
-            assert_none!(assert_ok!(
-                $packet.pull(&mut $adapter, &mut $transfer_length)
-            ));
+            assert_none!(assert_ok!($packet.pull(
+                &mut $adapter,
+                &mut $transfer_length,
+                &()
+            )));
         };
     }
 
     macro_rules! assert_sio_8_final_error {
         ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr, $error:expr $(,)?) => {
-            $packet.push();
+            $packet.push(&());
             assert_eq!(unsafe { SIODATA8.read_volatile() }, $send);
             unsafe { SIODATA8.write_volatile($receive) };
-            assert_err_eq!($packet.pull(&mut $adapter, &mut $transfer_length), $error,);
+            assert_err_eq!(
+                $packet.pull(&mut $adapter, &mut $transfer_length, &()),
+                $error
+            );
         };
     }
 
@@ -1689,33 +1700,40 @@ mod tests {
         ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
             #[allow(unused_assignments)] // It's okay if we don't use the packet after this.
             {
-                $packet.push();
+                $packet.push(&());
                 assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
                 unsafe { SIODATA32.write_volatile($receive) };
-                $packet = assert_some!(assert_ok!(
-                    $packet.pull(&mut $adapter, &mut $transfer_length)
-                ));
+                $packet = assert_some!(assert_ok!($packet.pull(
+                    &mut $adapter,
+                    &mut $transfer_length,
+                    &()
+                )));
             }
         };
     }
 
     macro_rules! assert_sio_32_final {
         ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr $(,)?) => {
-            $packet.push();
+            $packet.push(&());
             assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
             unsafe { SIODATA32.write_volatile($receive) };
-            assert_none!(assert_ok!(
-                $packet.pull(&mut $adapter, &mut $transfer_length)
-            ));
+            assert_none!(assert_ok!($packet.pull(
+                &mut $adapter,
+                &mut $transfer_length,
+                &()
+            )));
         };
     }
 
     macro_rules! assert_sio_32_final_error {
         ($packet:ident, $adapter:ident, $transfer_length:ident, $send:expr, $receive:expr, $error:expr $(,)?) => {
-            $packet.push();
+            $packet.push(&());
             assert_eq!(unsafe { SIODATA32.read_volatile() }, $send);
             unsafe { SIODATA32.write_volatile($receive) };
-            assert_err_eq!($packet.pull(&mut $adapter, &mut $transfer_length), $error,);
+            assert_err_eq!(
+                $packet.pull(&mut $adapter, &mut $transfer_length, &()),
+                $error
+            );
         };
     }
 
@@ -1728,7 +1746,7 @@ mod tests {
             SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(transfer_length, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, linking::Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -1833,7 +1851,7 @@ mod tests {
             SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(transfer_length, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, linking::Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -1947,7 +1965,7 @@ mod tests {
             SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(transfer_length, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, linking::Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\
@@ -2057,7 +2075,7 @@ mod tests {
             SIOCNT.write_volatile(serial::Control::new().transfer_length(transfer_length));
         }
 
-        let mut packet = Packet::new(transfer_length, Source::BeginSession);
+        let mut packet = Packet::new(transfer_length, linking::Source::BeginSession);
         let mut adapter = Adapter::Blue;
 
         // /------\

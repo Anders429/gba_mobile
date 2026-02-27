@@ -1,6 +1,6 @@
 use crate::{
-    Timer,
-    driver::{Request, Source, frames},
+    Timer, driver,
+    driver::{Command, Request, frames, sink},
     mmio::serial::TransferLength,
 };
 
@@ -16,7 +16,7 @@ impl State {
         self,
         timer: Timer,
         transfer_length: TransferLength,
-    ) -> (Self, Option<Request>) {
+    ) -> (Self, Option<Request<Source>>) {
         if self.0 >= frames::ONE_SECOND {
             (
                 Self(0),
@@ -28,6 +28,39 @@ impl State {
             )
         } else {
             (Self(self.0 + 1), None)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::driver) enum Source {
+    WaitForCall,
+}
+
+impl driver::Source for Source {
+    type Context = ();
+
+    fn command(self) -> Command {
+        match self {
+            Self::WaitForCall => Command::WaitForTelephoneCall,
+        }
+    }
+
+    fn length(self, _context: &Self::Context) -> u8 {
+        match self {
+            Self::WaitForCall => 0,
+        }
+    }
+
+    fn get(self, _index: u8, _context: &Self::Context) -> u8 {
+        match self {
+            Self::WaitForCall => 0x00,
+        }
+    }
+
+    fn sink(self) -> sink::Command {
+        match self {
+            Self::WaitForCall => sink::Command::WaitForCall,
         }
     }
 }

@@ -10,7 +10,7 @@ pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
     Timer,
-    driver::{Adapter, Source, command, frames},
+    driver::{self, Adapter, command, frames},
     mmio::{
         serial::{self, SIOCNT, SIODATA8, SIODATA32, TransferLength},
         timer::{self, TM0CNT, TM0VAL, TM1CNT, TM1VAL, TM2CNT, TM2VAL, TM3CNT, TM3VAL},
@@ -22,13 +22,16 @@ const TIMER_200_MICROSECONDS: u16 = u16::MIN.wrapping_sub(4);
 const TIMER_400_MICROSECONDS: u16 = u16::MIN.wrapping_sub(7);
 
 #[derive(Debug)]
-pub(in crate::driver) enum Request {
-    Packet(Packet),
+pub(in crate::driver) enum Request<Source> {
+    Packet(Packet<Source>),
     WaitForIdle { frame: u8 },
     Idle { frame: u8 },
 }
 
-impl Request {
+impl<Source> Request<Source>
+where
+    Source: driver::Source,
+{
     pub(in crate::driver) fn new_packet(
         timer: Timer,
         transfer_length: TransferLength,
@@ -50,6 +53,7 @@ impl Request {
     pub(in crate::driver) fn vblank(
         &mut self,
         transfer_length: TransferLength,
+        context: &Source::Context,
     ) -> Result<(), Timeout> {
         match self {
             Self::Packet(packet) => {
@@ -66,7 +70,7 @@ impl Request {
                 } = packet
                     && *frame % frames::ONE_HUNDRED_MILLISECONDS as u16 == 0
                 {
-                    packet.push();
+                    packet.push(context);
                     schedule_serial(transfer_length);
                 }
 
@@ -101,10 +105,14 @@ impl Request {
         }
     }
 
-    pub(in crate::driver) fn timer(&mut self, transfer_length: TransferLength) {
+    pub(in crate::driver) fn timer(
+        &mut self,
+        transfer_length: TransferLength,
+        context: &Source::Context,
+    ) {
         match self {
             Self::Packet(packet) => {
-                packet.push();
+                packet.push(context);
                 schedule_serial(transfer_length);
             }
             Self::WaitForIdle { .. } => {}
@@ -125,10 +133,11 @@ impl Request {
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
         timer: Timer,
+        context: &Source::Context,
     ) -> Result<Option<Self>, Either<Error, command::Error>> {
         match self {
             Self::Packet(packet) => packet
-                .pull(adapter, transfer_length)
+                .pull(adapter, transfer_length, context)
                 .map(|next_packet| {
                     next_packet.map(|packet| {
                         if !matches!(

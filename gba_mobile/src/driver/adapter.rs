@@ -43,6 +43,12 @@ impl Adapter {
     }
 }
 
+impl Default for Adapter {
+    fn default() -> Self {
+        Adapter::Blue
+    }
+}
+
 impl TryFrom<u8> for Adapter {
     type Error = Unknown;
 
