@@ -18,7 +18,7 @@ impl core::error::Error for Unknown {}
 /// The type of adapter being used.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(in crate::driver) enum Adapter {
+pub enum Adapter {
     /// PDC Mobile Adapter (Blue).
     Blue = 0x88,
     /// cdmaOne Mobile Adapter (Yellow).
@@ -41,24 +41,25 @@ impl Adapter {
             Self::Red => 1,
         }
     }
-}
 
-impl Default for Adapter {
-    fn default() -> Self {
-        Adapter::Blue
-    }
-}
-
-impl TryFrom<u8> for Adapter {
-    type Error = Unknown;
-
-    fn try_from(byte: u8) -> Result<Self, Self::Error> {
+    pub(in crate::driver) fn try_from(byte: u8) -> Result<Self, Unknown> {
         match byte {
             0x88 => Ok(Self::Blue),
             0x89 => Ok(Self::Yellow),
             0x8a => Ok(Self::Green),
             0x8b => Ok(Self::Red),
             unknown => Err(Unknown(unknown)),
+        }
+    }
+}
+
+impl Display for Adapter {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Blue => formatter.write_str("Blue"),
+            Self::Yellow => formatter.write_str("Yellow"),
+            Self::Green => formatter.write_str("Green"),
+            Self::Red => formatter.write_str("Red"),
         }
     }
 }

@@ -148,7 +148,6 @@ where
     ) -> Result<Either<Result<Self, Self::ReceiveError>, Response<Payload>>, error::Receive<Payload>>
     {
         let byte = unsafe { SIODATA8.read_volatile() };
-        log::debug!("received byte: {byte:#04x}");
         match self.step {
             Step::MagicByte2 { payload } => match byte {
                 0x66 => Ok(Either::Left(Ok(Self::next(

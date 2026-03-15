@@ -63,6 +63,7 @@ pub fn main() {
     log::info!("link connection status: {status:?}");
 
     if let Ok(Some(link)) = status {
+        log::info!("connected to {} adapter", link.adapter().expect("unable to check adapter"));
         let pending_p2p = loop {
             let keys = gba::mmio::KEYINPUT.read();
             if keys.a() {

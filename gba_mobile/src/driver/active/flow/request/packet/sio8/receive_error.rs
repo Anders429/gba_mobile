@@ -128,7 +128,6 @@ where
 
     fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive<Payload>> {
         let byte = unsafe { SIODATA8.read_volatile() };
-        log::debug!("received error byte: {byte:#04x}");
         match self.step {
             Step::MagicByte2 => Ok(Either::Left(Self::next(Step::HeaderCommand, self.state))),
             Step::HeaderCommand => Ok(Either::Left(Self::next(Step::HeaderEmptyByte, self.state))),

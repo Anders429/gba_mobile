@@ -6,6 +6,8 @@ mod command;
 mod frames;
 mod timers;
 
+pub use adapter::Adapter;
+
 use crate::{
     ArrayVec, Generation, Timer,
     mmio::{
@@ -15,7 +17,6 @@ use crate::{
     phone_number::Digit,
 };
 use active::Active;
-use adapter::Adapter;
 use command::Command;
 use error::Error;
 
@@ -188,6 +189,21 @@ impl Driver {
 
     pub(crate) fn disconnect(&mut self) {
         todo!()
+    }
+
+    pub(crate) fn adapter(
+        &self,
+        link_generation: Generation,
+    ) -> Result<Adapter, error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => Ok(active.adapter()),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
     }
 
     pub(crate) fn vblank(&mut self) {

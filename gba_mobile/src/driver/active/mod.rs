@@ -146,7 +146,7 @@ impl Active {
     /// Listen for an incoming p2p connection.
     pub(super) fn accept(&mut self) -> Generation {
         self.state.connection_generation = self.state.connection_generation.increment();
-        self.state.phase = Phase::Connecting(ConnectionRequest::Accept { frame: 0 });
+        self.state.phase = Phase::Connecting(ConnectionRequest::Accept { frame: 255 });
         self.queue.set_connect();
         self.state.connection_generation
     }
@@ -181,6 +181,10 @@ impl Active {
             Phase::Ending => Err(super::error::link::Error::closed().into()),
             _ => Ok(true),
         }
+    }
+
+    pub(crate) fn adapter(&self) -> Adapter {
+        self.state.adapter
     }
 
     pub(super) fn vblank(&mut self) -> Result<(), Timeout> {

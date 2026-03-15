@@ -18,6 +18,7 @@ mod generation;
 mod mmio;
 mod timer;
 
+pub use driver::Adapter;
 pub use link::Link;
 pub use phone_number::PhoneNumber;
 pub use timer::Timer;

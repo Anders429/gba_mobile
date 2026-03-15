@@ -4,7 +4,9 @@ mod pending;
 pub use error::Error;
 pub use pending::Pending;
 
-use crate::{ArrayVec, DRIVER, Generation, Timer, mmio::interrupt, p2p, phone_number::IntoDigits};
+use crate::{
+    Adapter, ArrayVec, DRIVER, Generation, Timer, mmio::interrupt, p2p, phone_number::IntoDigits,
+};
 
 #[derive(Debug)]
 pub struct Link {
@@ -30,12 +32,14 @@ impl Link {
         unsafe {
             let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
             interrupt::MASTER_ENABLE.write_volatile(false);
-            let connection_generation = DRIVER.accept(self.link_generation)?;
+            let result = DRIVER.accept(self.link_generation);
             interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-            Ok(p2p::Pending {
-                link_generation: self.link_generation,
-                connection_generation,
-            })
+            result
+                .map(|connection_generation| p2p::Pending {
+                    link_generation: self.link_generation,
+                    connection_generation,
+                })
+                .map_err(Into::into)
         }
     }
 
@@ -58,6 +62,16 @@ impl Link {
                 link_generation: self.link_generation,
                 connection_generation,
             })
+        }
+    }
+
+    pub fn adapter(&self) -> Result<Adapter, Error> {
+        unsafe {
+            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
+            interrupt::MASTER_ENABLE.write_volatile(false);
+            let result = DRIVER.adapter(self.link_generation);
+            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
+            result.map_err(Into::into)
         }
     }
 }

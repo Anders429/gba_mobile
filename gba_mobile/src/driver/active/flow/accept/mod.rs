@@ -53,12 +53,9 @@ impl Accept {
                     Either::Left(packet) => Some(Self::AcceptConnection(packet)),
                     Either::Right(response) => {
                         *adapter = response.adapter;
-                        match response.payload {
-                            payload::accept_connection::ReceiveParsed::Connected => {
-                                if matches!(
-                                    phase,
-                                    Phase::Connecting(ConnectionRequest::Accept { .. })
-                                ) {
+                        if let Phase::Connecting(ConnectionRequest::Accept { frame, .. }) = phase {
+                            match response.payload {
+                                payload::accept_connection::ReceiveParsed::Connected => {
                                     // We only update the phase if we are currently in a phase where we are
                                     // accepting connections.
                                     //
@@ -66,9 +63,11 @@ impl Accept {
                                     // flow, in which case we should not update the phase.
                                     *phase = Phase::Connected;
                                 }
+                                payload::accept_connection::ReceiveParsed::NotConnected => {
+                                    *frame = 0;
+                                }
                             }
-                            payload::accept_connection::ReceiveParsed::NotConnected => {}
-                        };
+                        }
                         None
                     }
                 })
