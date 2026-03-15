@@ -5,7 +5,7 @@ use crate::driver::Command;
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct EnableSio32;
+pub(in crate::driver) struct EnableSio32;
 
 impl Payload for EnableSio32 {
     type Send = Self;
@@ -51,7 +51,7 @@ impl super::ReceiveCommand for EnableSio32 {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveLength {
+pub(in crate::driver) enum ReceiveLength {
     EnableSio32,
     DisableSio32,
     CommandError,
@@ -99,7 +99,7 @@ impl super::ReceiveLength for ReceiveLength {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct ReceiveData(command_error::Data);
+pub(in crate::driver) struct ReceiveData(command_error::Data);
 
 impl super::ReceiveData for ReceiveData {
     type ReceiveCommand = EnableSio32;
@@ -134,7 +134,7 @@ impl super::ReceiveData for ReceiveData {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveParsed {
+pub(in crate::driver) enum ReceiveParsed {
     EnableSio32,
     DisableSio32,
 }

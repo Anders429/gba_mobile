@@ -12,7 +12,7 @@ use receive_error::ReceiveError;
 use wait_for_receive::WaitForReceive;
 
 #[derive(Debug)]
-pub(super) struct Sio8;
+pub(in crate::driver::active) struct Sio8;
 
 impl Sio for Sio8 {
     const TRANSFER_LENGTH: TransferLength = TransferLength::_8Bit;

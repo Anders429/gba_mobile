@@ -12,7 +12,7 @@ use receive_error::ReceiveError;
 use wait_for_receive::WaitForReceive;
 
 #[derive(Debug)]
-pub(super) struct Sio32;
+pub(in crate::driver::active) struct Sio32;
 
 impl Sio for Sio32 {
     const TRANSFER_LENGTH: TransferLength = TransferLength::_32Bit;

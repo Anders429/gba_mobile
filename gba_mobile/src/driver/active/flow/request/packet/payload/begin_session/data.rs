@@ -6,7 +6,7 @@ use core::{
 use deranged::RangedU8;
 
 #[derive(Debug)]
-pub(super) enum Data {
+pub(in crate::driver) enum Data {
     Byte0,
     Byte1,
     Byte2,

@@ -3,8 +3,8 @@ use super::{
     WaitForReceive,
 };
 use crate::{
-    driver::{Command, active::flow::request::packet::schedule_serial, frames},
-    mmio::serial::{SIODATA8, TransferLength},
+    driver::{Command, frames},
+    mmio::serial::SIODATA8,
 };
 use either::Either;
 
@@ -28,7 +28,7 @@ enum Step {
 }
 
 #[derive(Debug)]
-pub(in super::super) struct Send<Payload>
+pub(in crate::driver::active) struct Send<Payload>
 where
     Payload: self::Payload,
 {

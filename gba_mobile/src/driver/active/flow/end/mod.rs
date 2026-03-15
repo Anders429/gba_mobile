@@ -13,7 +13,7 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-pub(super) enum End {
+pub(in super::super) enum End {
     EndSession(Packet<payload::EndSession>),
     WaitForIdle(WaitForIdle),
 }

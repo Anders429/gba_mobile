@@ -18,7 +18,7 @@ enum Step {
 }
 
 #[derive(Debug)]
-pub(in super::super) struct Send<Payload>
+pub(in crate::driver::active) struct Send<Payload>
 where
     Payload: self::Payload,
 {

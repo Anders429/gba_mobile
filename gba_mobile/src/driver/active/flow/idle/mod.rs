@@ -8,7 +8,7 @@ use super::{super::Phase, request};
 use crate::{Timer, mmio::serial::TransferLength};
 
 #[derive(Debug)]
-pub(super) struct Idle {
+pub(in super::super) struct Idle {
     idle: request::Idle,
 }
 

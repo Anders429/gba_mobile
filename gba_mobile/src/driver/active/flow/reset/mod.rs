@@ -16,7 +16,7 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-pub(super) enum Reset {
+pub(in super::super) enum Reset {
     Reset(Packet<payload::Reset>),
     WaitForSio8(WaitForIdle),
     EnableSio32(Packet<payload::EnableSio32>),

@@ -52,7 +52,7 @@ where
 }
 
 #[derive(Debug)]
-pub(in super::super) struct ReceiveError<Payload>
+pub(in crate::driver::active) struct ReceiveError<Payload>
 where
     Payload: self::Payload,
 {

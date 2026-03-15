@@ -6,7 +6,7 @@ use core::num::NonZeroU16;
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct AcceptConnection;
+pub(in crate::driver) struct AcceptConnection;
 
 impl Payload for AcceptConnection {
     type Send = Self;
@@ -51,7 +51,7 @@ impl super::ReceiveCommand for AcceptConnection {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveLength {
+pub(in crate::driver) enum ReceiveLength {
     WaitForTelephoneCall,
     CommandError,
 }
@@ -94,7 +94,7 @@ impl super::ReceiveLength for ReceiveLength {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct ReceiveData(command_error::Data);
+pub(in crate::driver) struct ReceiveData(command_error::Data);
 
 impl super::ReceiveData for ReceiveData {
     type ReceiveCommand = AcceptConnection;
@@ -128,7 +128,7 @@ impl super::ReceiveData for ReceiveData {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveParsed {
+pub(in crate::driver) enum ReceiveParsed {
     Connected,
     NotConnected,
 }

@@ -14,7 +14,7 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-pub(super) struct Connect {
+pub(in super::super) struct Connect {
     packet: Packet<payload::Connect>,
     connection_generation: Generation,
 }

@@ -17,7 +17,7 @@ use sio32::Sio32;
 
 const MAX_RETRIES: u8 = 5;
 
-trait Send: Sized {
+pub(in crate::driver::active) trait Send: Sized {
     type WaitForReceive;
 
     fn vblank(self) -> Result<Self, Timeout>;
@@ -27,7 +27,7 @@ trait Send: Sized {
     fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Send>;
 }
 
-trait WaitForReceive: Sized {
+pub(in crate::driver::active) trait WaitForReceive: Sized {
     type Receive;
     type ReceiveError;
 
@@ -36,7 +36,7 @@ trait WaitForReceive: Sized {
     fn serial(self) -> Result<Either<Self, Self::Receive>, Self::ReceiveError>;
 }
 
-trait Receive<Payload>: Sized
+pub(in crate::driver::active) trait Receive<Payload>: Sized
 where
     Payload: self::Payload,
 {
@@ -51,7 +51,7 @@ where
     ) -> Result<Either<Result<Self, Self::ReceiveError>, Response<Payload>>, error::Receive<Payload>>;
 }
 
-trait ReceiveError<Payload>: Sized
+pub(in crate::driver::active) trait ReceiveError<Payload>: Sized
 where
     Payload: self::Payload,
 {
@@ -64,7 +64,7 @@ where
     fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive<Payload>>;
 }
 
-trait Sio {
+pub(in crate::driver::active) trait Sio {
     const TRANSFER_LENGTH: TransferLength;
 
     type Send<Payload>: Send<WaitForReceive = Self::WaitForReceive<Payload>>
@@ -82,7 +82,7 @@ trait Sio {
 }
 
 #[derive(Debug)]
-enum State<Payload, Sio>
+pub(in crate::driver::active) enum State<Payload, Sio>
 where
     Payload: self::Payload,
     Sio: self::Sio,
@@ -180,7 +180,7 @@ where
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum Packet<Payload>
+pub(in crate::driver::active) enum Packet<Payload>
 where
     Payload: self::Payload,
 {

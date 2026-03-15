@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct WaitForIdle {
+pub(in crate::driver::active) struct WaitForIdle {
     transfer_length: TransferLength,
     frame: u8,
 }

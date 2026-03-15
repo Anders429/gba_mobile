@@ -10,7 +10,7 @@ use core::{
 
 /// All internal error states the driver can enter.
 #[derive(Clone, Debug)]
-pub(crate) enum Error {
+pub(in crate::driver) enum Error {
     Timeout(active::Timeout),
     Error(active::Error),
 }

@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct Idle {
+pub(in crate::driver::active) struct Idle {
     transfer_length: TransferLength,
     frame: u8,
 }

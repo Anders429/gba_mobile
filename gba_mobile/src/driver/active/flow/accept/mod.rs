@@ -12,7 +12,7 @@ use crate::{Timer, driver::Adapter, mmio::serial::TransferLength};
 use either::Either;
 
 #[derive(Debug)]
-pub(super) enum Accept {
+pub(in super::super) enum Accept {
     AcceptConnection(Packet<payload::AcceptConnection>),
 }
 

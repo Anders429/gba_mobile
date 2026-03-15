@@ -16,7 +16,7 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-pub(super) enum Start {
+pub(in super::super) enum Start {
     Wake(WaitForIdle),
     BeginSession(Packet<payload::BeginSession>),
     Sio32(Packet<payload::EnableSio32>),

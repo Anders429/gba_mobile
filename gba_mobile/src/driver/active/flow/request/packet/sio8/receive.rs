@@ -86,7 +86,7 @@ impl State {
 }
 
 #[derive(Debug)]
-pub(in super::super) struct Receive<Payload>
+pub(in crate::driver::active) struct Receive<Payload>
 where
     Payload: self::Payload,
 {

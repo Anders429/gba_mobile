@@ -6,7 +6,7 @@ use core::num::NonZeroU16;
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct EndSession;
+pub(in crate::driver) struct EndSession;
 
 impl Payload for EndSession {
     type Send = Self;
@@ -51,7 +51,7 @@ impl super::ReceiveCommand for EndSession {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveLength {
+pub(in crate::driver) enum ReceiveLength {
     EndSession,
     CommandError,
 }
@@ -91,7 +91,7 @@ impl super::ReceiveLength for ReceiveLength {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct ReceiveData(command_error::Data);
+pub(in crate::driver) struct ReceiveData(command_error::Data);
 
 impl super::ReceiveData for ReceiveData {
     type ReceiveCommand = EndSession;

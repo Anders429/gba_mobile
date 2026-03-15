@@ -10,7 +10,7 @@ use either::Either;
 const HANDSHAKE: [u8; 8] = [0x4e, 0x49, 0x4e, 0x54, 0x45, 0x4e, 0x44, 0x4f];
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct BeginSession;
+pub(in crate::driver) struct BeginSession;
 
 impl Payload for BeginSession {
     type Send = Self;
@@ -55,7 +55,7 @@ impl super::ReceiveCommand for BeginSession {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveLength {
+pub(in crate::driver) enum ReceiveLength {
     BeginSession,
     CommandError,
 }
@@ -97,7 +97,7 @@ impl super::ReceiveLength for ReceiveLength {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveData {
+pub(in crate::driver) enum ReceiveData {
     BeginSession(Data),
     CommandError(command_error::Data),
 }
@@ -150,7 +150,7 @@ impl super::ReceiveData for ReceiveData {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveParsed {
+pub(in crate::driver) enum ReceiveParsed {
     BeginSession,
     AlreadyActive,
 }

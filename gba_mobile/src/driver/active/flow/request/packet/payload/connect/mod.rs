@@ -10,7 +10,7 @@ use core::num::NonZeroU16;
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct Connect {
+pub(in crate::driver) struct Connect {
     adapter: Adapter,
     phone_number: ArrayVec<Digit, 32>,
 }
@@ -66,7 +66,7 @@ impl super::Send for Connect {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct ReceiveCommand;
+pub(in crate::driver) struct ReceiveCommand;
 
 impl super::ReceiveCommand for ReceiveCommand {
     type ReceiveLength = ReceiveLength;
@@ -82,7 +82,7 @@ impl super::ReceiveCommand for ReceiveCommand {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveLength {
+pub(in crate::driver) enum ReceiveLength {
     DialTelephone,
     CommandError,
 }
@@ -122,7 +122,7 @@ impl super::ReceiveLength for ReceiveLength {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct ReceiveData(command_error::Data);
+pub(in crate::driver) struct ReceiveData(command_error::Data);
 
 impl super::ReceiveData for ReceiveData {
     type ReceiveCommand = ReceiveCommand;
@@ -158,7 +158,7 @@ impl super::ReceiveData for ReceiveData {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveParsed {
+pub(in crate::driver) enum ReceiveParsed {
     Connected,
     NotConnected,
 }

@@ -2,7 +2,7 @@ use crate::driver::command;
 use either::Either;
 
 #[derive(Debug)]
-pub(super) enum Data {
+pub(in crate::driver) enum Data {
     Command,
     Status(u8),
 }

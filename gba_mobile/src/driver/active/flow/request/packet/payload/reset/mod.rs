@@ -6,7 +6,7 @@ use core::num::NonZeroU16;
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct Reset;
+pub(in crate::driver) struct Reset;
 
 impl Payload for Reset {
     type Send = Self;
@@ -51,7 +51,7 @@ impl super::ReceiveCommand for Reset {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) enum ReceiveLength {
+pub(in crate::driver) enum ReceiveLength {
     Reset,
     CommandError,
 }
@@ -91,7 +91,7 @@ impl super::ReceiveLength for ReceiveLength {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active::flow) struct ReceiveData(command_error::Data);
+pub(in crate::driver) struct ReceiveData(command_error::Data);
 
 impl super::ReceiveData for ReceiveData {
     type ReceiveCommand = Reset;

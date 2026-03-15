@@ -9,7 +9,7 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-pub(in super::super) struct WaitForReceive<Payload>
+pub(in crate::driver::active) struct WaitForReceive<Payload>
 where
     Payload: self::Payload,
 {
