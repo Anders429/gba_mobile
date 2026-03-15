@@ -1,27 +1,34 @@
 use crate::{
-    Driver, Generation,
+    DRIVER, Generation,
     link::{Error, Link},
+    mmio::interrupt,
 };
 
 #[derive(Debug)]
 pub struct Pending {
-    pub(crate) generation: Generation,
+    pub(crate) link_generation: Generation,
 }
 
 impl Pending {
-    pub fn status(&self, driver: &Driver) -> Result<Option<Link>, Error> {
-        driver
-            .linking_status(self.generation)
-            .map(|finished| {
-                finished.then(|| Link {
-                    generation: self.generation,
+    pub fn status(&self) -> Result<Option<Link>, Error> {
+        unsafe {
+            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
+            interrupt::MASTER_ENABLE.write_volatile(false);
+            let result = DRIVER
+                .link_status(self.link_generation)
+                .map(|finished| {
+                    finished.then(|| Link {
+                        link_generation: self.link_generation,
+                    })
                 })
-            })
-            .map_err(|error| error.into())
+                .map_err(|error| error.into());
+            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
+            result
+        }
     }
 
     /// Cancel this pending link.
-    pub fn cancel(self, driver: &mut Driver) {
-        driver.end_session(self.generation);
+    pub fn cancel(self) {
+        todo!()
     }
 }

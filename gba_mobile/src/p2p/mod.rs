@@ -8,6 +8,6 @@ use crate::Generation;
 
 #[derive(Debug)]
 pub struct P2P {
-    generation: Generation,
-    call_generation: Generation,
+    link_generation: Generation,
+    connection_generation: Generation,
 }

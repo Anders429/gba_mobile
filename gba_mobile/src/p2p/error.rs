@@ -6,7 +6,7 @@ use core::{
 
 #[derive(Debug)]
 pub struct Error {
-    internal: driver::error::p2p::Error,
+    internal: driver::error::connection::Error,
 }
 
 impl Display for Error {
@@ -21,8 +21,8 @@ impl core::error::Error for Error {
     }
 }
 
-impl From<driver::error::p2p::Error> for Error {
-    fn from(error: driver::error::p2p::Error) -> Self {
+impl From<driver::error::connection::Error> for Error {
+    fn from(error: driver::error::connection::Error) -> Self {
         Self { internal: error }
     }
 }

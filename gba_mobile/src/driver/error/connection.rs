@@ -1,3 +1,5 @@
+use super::link;
+use crate::driver::active::ConnectionFailure;
 use core::{
     fmt,
     fmt::{Display, Formatter},
@@ -32,27 +34,37 @@ impl core::error::Error for Error {
     }
 }
 
-impl From<super::Error> for Error {
-    fn from(error: super::Error) -> Self {
+impl From<ConnectionFailure> for Error {
+    fn from(error: ConnectionFailure) -> Self {
         Self {
-            kind: Kind::Driver(error),
+            kind: Kind::Failure(error),
+        }
+    }
+}
+
+impl From<link::Error> for Error {
+    fn from(error: link::Error) -> Self {
+        Self {
+            kind: Kind::Link(error),
         }
     }
 }
 
 #[derive(Debug)]
 enum Kind {
-    Driver(super::Error),
     Closed,
     Superseded,
+    Failure(ConnectionFailure),
+    Link(link::Error),
 }
 
 impl Display for Kind {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Driver(_) => formatter.write_str("the driver is in an error state"),
-            Self::Closed => formatter.write_str("the link connection was closed"),
-            Self::Superseded => formatter.write_str("the link connection was superseded"),
+            Self::Closed => formatter.write_str("the connection was closed"),
+            Self::Superseded => formatter.write_str("the connection was superseded"),
+            Self::Failure(_) => formatter.write_str("failed to establish connection"),
+            Self::Link(_) => formatter.write_str("link error"),
         }
     }
 }
@@ -60,9 +72,10 @@ impl Display for Kind {
 impl core::error::Error for Kind {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::Driver(error) => Some(error),
             Self::Closed => None,
             Self::Superseded => None,
+            Self::Failure(error) => Some(error),
+            Self::Link(error) => Some(error),
         }
     }
 }

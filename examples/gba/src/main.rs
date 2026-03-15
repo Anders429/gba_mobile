@@ -9,9 +9,6 @@ use core::net::Ipv4Addr;
 use gba::prelude::*;
 use gba_mobile::Timer;
 
-#[unsafe(link_section = ".ewram")]
-static mut MOBILE_DRIVER: gba_mobile::Driver = gba_mobile::Driver::new(Timer::_0);
-
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     log::error!("{info}");
@@ -21,22 +18,16 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
 
 #[unsafe(link_section = ".iwram")]
 extern "C" fn irq_handler(bits: IrqBits) {
-    // To use gba_mobile, you must provide an interrupt handler that calls the driver's interrupt
+    // To use gba_mobile, you must provide an interrupt handler that calls the library's interrupt
     // handler functions.
     if bits.vblank() {
-        unsafe {
-            MOBILE_DRIVER.vblank();
-        }
+        gba_mobile::vblank();
     }
     if bits.serial() {
-        unsafe {
-            MOBILE_DRIVER.serial();
-        }
+        gba_mobile::serial();
     }
     if bits.timer0() {
-        unsafe {
-            MOBILE_DRIVER.timer();
-        }
+        gba_mobile::timer();
     }
 }
 
@@ -56,16 +47,12 @@ pub fn main() {
 
     VBlankIntrWait();
 
-    IME.write(false);
-    let pending_link = unsafe { MOBILE_DRIVER.link() };
-    IME.write(true);
+    let pending_link = gba_mobile::Link::new(Timer::_0);
 
     let status = loop {
         VBlankIntrWait();
 
-        IME.write(false);
-        let status = unsafe { pending_link.status(&MOBILE_DRIVER) };
-        IME.write(true);
+        let status = pending_link.status();
 
         if let Ok(None) = status {
             continue;
@@ -80,19 +67,13 @@ pub fn main() {
             let keys = gba::mmio::KEYINPUT.read();
             if keys.a() {
                 log::info!("connecting!");
-                IME.write(false);
                 let pending_p2p = link
-                    .connect(Ipv4Addr::LOCALHOST, unsafe { &mut MOBILE_DRIVER })
+                    .connect(Ipv4Addr::LOCALHOST)
                     .expect("p2p connection failed");
-                IME.write(true);
                 break pending_p2p;
             } else if keys.b() {
                 log::info!("accepting!");
-                IME.write(false);
-                let pending_p2p: gba_mobile::p2p::Pending = link
-                    .accept(unsafe { &mut MOBILE_DRIVER })
-                    .expect("p2p connection failed");
-                IME.write(true);
+                let pending_p2p = link.accept().expect("p2p connection failed");
                 break pending_p2p;
             }
         };
@@ -100,9 +81,7 @@ pub fn main() {
         let p2p_status = loop {
             VBlankIntrWait();
 
-            IME.write(false);
-            let status = unsafe { pending_p2p.status(&MOBILE_DRIVER) };
-            IME.write(true);
+            let status = pending_p2p.status();
 
             if let Ok(None) = status {
                 continue;

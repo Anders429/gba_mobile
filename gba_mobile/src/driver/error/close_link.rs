@@ -9,10 +9,6 @@ pub(crate) struct Error {
 }
 
 impl Error {
-    pub(in crate::driver) fn closed() -> Self {
-        Self { kind: Kind::Closed }
-    }
-
     pub(in crate::driver) fn superseded() -> Self {
         Self {
             kind: Kind::Superseded,
@@ -43,7 +39,6 @@ impl From<super::Error> for Error {
 #[derive(Debug)]
 enum Kind {
     Driver(super::Error),
-    Closed,
     Superseded,
 }
 
@@ -51,7 +46,6 @@ impl Display for Kind {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Driver(_) => formatter.write_str("the driver is in an error state"),
-            Self::Closed => formatter.write_str("the link connection was closed"),
             Self::Superseded => formatter.write_str("the link connection was superseded"),
         }
     }
@@ -61,7 +55,6 @@ impl core::error::Error for Kind {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Driver(error) => Some(error),
-            Self::Closed => None,
             Self::Superseded => None,
         }
     }

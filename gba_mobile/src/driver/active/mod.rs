@@ -1,1068 +1,254 @@
-pub(in crate::driver) mod call;
-pub(in crate::driver) mod end_link;
-pub(in crate::driver) mod linked;
-pub(in crate::driver) mod linking;
-pub(in crate::driver) mod recover_link;
-pub(in crate::driver) mod reset_link;
-pub(in crate::driver) mod waiting_for_call;
+mod flow;
+mod queue;
+mod timeout;
+
+pub(in crate::driver) use flow::Error;
+pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
-    Generation, Timer,
-    arrayvec::ArrayVec,
-    driver::{self, Adapter, Request, command, error, request},
+    ArrayVec, Generation, Timer,
+    driver::{Adapter, frames},
     mmio::serial::TransferLength,
     phone_number::Digit,
 };
+use core::{
+    fmt,
+    fmt::{Display, Formatter},
+};
 use either::Either;
+use flow::Flow;
+use queue::Queue;
 
 #[derive(Debug)]
-pub(in crate::driver) struct Active {
-    adapter: Adapter,
+enum ConnectionRequest {
+    Accept { frame: u8 },
+    Connect { phone_number: ArrayVec<Digit, 32> },
+    Login,
+}
+
+#[derive(Clone, Debug)]
+pub(in crate::driver) enum ConnectionFailure {
+    Connect,
+    Login,
+}
+
+impl Display for ConnectionFailure {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Connect => formatter.write_str("unable to connect"),
+            Self::Login => formatter.write_str("unable to login"),
+        }
+    }
+}
+
+impl core::error::Error for ConnectionFailure {}
+
+#[derive(Debug)]
+enum Phase {
+    /// Attempting to link with a Mobile Adapter device.
+    Linking,
+    /// Linked with a Mobile Adapter device.
+    Linked {
+        frame: u8,
+        connection_failure: Option<ConnectionFailure>,
+    },
+
+    /// Attempting to establish a connection.
+    Connecting(ConnectionRequest),
+    /// Connection established.
+    Connected,
+
+    /// This link is being closed.
+    Ending,
+}
+
+#[derive(Debug)]
+struct State {
+    connection_generation: Generation,
+
     transfer_length: TransferLength,
+    adapter: Adapter,
+    timer: Timer,
+
+    phase: Phase,
+
+    frame: u8,
+}
+
+impl State {
+    fn new(timer: Timer) -> Self {
+        Self {
+            connection_generation: Generation::new(),
+
+            transfer_length: TransferLength::_8Bit,
+            // Arbitrary default. It will be overwritten after the first packet is received.
+            adapter: Adapter::Blue,
+            timer,
+
+            phase: Phase::Linking,
+
+            frame: 0,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct Active {
+    queue: Queue,
+    flow: Option<Flow>,
 
     state: State,
 }
 
 impl Active {
-    pub(in crate::driver) fn new(timer: Timer) -> Self {
-        let transfer_length = TransferLength::_8Bit;
-        let linking_state = linking::State::new();
+    /// Define a new active communication state, attempting to immediately link with the Mobile
+    /// Adapter.
+    pub(super) fn new(timer: Timer) -> Self {
         Self {
-            adapter: Adapter::Blue,
-            transfer_length,
+            queue: Queue::new(),
+            flow: Some(Flow::start(TransferLength::_8Bit)),
 
-            state: State::Linking {
-                request: linking_state.request(timer, transfer_length),
-                state: linking_state,
-            },
+            state: State::new(timer),
         }
     }
 
-    pub(in crate::driver) fn linking_status(&self) -> Result<bool, error::link::Error> {
-        self.state.linking_status()
+    /// Start a new link, closing any existing link if one is active.
+    pub(super) fn start_link(&mut self, timer: Timer) {
+        match self.state.phase {
+            Phase::Linking | Phase::Ending => {
+                // In either of these phases, we do not need to schedule the end of the previous
+                // session, since it either doesn't exist or is already scheduled to end.
+                self.queue.set_start();
+            }
+            _ => {
+                self.queue.set_end();
+                self.queue.set_start();
+            }
+        }
+        self.state.phase = Phase::Linking;
+        self.state.timer = timer;
     }
 
-    pub(in crate::driver) fn p2p_status(
-        &self,
-        call_generation: Generation,
-    ) -> Result<bool, error::p2p::Error> {
-        self.state.p2p_status(call_generation)
+    pub(super) fn link_status(&self) -> Result<bool, super::error::link::Error> {
+        match self.state.phase {
+            Phase::Linking => Ok(false),
+            Phase::Ending => Err(super::error::link::Error::closed()),
+            _ => Ok(true),
+        }
     }
 
-    pub(in crate::driver) fn reset_link(mut self, timer: Timer) -> Self {
-        self.state = self.state.reset_link(timer, self.transfer_length);
-        self
+    /// End the existing session.
+    pub(super) fn close_link(&mut self) {
+        self.queue.set_end();
+        self.state.phase = Phase::Ending;
     }
 
-    pub(in crate::driver) fn end_link(mut self, timer: Timer) -> Self {
-        self.state = self.state.end_link(timer, self.transfer_length);
-        self
+    /// Listen for an incoming p2p connection.
+    pub(super) fn accept(&mut self) -> Generation {
+        self.state.connection_generation = self.state.connection_generation.increment();
+        self.state.phase = Phase::Connecting(ConnectionRequest::Accept { frame: 0 });
+        self.queue.set_connect();
+        self.state.connection_generation
     }
 
-    pub(in crate::driver) fn wait_for_call(
-        mut self,
-    ) -> Result<(Self, Generation), error::link::Error> {
-        let (state, call_generation) = self.state.wait_for_call()?;
-        self.state = state;
-
-        Ok((self, call_generation))
+    /// Connect to a p2p peer.
+    pub(super) fn connect(&mut self, phone_number: ArrayVec<Digit, 32>) -> Generation {
+        self.state.connection_generation = self.state.connection_generation.increment();
+        self.state.phase = Phase::Connecting(ConnectionRequest::Connect { phone_number });
+        self.queue.set_connect();
+        self.state.connection_generation
     }
 
-    pub(in crate::driver) fn call(
-        mut self,
-        phone_number: ArrayVec<Digit, 32>,
-        timer: Timer,
-    ) -> Result<(Self, Generation), error::link::Error> {
-        let (state, call_generation) =
-            self.state
-                .call(phone_number, timer, self.transfer_length, self.adapter)?;
-        self.state = state;
+    pub(crate) fn connection_status(
+        &mut self,
+        connection_generation: Generation,
+    ) -> Result<bool, super::error::connection::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded());
+        }
 
-        Ok((self, call_generation))
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Ok(false),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            _ => Ok(true),
+        }
     }
 
-    pub(in crate::driver) fn vblank(&mut self, timer: Timer) -> Result<(), request::Timeout> {
-        self.state.vblank(self.transfer_length, timer)
-    }
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        match &mut self.state.phase {
+            Phase::Linked { frame, .. } => {
+                if *frame >= frames::ONE_SECOND {
+                    // Schedule a new idle pulse once per second.
+                    //
+                    // This ensures the link stays alive, despite us not sending any packet
+                    // requests.
+                    self.queue.set_idle();
+                }
+                *frame = frame.saturating_add(1);
+            }
+            Phase::Connecting(ConnectionRequest::Accept { frame }) => {
+                if *frame == frames::ONE_SECOND {
+                    // Schedule a new connection attempt every second.
+                    self.queue.set_connect();
+                }
+                *frame = frame.saturating_add(1);
+            }
+            _ => {}
+        }
 
-    pub(in crate::driver) fn timer(&mut self) {
-        self.state.timer(self.transfer_length)
-    }
-
-    pub(in crate::driver) fn serial(
-        mut self,
-        timer: Timer,
-    ) -> Result<Option<Self>, Either<request::Error, command::Error>> {
-        self.state = if let Some(state) =
-            self.state
-                .serial(&mut self.adapter, &mut self.transfer_length, timer)?
-        {
-            state
+        if let Some(flow) = self.flow.take() {
+            self.flow = Some(flow.vblank()?);
+            Ok(())
+        } else if let Some(new_flow) = self.queue.next_flow(&self.state) {
+            // Reset the frame count so we don't timeout.
+            self.state.frame = 0;
+            self.flow = Some(new_flow);
+            Ok(())
+        } else if self.state.frame > frames::THREE_SECONDS {
+            // Three seconds is how long the adapter will remain connected without any bytes
+            // sent to it, so this timeout should align with the disconnect.
+            Err(Timeout::Queue)
         } else {
-            return Ok(None);
-        };
-        Ok(Some(self))
-    }
-}
-
-/// A request from a previous state.
-///
-/// We still need to process this, but we don't care about its result.
-#[derive(Debug)]
-enum PreviousRequest {
-    Linking(Request<linking::Source>),
-    Linked(Request<linked::Source>),
-    WaitingForCall(Request<waiting_for_call::Source>),
-    Call(Request<call::Source>),
-    ResetLink(Request<reset_link::Source>),
-    EndLink(Request<end_link::Source>),
-    RecoverLink(Request<recover_link::Source>),
-}
-
-impl PreviousRequest {
-    fn vblank(&mut self, transfer_length: TransferLength) -> Result<(), request::Timeout> {
-        match self {
-            Self::Linking(request) => request.vblank(transfer_length, &Default::default()),
-            Self::Linked(request) => request.vblank(transfer_length, &Default::default()),
-            Self::WaitingForCall(request) => request.vblank(transfer_length, &Default::default()),
-            Self::Call(request) => request.vblank(transfer_length, &Default::default()),
-            Self::ResetLink(request) => request.vblank(transfer_length, &Default::default()),
-            Self::EndLink(request) => request.vblank(transfer_length, &Default::default()),
-            Self::RecoverLink(request) => request.vblank(transfer_length, &Default::default()),
+            // No flow being processed and none on the queue. Increment the frame so that we
+            // timeout if we remain in this state too long.
+            self.state.frame += 1;
+            Ok(())
         }
     }
 
-    fn timer(&mut self, transfer_length: TransferLength) {
-        match self {
-            Self::Linking(request) => request.timer(transfer_length, &Default::default()),
-            Self::Linked(request) => request.timer(transfer_length, &Default::default()),
-            Self::WaitingForCall(request) => request.timer(transfer_length, &Default::default()),
-            Self::Call(request) => request.timer(transfer_length, &Default::default()),
-            Self::ResetLink(request) => request.timer(transfer_length, &Default::default()),
-            Self::EndLink(request) => request.timer(transfer_length, &Default::default()),
-            Self::RecoverLink(request) => request.timer(transfer_length, &Default::default()),
+    pub(super) fn timer(&mut self) {
+        self.state.timer.stop();
+        if let Some(flow) = &mut self.flow {
+            flow.timer()
         }
     }
 
-    fn serial(
-        self,
-        adapter: &mut Adapter,
-        transfer_length: &mut TransferLength,
-        timer: Timer,
-    ) -> Result<Option<Self>, request::Error> {
-        match self {
-            Self::Linking(request) => {
-                match request.serial(adapter, transfer_length, timer, &Default::default()) {
-                    Ok(new_request) => Ok(new_request.map(Self::Linking)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
+    pub(super) fn serial(&mut self) -> Result<StateChange, Error> {
+        if let Some(flow) = self.flow.take() {
+            match flow.serial(&mut self.state, &mut self.queue)? {
+                Either::Left(flow) => {
+                    self.flow = Some(flow);
+                    Ok(StateChange::StillActive)
                 }
+                Either::Right(state_change) => Ok(state_change),
             }
-            Self::Linked(request) => {
-                match request.serial(adapter, transfer_length, timer, &Default::default()) {
-                    Ok(new_request) => Ok(new_request.map(Self::Linked)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
-                }
-            }
-            Self::WaitingForCall(request) => {
-                match request.serial(adapter, transfer_length, timer, &()) {
-                    Ok(new_request) => Ok(new_request.map(Self::WaitingForCall)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
-                }
-            }
-            Self::Call(request) => {
-                match request.serial(adapter, transfer_length, timer, &Default::default()) {
-                    Ok(new_request) => Ok(new_request.map(Self::Call)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
-                }
-            }
-            Self::ResetLink(request) => {
-                match request.serial(adapter, transfer_length, timer, &Default::default()) {
-                    Ok(new_request) => Ok(new_request.map(Self::ResetLink)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
-                }
-            }
-            Self::EndLink(request) => {
-                match request.serial(adapter, transfer_length, timer, &Default::default()) {
-                    Ok(new_request) => Ok(new_request.map(Self::EndLink)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
-                }
-            }
-            Self::RecoverLink(request) => {
-                match request.serial(adapter, transfer_length, timer, &Default::default()) {
-                    Ok(new_request) => Ok(new_request.map(Self::RecoverLink)),
-                    Err(Either::Left(request_error)) => Err(request_error),
-                    Err(Either::Right(_)) => Ok(None),
-                }
-            }
+        } else {
+            Ok(StateChange::StillActive)
         }
     }
 }
 
 #[derive(Debug)]
-enum ProcessingRequest<Source> {
-    Current(Request<Source>),
-    Previous(PreviousRequest),
-}
-
-impl<Source> ProcessingRequest<Source>
-where
-    Source: driver::Source,
-{
-    fn vblank(
-        &mut self,
-        transfer_length: TransferLength,
-        context: &Source::Context,
-    ) -> Result<(), request::Timeout> {
-        match self {
-            Self::Current(request) => request.vblank(transfer_length, context),
-            Self::Previous(request) => request.vblank(transfer_length),
-        }
-    }
-
-    fn timer(&mut self, transfer_length: TransferLength, context: &Source::Context) {
-        match self {
-            Self::Current(request) => request.timer(transfer_length, context),
-            Self::Previous(request) => request.timer(transfer_length),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum State {
-    Linking {
-        request: Request<linking::Source>,
-        state: linking::State,
-    },
-    Linked {
-        request: Option<Request<linked::Source>>,
-        state: linked::State,
-        call_generation: Generation,
-        call_error: Option<command::Error>,
-    },
-    WaitingForCall {
-        request: Option<ProcessingRequest<waiting_for_call::Source>>,
-        state: waiting_for_call::State,
-        call_generation: Generation,
-    },
-    Call {
-        request: ProcessingRequest<call::Source>,
-        context: call::Context,
-        call_generation: Generation,
-    },
-
-    ResetLink {
-        request: ProcessingRequest<reset_link::Source>,
-        state: reset_link::State,
-    },
-    EndLink {
-        request: ProcessingRequest<end_link::Source>,
-        state: end_link::State,
-    },
-    RecoverLink {
-        request: ProcessingRequest<recover_link::Source>,
-        state: recover_link::State,
-    },
-}
-
-impl State {
-    fn vblank(
-        &mut self,
-        transfer_length: TransferLength,
-        timer: Timer,
-    ) -> Result<(), request::Timeout> {
-        match self {
-            Self::Linking { request, .. } => request.vblank(transfer_length, &()),
-            Self::Linked { request, state, .. } => {
-                if let Some(request) = request {
-                    request.vblank(transfer_length, &())
-                } else {
-                    // Schedule a new request.
-                    let (new_state, new_request) = state.request(timer, transfer_length);
-                    *state = new_state;
-                    *request = new_request;
-                    Ok(())
-                }
-            }
-            Self::WaitingForCall { request, state, .. } => {
-                if let Some(request) = request {
-                    request.vblank(transfer_length, &())
-                } else {
-                    // Schedule a new request.
-                    let (new_state, new_request) = state.request(timer, transfer_length);
-                    *state = new_state;
-                    *request = new_request.map(ProcessingRequest::Current);
-                    Ok(())
-                }
-            }
-            Self::Call {
-                request, context, ..
-            } => request.vblank(transfer_length, &context),
-            Self::ResetLink { request, .. } => request.vblank(transfer_length, &()),
-            Self::EndLink { request, .. } => request.vblank(transfer_length, &()),
-            Self::RecoverLink { request, .. } => request.vblank(transfer_length, &()),
-        }
-    }
-
-    fn timer(&mut self, transfer_length: TransferLength) {
-        match self {
-            Self::Linking { request, .. } => request.timer(transfer_length, &()),
-            Self::Linked { request, .. } => {
-                request
-                    .as_mut()
-                    .map(|request| request.timer(transfer_length, &()));
-            }
-            Self::WaitingForCall { request, .. } => {
-                request
-                    .as_mut()
-                    .map(|request| request.timer(transfer_length, &()));
-            }
-            Self::Call {
-                request, context, ..
-            } => request.timer(transfer_length, &context),
-            Self::ResetLink { request, .. } => request.timer(transfer_length, &()),
-            Self::EndLink { request, .. } => request.timer(transfer_length, &()),
-            Self::RecoverLink { request, .. } => request.timer(transfer_length, &()),
-        }
-    }
-
-    /// Returning `Ok(Some(State))` means that we are still in an active state.
-    ///
-    /// Returning `Ok(None)` means that we are no longer in an active state (i.e. no longer
-    /// connected).
-    ///
-    /// Returning `Err` means that we are no longer in an active state and the driver should enter
-    /// an error state.
-    fn serial(
-        self,
-        adapter: &mut Adapter,
-        transfer_length: &mut TransferLength,
-        timer: Timer,
-    ) -> Result<Option<Self>, Either<request::Error, command::Error>> {
-        match self {
-            Self::Linking { request, state } => {
-                match request.serial(adapter, transfer_length, timer, &()) {
-                    Ok(Some(next_request)) => Ok(Some(Self::Linking {
-                        request: next_request,
-                        state,
-                    })),
-                    Ok(None) => {
-                        if let Some(new_state) = state.next() {
-                            let new_request = new_state.request(timer, *transfer_length);
-                            Ok(Some(Self::Linking {
-                                request: new_request,
-                                state: new_state,
-                            }))
-                        } else {
-                            Ok(Some(Self::Linked {
-                                request: None,
-                                state: linked::State::new(),
-                                call_generation: Generation::new(),
-                                call_error: None,
-                            }))
-                        }
-                    }
-                    Err(error) => Err(error),
-                }
-            }
-            Self::Linked {
-                request,
-                state,
-                call_generation,
-                call_error,
-            } => {
-                if let Some(request) = request {
-                    request
-                        .serial(adapter, transfer_length, timer, &())
-                        .map(|request| {
-                            Some(Self::Linked {
-                                request,
-                                state,
-                                call_generation,
-                                call_error,
-                            })
-                        })
-                } else {
-                    Ok(Some(Self::Linked {
-                        request,
-                        state,
-                        call_generation,
-                        call_error,
-                    }))
-                }
-            }
-            Self::WaitingForCall {
-                request,
-                state,
-                call_generation,
-            } => {
-                match request {
-                    Some(ProcessingRequest::Current(request)) => {
-                        match request.serial(adapter, transfer_length, timer, &()) {
-                            Ok(Some(next_request)) => Ok(Some(Self::WaitingForCall {
-                                request: Some(ProcessingRequest::Current(next_request)),
-                                state,
-                                call_generation,
-                            })),
-                            Ok(None) => todo!("connection established"),
-                            Err(Either::Right(command::Error::WaitForTelephoneCall(
-                                command::error::wait_for_telephone_call::Error::NoCallReceived,
-                            ))) => {
-                                // We retry on this specific command error.
-                                Ok(Some(Self::WaitingForCall {
-                                    request: None,
-                                    state,
-                                    call_generation,
-                                }))
-                            }
-                            Err(Either::Left(request_error)) => Err(Either::Left(request_error)),
-                            Err(Either::Right(command_error)) => Ok(Some(Self::Linked {
-                                request: None,
-                                state: linked::State::new(),
-                                call_generation,
-                                call_error: Some(command_error),
-                            })),
-                        }
-                    }
-                    Some(ProcessingRequest::Previous(request)) => request
-                        .serial(adapter, transfer_length, timer)
-                        .map(|request| {
-                            Some(Self::WaitingForCall {
-                                request: request.map(ProcessingRequest::Previous),
-                                state,
-                                call_generation,
-                            })
-                        })
-                        .map_err(Either::Left),
-                    None => Ok(Some(Self::WaitingForCall {
-                        request,
-                        state,
-                        call_generation,
-                    })),
-                }
-            }
-            Self::Call {
-                request,
-                context,
-                call_generation,
-            } => match request {
-                ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer, &context) {
-                        Ok(Some(next_request)) => Ok(Some(Self::Call {
-                            request: ProcessingRequest::Current(next_request),
-                            context,
-                            call_generation,
-                        })),
-                        Ok(None) => todo!("connection esetablished"),
-                        Err(Either::Left(request_error)) => Err(Either::Left(request_error)),
-                        Err(Either::Right(command_error)) => Ok(Some(Self::Linked {
-                            request: None,
-                            state: linked::State::new(),
-                            call_generation,
-                            call_error: Some(command_error),
-                        })),
-                    }
-                }
-                ProcessingRequest::Previous(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
-                        Ok(Some(next_request)) => Ok(Some(Self::Call {
-                            request: ProcessingRequest::Previous(next_request),
-                            context,
-                            call_generation,
-                        })),
-                        Ok(None) => Ok(Some(Self::Call {
-                            request: ProcessingRequest::Current(Request::new_packet(
-                                timer,
-                                *transfer_length,
-                                call::Source::Call,
-                            )),
-                            context,
-                            call_generation,
-                        })),
-                        Err(error) => Err(Either::Left(error)),
-                    }
-                }
-            },
-            Self::ResetLink { request, state } => match request {
-                ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer, &()) {
-                        Ok(Some(next_request)) => Ok(Some(Self::ResetLink {
-                            request: ProcessingRequest::Current(next_request),
-                            state,
-                        })),
-                        Ok(None) => {
-                            if let Some(new_state) = state.next() {
-                                let new_request = new_state.request(timer, *transfer_length);
-                                Ok(Some(Self::ResetLink {
-                                    request: ProcessingRequest::Current(new_request),
-                                    state: new_state,
-                                }))
-                            } else {
-                                Ok(Some(Self::Linked {
-                                    request: None,
-                                    state: linked::State::new(),
-                                    call_generation: Generation::new(),
-                                    call_error: None,
-                                }))
-                            }
-                        }
-                        Err(error) => Err(error),
-                    }
-                }
-                ProcessingRequest::Previous(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
-                        Ok(Some(next_request)) => Ok(Some(Self::ResetLink {
-                            request: ProcessingRequest::Previous(next_request),
-                            state,
-                        })),
-                        Ok(None) => Ok(Some(Self::ResetLink {
-                            request: ProcessingRequest::Current(
-                                state.request(timer, *transfer_length),
-                            ),
-                            state,
-                        })),
-                        Err(error) => Err(Either::Left(error)),
-                    }
-                }
-            },
-            Self::EndLink { request, state } => match request {
-                ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer, &()) {
-                        Ok(Some(next_request)) => Ok(Some(Self::EndLink {
-                            request: ProcessingRequest::Current(next_request),
-                            state,
-                        })),
-                        Ok(None) => {
-                            if let Some(new_state) = state.next() {
-                                let new_request = new_state.request(timer, *transfer_length);
-                                Ok(Some(Self::EndLink {
-                                    request: ProcessingRequest::Current(new_request),
-                                    state: new_state,
-                                }))
-                            } else {
-                                Ok(None)
-                            }
-                        }
-                        Err(error) => Err(error),
-                    }
-                }
-                ProcessingRequest::Previous(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
-                        Ok(Some(next_request)) => Ok(Some(Self::EndLink {
-                            request: ProcessingRequest::Previous(next_request),
-                            state,
-                        })),
-                        Ok(None) => Ok(Some(Self::EndLink {
-                            request: ProcessingRequest::Current(
-                                state.request(timer, *transfer_length),
-                            ),
-                            state,
-                        })),
-                        Err(error) => Err(Either::Left(error)),
-                    }
-                }
-            },
-            Self::RecoverLink { request, state } => match request {
-                ProcessingRequest::Current(request) => {
-                    match request.serial(adapter, transfer_length, timer, &()) {
-                        Ok(Some(next_request)) => Ok(Some(Self::RecoverLink {
-                            request: ProcessingRequest::Current(next_request),
-                            state,
-                        })),
-                        Ok(None) => {
-                            if let Some(new_state) = state.next() {
-                                let new_request = new_state.request(timer, *transfer_length);
-                                Ok(Some(Self::RecoverLink {
-                                    request: ProcessingRequest::Current(new_request),
-                                    state: new_state,
-                                }))
-                            } else {
-                                Ok(Some(Self::Linked {
-                                    request: None,
-                                    state: linked::State::new(),
-                                    call_generation: Generation::new(),
-                                    call_error: None,
-                                }))
-                            }
-                        }
-                        Err(error) => Err(error),
-                    }
-                }
-                ProcessingRequest::Previous(request) => {
-                    match request.serial(adapter, transfer_length, timer) {
-                        Ok(Some(next_request)) => Ok(Some(Self::RecoverLink {
-                            request: ProcessingRequest::Previous(next_request),
-                            state,
-                        })),
-                        Ok(None) => Ok(Some(Self::RecoverLink {
-                            request: ProcessingRequest::Current(
-                                state.request(timer, *transfer_length),
-                            ),
-                            state,
-                        })),
-                        Err(error) => Err(Either::Left(error)),
-                    }
-                }
-            },
-        }
-    }
-
-    fn linking_status(&self) -> Result<bool, error::link::Error> {
-        match self {
-            Self::Linking { .. } => Ok(false),
-            Self::Linked { .. } => Ok(true),
-            Self::WaitingForCall { .. } => Ok(true),
-            Self::Call { .. } => Ok(true),
-            Self::ResetLink { .. } => Ok(false),
-            Self::EndLink { .. } => Err(error::link::Error::closed()),
-            Self::RecoverLink { .. } => Ok(false),
-        }
-    }
-
-    fn p2p_status(&self, call_generation: Generation) -> Result<bool, error::p2p::Error> {
-        match self {
-            Self::Linking { .. } => Err(error::link::Error::superseded().into()),
-            Self::Linked {
-                call_generation: state_call_generation,
-                call_error: Some(error),
-                ..
-            } if call_generation == *state_call_generation => Err(error.clone().into()),
-            Self::Linked {
-                call_generation: state_call_generation,
-                call_error: None,
-                ..
-            } if call_generation == *state_call_generation => Err(error::p2p::Error::closed()),
-            Self::Linked { .. } => Err(error::p2p::Error::superseded()),
-            Self::WaitingForCall {
-                call_generation: state_call_generation,
-                ..
-            } if call_generation == *state_call_generation => Ok(false),
-            Self::WaitingForCall { .. } => Err(error::p2p::Error::superseded()),
-            Self::Call {
-                call_generation: state_call_generation,
-                ..
-            } if call_generation == *state_call_generation => Ok(false),
-            Self::Call { .. } => Err(error::p2p::Error::superseded()),
-            Self::ResetLink { .. } => Err(error::link::Error::superseded().into()),
-            Self::EndLink { .. } => Err(error::link::Error::closed().into()),
-            Self::RecoverLink { .. } => Err(error::link::Error::superseded().into()),
-        }
-    }
-
-    fn reset_link(self, timer: Timer, transfer_length: TransferLength) -> Self {
-        match self {
-            // If we are already trying to establish a link, we simply continue without resetting.
-            Self::Linking { request, state } => Self::Linking { request, state },
-            Self::ResetLink { request, state } => Self::ResetLink { request, state },
-            Self::RecoverLink { request, state } => Self::RecoverLink { request, state },
-
-            // If we are currently ending the link, we can't stop it from happening. Therefore, we
-            // begin the process of recovering the link.
-            Self::EndLink {
-                request:
-                    ProcessingRequest::Current(request)
-                    | ProcessingRequest::Previous(PreviousRequest::EndLink(request)),
-                ..
-            } => Self::RecoverLink {
-                request: ProcessingRequest::Previous(PreviousRequest::EndLink(request)),
-                state: recover_link::State::new(),
-            },
-
-            Self::Linked {
-                request: Some(request),
-                ..
-            } => Self::ResetLink {
-                request: ProcessingRequest::Previous(PreviousRequest::Linked(request)),
-                state: reset_link::State::new(),
-            },
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Current(request)),
-                ..
-            } => Self::ResetLink {
-                request: ProcessingRequest::Previous(PreviousRequest::WaitingForCall(request)),
-                state: reset_link::State::new(),
-            },
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Previous(request)),
-                ..
-            } => Self::ResetLink {
-                request: ProcessingRequest::Previous(request),
-                state: reset_link::State::new(),
-            },
-            Self::Call {
-                request: ProcessingRequest::Current(request),
-                ..
-            } => Self::ResetLink {
-                request: ProcessingRequest::Previous(PreviousRequest::Call(request)),
-                state: reset_link::State::new(),
-            },
-            Self::Call {
-                request: ProcessingRequest::Previous(request),
-                ..
-            } => Self::ResetLink {
-                request: ProcessingRequest::Previous(request),
-                state: reset_link::State::new(),
-            },
-            Self::EndLink {
-                request: ProcessingRequest::Previous(request),
-                ..
-            } => Self::ResetLink {
-                request: ProcessingRequest::Previous(request),
-                state: reset_link::State::new(),
-            },
-
-            Self::Linked { request: None, .. } | Self::WaitingForCall { request: None, .. } => {
-                let reset_link_state = reset_link::State::new();
-                Self::ResetLink {
-                    request: ProcessingRequest::Current(
-                        reset_link_state.request(timer, transfer_length),
-                    ),
-                    state: reset_link_state,
-                }
-            }
-        }
-    }
-
-    fn end_link(self, timer: Timer, transfer_length: TransferLength) -> Self {
-        match self {
-            Self::Linking { request, .. } => Self::EndLink {
-                request: ProcessingRequest::Previous(PreviousRequest::Linking(request)),
-                state: end_link::State::new(),
-            },
-            Self::Linked {
-                request: Some(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(PreviousRequest::Linked(request)),
-                state: end_link::State::new(),
-            },
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Current(request)),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(PreviousRequest::WaitingForCall(request)),
-                state: end_link::State::new(),
-            },
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Previous(request)),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(request),
-                state: end_link::State::new(),
-            },
-            Self::Call {
-                request: ProcessingRequest::Current(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(PreviousRequest::Call(request)),
-                state: end_link::State::new(),
-            },
-            Self::Call {
-                request: ProcessingRequest::Previous(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(request),
-                state: end_link::State::new(),
-            },
-            Self::ResetLink {
-                request: ProcessingRequest::Current(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(PreviousRequest::ResetLink(request)),
-                state: end_link::State::new(),
-            },
-            Self::ResetLink {
-                request: ProcessingRequest::Previous(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(request),
-                state: end_link::State::new(),
-            },
-            Self::RecoverLink {
-                request: ProcessingRequest::Current(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(PreviousRequest::RecoverLink(request)),
-                state: end_link::State::new(),
-            },
-            Self::RecoverLink {
-                request: ProcessingRequest::Previous(request),
-                ..
-            } => Self::EndLink {
-                request: ProcessingRequest::Previous(request),
-                state: end_link::State::new(),
-            },
-
-            Self::Linked { request: None, .. } | Self::WaitingForCall { request: None, .. } => {
-                let end_link_state = end_link::State::new();
-                Self::EndLink {
-                    request: ProcessingRequest::Current(
-                        end_link_state.request(timer, transfer_length),
-                    ),
-                    state: end_link_state,
-                }
-            }
-
-            Self::EndLink { request, state } => Self::EndLink { request, state },
-        }
-    }
-
-    fn wait_for_call(self) -> Result<(Self, Generation), error::link::Error> {
-        match self {
-            Self::Linking { .. }
-            | Self::ResetLink { .. }
-            | Self::EndLink { .. }
-            | Self::RecoverLink { .. } => Err(error::link::Error::superseded()),
-            Self::Linked {
-                request: Some(request),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::WaitingForCall {
-                        request: Some(ProcessingRequest::Previous(PreviousRequest::Linked(
-                            request,
-                        ))),
-                        state: waiting_for_call::State::new(),
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::Linked {
-                request: None,
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::WaitingForCall {
-                        request: None,
-                        state: waiting_for_call::State::new(),
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Current(request)),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::WaitingForCall {
-                        request: Some(ProcessingRequest::Previous(
-                            PreviousRequest::WaitingForCall(request),
-                        )),
-                        state: waiting_for_call::State::new(),
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::WaitingForCall {
-                request,
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::WaitingForCall {
-                        request,
-                        state: waiting_for_call::State::new(),
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::Call {
-                request: ProcessingRequest::Current(request),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::WaitingForCall {
-                        request: Some(ProcessingRequest::Previous(PreviousRequest::Call(request))),
-                        state: waiting_for_call::State::new(),
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::Call {
-                request: ProcessingRequest::Previous(request),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::WaitingForCall {
-                        request: Some(ProcessingRequest::Previous(request)),
-                        state: waiting_for_call::State::new(),
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-        }
-    }
-
-    fn call(
-        self,
-        phone_number: ArrayVec<Digit, 32>,
-        timer: Timer,
-        transfer_length: TransferLength,
-        adapter: Adapter,
-    ) -> Result<(Self, Generation), error::link::Error> {
-        match self {
-            Self::Linking { .. }
-            | Self::ResetLink { .. }
-            | Self::EndLink { .. }
-            | Self::RecoverLink { .. } => Err(error::link::Error::superseded()),
-            Self::Linked {
-                request: Some(request),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request: ProcessingRequest::Previous(PreviousRequest::Linked(request)),
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::Linked {
-                request: None,
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request: ProcessingRequest::Current(Request::new_packet(
-                            timer,
-                            transfer_length,
-                            call::Source::Call,
-                        )),
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Current(request)),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request: ProcessingRequest::Previous(PreviousRequest::WaitingForCall(
-                            request,
-                        )),
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::WaitingForCall {
-                request: Some(ProcessingRequest::Previous(request)),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request: ProcessingRequest::Previous(request),
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::WaitingForCall {
-                request: None,
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request: ProcessingRequest::Current(Request::new_packet(
-                            timer,
-                            transfer_length,
-                            call::Source::Call,
-                        )),
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::Call {
-                request: ProcessingRequest::Current(request),
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request: ProcessingRequest::Previous(PreviousRequest::Call(request)),
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-            Self::Call {
-                request,
-                call_generation,
-                ..
-            } => {
-                let new_call_generation = call_generation.increment();
-                Ok((
-                    State::Call {
-                        request,
-                        context: call::Context {
-                            phone_number,
-                            adapter,
-                        },
-                        call_generation: new_call_generation,
-                    },
-                    new_call_generation,
-                ))
-            }
-        }
-    }
+pub(in crate::driver) enum StateChange {
+    StillActive,
+    Inactive,
 }

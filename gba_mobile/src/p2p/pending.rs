@@ -1,22 +1,28 @@
 use super::{Error, P2P};
-use crate::{Driver, Generation};
+use crate::{DRIVER, Generation, mmio::interrupt};
 
 #[derive(Debug)]
 pub struct Pending {
-    pub(crate) generation: Generation,
-    pub(crate) call_generation: Generation,
+    pub(crate) link_generation: Generation,
+    pub(crate) connection_generation: Generation,
 }
 
 impl Pending {
-    pub fn status(&self, driver: &Driver) -> Result<Option<P2P>, Error> {
-        driver
-            .p2p_status(self.generation, self.call_generation)
-            .map(|finished| {
-                finished.then(|| P2P {
-                    generation: self.generation,
-                    call_generation: self.call_generation,
+    pub fn status(&self) -> Result<Option<P2P>, Error> {
+        unsafe {
+            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
+            interrupt::MASTER_ENABLE.write_volatile(false);
+            let result = DRIVER
+                .connection_status(self.link_generation, self.connection_generation)
+                .map(|finished| {
+                    finished.then(|| P2P {
+                        link_generation: self.link_generation,
+                        connection_generation: self.connection_generation,
+                    })
                 })
-            })
-            .map_err(|error| error.into())
+                .map_err(|error| error.into());
+            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
+            result
+        }
     }
 }

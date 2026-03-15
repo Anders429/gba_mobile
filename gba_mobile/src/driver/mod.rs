@@ -4,12 +4,10 @@ mod active;
 mod adapter;
 mod command;
 mod frames;
-mod request;
-mod sink;
-mod source;
+mod timers;
 
 use crate::{
-    ArrayVec, Generation, Timer, link,
+    ArrayVec, Generation, Timer,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -19,56 +17,48 @@ use crate::{
 use active::Active;
 use adapter::Adapter;
 use command::Command;
-use core::mem;
-use either::Either;
-use request::Request;
-use source::Source;
-
-/// Handshake for beginning a session.
-const HANDSHAKE: [u8; 8] = [0x4e, 0x49, 0x4e, 0x54, 0x45, 0x4e, 0x44, 0x4f];
+use error::Error;
 
 #[derive(Debug)]
 enum State {
-    NotConnected,
+    /// Not currently linked with a Mobile Adapter device.
+    Inactive,
+    /// Currently linked with a Mobile Adapter device.
     Active(Active),
-
-    CommandError(command::Error),
-    RequestTimeout(request::Timeout),
-    RequestError(request::Error),
-}
-
-impl State {
-    fn take(&mut self) -> Self {
-        mem::replace(self, Self::NotConnected)
-    }
+    /// Communication encountered an error and the link must be reset.
+    Error(Error),
 }
 
 #[derive(Debug)]
-pub struct Driver {
+pub(crate) struct Driver {
+    link_generation: Generation,
+
     state: State,
-    timer: Timer,
-    generation: Generation,
 }
 
 impl Driver {
-    /// Create a new communication driver.
-    pub const fn new(timer: Timer) -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
-            state: State::NotConnected,
-            timer,
-            generation: Generation::new(),
+            link_generation: Generation::new(),
+
+            state: State::Inactive,
         }
     }
 
-    /// Enables communication, if it isn't already enabled.
-    fn enable_communication(&self) {
+    /// Configures serial communication for a brand new link attempt.
+    fn enable_communication() {
         unsafe {
             // Set transfer mode to 8-bit Normal.
             RCNT.write_volatile(serial::Mode::NORMAL);
             SIOCNT.write_volatile(serial::Control::new().transfer_length(TransferLength::_8Bit));
+        }
+    }
 
+    /// Enable interrupts required for the driver to function.
+    fn enable_interrupts(timer: Timer) {
+        unsafe {
             // Enable interrupts for vblank, timer, and serial.
-            let timer_enable = match self.timer {
+            let timer_enable = match timer {
                 Timer::_0 => interrupt::Enable::TIMER0,
                 Timer::_1 => interrupt::Enable::TIMER1,
                 Timer::_2 => interrupt::Enable::TIMER2,
@@ -83,165 +73,152 @@ impl Driver {
         }
     }
 
-    /// # Safety
-    /// Must take exclusive ownership over the serial registers and the timer registers related to
-    /// the [`Timer`] used to construct this Engine.
-    pub unsafe fn link(&mut self) -> link::Pending {
-        let old_state = self.state.take();
-        self.state = match old_state {
-            State::NotConnected
-            | State::CommandError(_)
-            | State::RequestTimeout(_)
-            | State::RequestError(_) => {
-                self.enable_communication();
-                State::Active(Active::new(self.timer))
+    pub(crate) fn link(&mut self, timer: Timer) -> Generation {
+        self.link_generation = self.link_generation.increment();
+        Self::enable_interrupts(timer);
+        match &mut self.state {
+            State::Inactive | State::Error(_) => {
+                Self::enable_communication();
+                self.state = State::Active(Active::new(timer));
             }
-            State::Active(active) => State::Active(active.reset_link(self.timer)),
-        };
-
-        self.generation = self.generation.increment();
-
-        link::Pending {
-            generation: self.generation,
+            State::Active(active) => {
+                active.start_link(timer);
+            }
         }
+        self.link_generation
     }
 
-    pub(crate) fn linking_status(
+    pub(crate) fn link_status(
         &self,
-        generation: Generation,
+        link_generation: Generation,
     ) -> Result<bool, error::link::Error> {
-        if generation != self.generation {
+        if link_generation != self.link_generation {
             return Err(error::link::Error::superseded());
         }
 
         match &self.state {
-            State::NotConnected => Err(error::link::Error::closed()),
-            State::Active(active) => active.linking_status(),
-            State::CommandError(error) => Err(error.clone().into()),
-            State::RequestTimeout(timeout) => Err(timeout.clone().into()),
-            State::RequestError(error) => Err(error.clone().into()),
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => active.link_status(),
+            State::Error(error) => Err(error.clone().into()),
         }
     }
 
-    pub(crate) fn wait_for_call(
-        &mut self,
-        generation: Generation,
-    ) -> Result<Generation, error::link::Error> {
-        if generation != self.generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        let state = self.state.take();
-        match state {
-            State::Active(active) => {
-                let (new_active, call_generation) = active.wait_for_call()?;
-                self.state = State::Active(new_active);
-                Ok(call_generation)
-            }
-            State::NotConnected => Err(error::link::Error::closed()),
-            State::CommandError(error) => Err(error.clone().into()),
-            State::RequestTimeout(timeout) => Err(timeout.clone().into()),
-            State::RequestError(error) => Err(error.clone().into()),
-        }
-    }
-
-    pub(crate) fn call(
-        &mut self,
-        phone_number: ArrayVec<Digit, 32>,
-        generation: Generation,
-    ) -> Result<Generation, error::link::Error> {
-        if generation != self.generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        let state = self.state.take();
-        match state {
-            State::Active(active) => {
-                let (new_active, call_generation) = active.call(phone_number, self.timer)?;
-                self.state = State::Active(new_active);
-                Ok(call_generation)
-            }
-            State::NotConnected => Err(error::link::Error::closed()),
-            State::CommandError(error) => Err(error.clone().into()),
-            State::RequestTimeout(timeout) => Err(timeout.clone().into()),
-            State::RequestError(error) => Err(error.clone().into()),
-        }
-    }
-
-    pub(crate) fn p2p_status(
-        &self,
-        generation: Generation,
-        call_generation: Generation,
-    ) -> Result<bool, error::p2p::Error> {
-        if generation != self.generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::NotConnected => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.p2p_status(call_generation),
-            State::CommandError(error) => Err(error::link::Error::from(error.clone()).into()),
-            State::RequestTimeout(timeout) => Err(error::link::Error::from(timeout.clone()).into()),
-            State::RequestError(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn end_session(&mut self, generation: Generation) {
-        if generation != self.generation {
-            // This request came from an old connection. We should not honor it, since that old
-            // connection is already disconnected.
+    pub(crate) fn close_link(&mut self, link_generation: Generation) {
+        if self.link_generation != link_generation {
+            // This request came from an old link. We should not honor it, as that link is already
+            // closed.
             return;
         }
 
-        let old_state = self.state.take();
-        self.state = match old_state {
-            State::NotConnected
-            | State::CommandError(_)
-            | State::RequestTimeout(_)
-            | State::RequestError(_) => State::NotConnected,
-            State::Active(active) => State::Active(active.end_link(self.timer)),
+        match &mut self.state {
+            State::Inactive | State::Error(_) => {
+                self.state = State::Inactive;
+            }
+            State::Active(active) => {
+                active.close_link();
+            }
         }
     }
 
-    pub fn vblank(&mut self) {
+    pub(crate) fn close_link_status(
+        &self,
+        link_generation: Generation,
+    ) -> Result<bool, error::close_link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::close_link::Error::superseded());
+        }
+
+        match &self.state {
+            State::Inactive => Ok(true),
+            State::Active(_) => Ok(false),
+            State::Error(error) => Err(error.clone().into()),
+        }
+    }
+
+    pub(crate) fn accept(
+        &mut self,
+        link_generation: Generation,
+    ) -> Result<Generation, error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded());
+        }
+
         match &mut self.state {
-            State::NotConnected => {}
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => Ok(active.accept()),
+            State::Error(error) => Err(error.clone().into()),
+        }
+    }
+
+    pub(crate) fn connect(
+        &mut self,
+        link_generation: Generation,
+        phone_number: ArrayVec<Digit, 32>,
+    ) -> Result<Generation, error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => Ok(active.connect(phone_number)),
+            State::Error(error) => Err(error.clone().into()),
+        }
+    }
+
+    pub(crate) fn login(&mut self) {
+        todo!()
+    }
+
+    pub(crate) fn connection_status(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<bool, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.connection_status(connection_generation),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn disconnect(&mut self) {
+        todo!()
+    }
+
+    pub(crate) fn vblank(&mut self) {
+        match &mut self.state {
+            State::Inactive => {}
             State::Active(active) => {
-                if let Err(timeout) = active.vblank(self.timer) {
-                    self.state = State::RequestTimeout(timeout);
+                if let Err(timeout) = active.vblank() {
+                    self.state = State::Error(Error::Timeout(timeout));
                 }
             }
-            State::CommandError(_) => {}
-            State::RequestTimeout(_) => {}
-            State::RequestError(_) => {}
+            State::Error(_) => {}
         }
     }
 
-    pub fn timer(&mut self) {
-        self.timer.stop();
+    pub(crate) fn timer(&mut self) {
         match &mut self.state {
-            State::NotConnected => {}
+            State::Inactive => {}
             State::Active(active) => active.timer(),
-            State::CommandError(_) => {}
-            State::RequestTimeout(_) => {}
-            State::RequestError(_) => {}
+            State::Error(_) => {}
         }
     }
 
-    pub fn serial(&mut self) {
-        let state = self.state.take();
-
-        self.state = match state {
-            State::NotConnected => State::NotConnected,
-            State::Active(active) => match active.serial(self.timer) {
-                Ok(Some(active)) => State::Active(active),
-                Ok(None) => State::NotConnected,
-                Err(Either::Left(request_error)) => State::RequestError(request_error),
-                Err(Either::Right(command_error)) => State::CommandError(command_error),
+    pub(crate) fn serial(&mut self) {
+        match &mut self.state {
+            State::Inactive => {}
+            State::Active(active) => match active.serial() {
+                Ok(active::StateChange::StillActive) => {}
+                Ok(active::StateChange::Inactive) => self.state = State::Inactive,
+                Err(error) => self.state = State::Error(Error::Error(error)),
             },
-            State::CommandError(error) => State::CommandError(error),
-            State::RequestTimeout(timeout) => State::RequestTimeout(timeout),
-            State::RequestError(error) => State::RequestError(error),
+            State::Error(_) => {}
         }
     }
 }
