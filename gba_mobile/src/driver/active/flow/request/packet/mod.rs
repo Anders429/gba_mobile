@@ -8,7 +8,7 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{schedule_serial, schedule_timer};
+use super::{communication, schedule_serial, schedule_timer};
 use crate::{Timer, driver::Adapter, mmio::serial::TransferLength};
 use either::Either;
 use payload::Payload;
@@ -44,7 +44,7 @@ where
 
     fn vblank(self) -> Result<Self, Timeout>;
 
-    fn timer(&self);
+    fn timer(&mut self);
 
     fn serial(
         self,
@@ -59,7 +59,7 @@ where
 
     fn vblank(self) -> Result<Self, Timeout>;
 
-    fn timer(&self);
+    fn timer(&mut self);
 
     fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive<Payload>>;
 }
@@ -127,7 +127,7 @@ where
         }
     }
 
-    fn serial(self) -> Result<Either<Self, Response<Payload>>, Error<Payload>> {
+    fn serial(self, timer: Timer) -> Result<Either<Self, Response<Payload>>, Error<Payload>> {
         match self {
             Self::Send(send) => Ok(Either::Left(
                 send.serial()?
@@ -160,6 +160,12 @@ where
                     .into_inner(),
             )),
         }
+        .map(|response| {
+            response.map_left(|state| {
+                state.schedule_timer(timer);
+                state
+            })
+        })
     }
 
     fn schedule_timer(&self, timer: Timer) {
@@ -188,7 +194,9 @@ where
     pub(in crate::driver::active::flow) fn new(
         payload: Payload::Send,
         transfer_length: TransferLength,
+        timer: Timer,
     ) -> Self {
+        schedule_timer(timer, transfer_length);
         match transfer_length {
             TransferLength::_8Bit => Self::Packet8(State::Send(sio8::Send::new(payload))),
             TransferLength::_32Bit => Self::Packet32(State::Send(sio32::Send::new(payload))),
@@ -211,17 +219,11 @@ where
 
     pub(in crate::driver::active::flow) fn serial(
         self,
+        timer: Timer,
     ) -> Result<Either<Self, Response<Payload>>, Error<Payload>> {
         match self {
-            Self::Packet8(packet) => packet.serial().map(|ok| ok.map_left(Self::Packet8)),
-            Self::Packet32(packet) => packet.serial().map(|ok| ok.map_left(Self::Packet32)),
-        }
-    }
-
-    pub(in crate::driver::active::flow) fn schedule_timer(&self, timer: Timer) {
-        match self {
-            Self::Packet8(packet) => packet.schedule_timer(timer),
-            Self::Packet32(packet) => packet.schedule_timer(timer),
+            Self::Packet8(packet) => packet.serial(timer).map(|ok| ok.map_left(Self::Packet8)),
+            Self::Packet32(packet) => packet.serial(timer).map(|ok| ok.map_left(Self::Packet32)),
         }
     }
 }

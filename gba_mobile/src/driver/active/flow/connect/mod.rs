@@ -20,6 +20,7 @@ pub(in super::super) struct Connect {
 impl Connect {
     pub(super) fn new(
         transfer_length: TransferLength,
+        timer: Timer,
         adapter: Adapter,
         phone_number: ArrayVec<Digit, 32>,
         connection_generation: Generation,
@@ -28,6 +29,7 @@ impl Connect {
             packet: Packet::new(
                 payload::Connect::new(adapter, phone_number),
                 transfer_length,
+                timer,
             ),
             connection_generation,
         }
@@ -49,12 +51,13 @@ impl Connect {
 
     pub(super) fn serial(
         self,
+        timer: Timer,
         adapter: &mut Adapter,
         phase: &mut Phase,
         connection_generation: Generation,
     ) -> Result<Option<Self>, Error> {
         self.packet
-            .serial()
+            .serial(timer)
             .map(|response| match response {
                 Either::Left(packet) => Some(Self {
                     packet,
@@ -86,9 +89,5 @@ impl Connect {
                 }
             })
             .map_err(Error::Connect)
-    }
-
-    pub(super) fn schedule_timer(&self, timer: Timer) {
-        self.packet.schedule_timer(timer);
     }
 }

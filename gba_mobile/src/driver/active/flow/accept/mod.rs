@@ -17,8 +17,12 @@ pub(in super::super) enum Accept {
 }
 
 impl Accept {
-    pub(super) fn new(transfer_length: TransferLength) -> Self {
-        Self::AcceptConnection(Packet::new(payload::AcceptConnection, transfer_length))
+    pub(super) fn new(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::AcceptConnection(Packet::new(
+            payload::AcceptConnection,
+            transfer_length,
+            timer,
+        ))
     }
 
     pub(super) fn vblank(self) -> Result<Self, Timeout> {
@@ -38,12 +42,13 @@ impl Accept {
 
     pub(super) fn serial(
         self,
+        timer: Timer,
         adapter: &mut Adapter,
         phase: &mut Phase,
     ) -> Result<Option<Self>, Error> {
         match self {
             Self::AcceptConnection(packet) => packet
-                .serial()
+                .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self::AcceptConnection(packet)),
                     Either::Right(response) => {
@@ -67,12 +72,6 @@ impl Accept {
                     }
                 })
                 .map_err(Error::AcceptConnection),
-        }
-    }
-
-    pub(super) fn schedule_timer(&self, timer: Timer) {
-        match self {
-            Self::AcceptConnection(packet) => packet.schedule_timer(timer),
         }
     }
 }

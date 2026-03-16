@@ -1,6 +1,6 @@
 use super::{
     super::{
-        Payload, Response, Timeout, error, payload,
+        Payload, Response, Timeout, communication, error, payload,
         payload::{ReceiveData, ReceiveLength, ReceiveParsed},
     },
     ReceiveError, receive_error,
@@ -29,6 +29,7 @@ struct State {
     checksum: u16,
     attempt: u8,
     frame: u8,
+    communication_state: communication::State,
 }
 
 impl State {
@@ -38,6 +39,7 @@ impl State {
             checksum,
             attempt,
             frame: 0,
+            communication_state: communication::State::Send,
         }
     }
 
@@ -47,6 +49,7 @@ impl State {
             checksum: self.checksum,
             attempt: self.attempt,
             frame: 0,
+            communication_state: communication::State::Send,
         }
     }
 }
@@ -108,56 +111,99 @@ where
         }
     }
 
-    fn timer(&self) {
-        let bytes = match &self.step {
-            Step::Footer { payload } => {
-                let command_byte = if self.state.command_xor {
-                    payload.command() as u8 | 0x80
-                } else {
-                    payload.command() as u8
-                };
-                u32::from_be_bytes([0x81, command_byte, 0x00, 0x00])
-            }
-            _ => 0x4b_4b_4b_4b,
-        };
-        unsafe { SIODATA32.write_volatile(bytes) };
+    fn timer(&mut self) {
+        if matches!(self.state.communication_state, communication::State::Send) {
+            let bytes = match &self.step {
+                Step::Footer { payload } => {
+                    let command_byte = if self.state.command_xor {
+                        payload.command() as u8 | 0x80
+                    } else {
+                        payload.command() as u8
+                    };
+                    u32::from_be_bytes([0x81, command_byte, 0x00, 0x00])
+                }
+                _ => 0x4b_4b_4b_4b,
+            };
+            unsafe { SIODATA32.write_volatile(bytes) };
+            self.state.communication_state = communication::State::Receive;
+        }
     }
 
     fn serial(
         mut self,
     ) -> Result<Either<Result<Self, Self::ReceiveError>, Response<Payload>>, error::Receive<Payload>>
     {
-        let bytes = unsafe { SIODATA32.read_volatile().to_be_bytes() };
-        match self.step {
-            Step::HeaderLength { payload } => {
-                if bytes[0] > 0 {
-                    let full_length = ((bytes[0] as u16) << 8) | (bytes[1] as u16);
-                    Ok(Either::Left(Err(ReceiveError::new(
-                        receive_error::Step::Data {
-                            index: 2,
-                            length: unsafe { NonZeroU16::new_unchecked(full_length) },
-                        },
-                        payload.restart(),
-                        error::Receive::LengthTooLarge(full_length),
-                        self.state.attempt,
-                    ))))
-                } else {
-                    match payload.receive_length(bytes[1]) {
-                        Ok(Either::Left(payload)) => {
-                            // Receive the last two bytes as data.
-                            self.state.checksum = self
-                                .state
-                                .checksum
-                                .wrapping_add(bytes[0] as u16)
-                                .wrapping_add(bytes[1] as u16)
-                                .wrapping_add(bytes[2] as u16)
-                                .wrapping_add(bytes[3] as u16);
-                            match payload.receive_data(bytes[2]) {
+        match self.state.communication_state {
+            communication::State::Send => Ok(Either::Left(Ok(self))),
+            communication::State::Receive => {
+                let bytes = unsafe { SIODATA32.read_volatile().to_be_bytes() };
+                match self.step {
+                    Step::HeaderLength { payload } => {
+                        if bytes[0] > 0 {
+                            let full_length = ((bytes[0] as u16) << 8) | (bytes[1] as u16);
+                            Ok(Either::Left(Err(ReceiveError::new(
+                                receive_error::Step::Data {
+                                    index: 2,
+                                    length: unsafe { NonZeroU16::new_unchecked(full_length) },
+                                },
+                                payload.restart(),
+                                error::Receive::LengthTooLarge(full_length),
+                                self.state.attempt,
+                            ))))
+                        } else {
+                            match payload.receive_length(bytes[1]) {
                                 Ok(Either::Left(payload)) => {
-                                    match payload.receive_data(bytes[3]) {
-                                        Ok(Either::Left(payload)) => Ok(Either::Left(Ok(
-                                            Self::next(Step::Data { payload }, self.state),
-                                        ))),
+                                    // Receive the last two bytes as data.
+                                    self.state.checksum = self
+                                        .state
+                                        .checksum
+                                        .wrapping_add(bytes[0] as u16)
+                                        .wrapping_add(bytes[1] as u16)
+                                        .wrapping_add(bytes[2] as u16)
+                                        .wrapping_add(bytes[3] as u16);
+                                    match payload.receive_data(bytes[2]) {
+                                        Ok(Either::Left(payload)) => {
+                                            match payload.receive_data(bytes[3]) {
+                                                Ok(Either::Left(payload)) => Ok(Either::Left(Ok(
+                                                    Self::next(Step::Data { payload }, self.state),
+                                                ))),
+                                                Ok(Either::Right(payload)) => {
+                                                    Ok(Either::Left(Ok(Self::next(
+                                                        Step::Checksum { payload },
+                                                        self.state,
+                                                    ))))
+                                                }
+                                                Err((error, payload, Some((length, index)))) => {
+                                                    Ok(Either::Left(Err(ReceiveError::new(
+                                                        if let Some(index) = align_index(index)
+                                                            && index < length.get()
+                                                        {
+                                                            receive_error::Step::Data {
+                                                                index,
+                                                                length,
+                                                            }
+                                                        } else {
+                                                            receive_error::Step::Checksum
+                                                        },
+                                                        payload,
+                                                        error::Receive::Payload(
+                                                            payload::Error::ReceiveData(error),
+                                                        ),
+                                                        self.state.attempt,
+                                                    ))))
+                                                }
+                                                Err((error, payload, None)) => {
+                                                    Ok(Either::Left(Err(ReceiveError::new(
+                                                        receive_error::Step::Checksum,
+                                                        payload,
+                                                        error::Receive::Payload(
+                                                            payload::Error::ReceiveData(error),
+                                                        ),
+                                                        self.state.attempt,
+                                                    ))))
+                                                }
+                                            }
+                                        }
                                         Ok(Either::Right(payload)) => Ok(Either::Left(Ok(
                                             Self::next(Step::Checksum { payload }, self.state),
                                         ))),
@@ -189,10 +235,174 @@ where
                                         }
                                     }
                                 }
-                                Ok(Either::Right(payload)) => Ok(Either::Left(Ok(Self::next(
-                                    Step::Checksum { payload },
-                                    self.state,
-                                )))),
+                                Ok(Either::Right(payload)) => {
+                                    // No data to receive, so we move right on to checksum.
+                                    let full_checksum =
+                                        ((bytes[2] as u16) << 8) | (bytes[3] as u16);
+                                    if full_checksum == self.state.checksum {
+                                        Ok(Either::Left(Ok(Self::next(
+                                            Step::Footer { payload },
+                                            self.state,
+                                        ))))
+                                    } else {
+                                        Ok(Either::Left(Err(ReceiveError::new(
+                                            receive_error::Step::Footer,
+                                            payload.restart(),
+                                            error::Receive::Checksum {
+                                                calculated: self.state.checksum,
+                                                received: full_checksum,
+                                            },
+                                            self.state.attempt,
+                                        ))))
+                                    }
+                                }
+                                Err((error, payload)) => {
+                                    if let Some(nonzero_length) = NonZeroU16::new(bytes[1] as u16) {
+                                        if nonzero_length.get() > 2 {
+                                            Ok(Either::Left(Err(ReceiveError::new(
+                                                receive_error::Step::Data {
+                                                    length: nonzero_length,
+                                                    index: 2,
+                                                },
+                                                payload,
+                                                error::Receive::Payload(
+                                                    payload::Error::ReceiveLength(error),
+                                                ),
+                                                self.state.attempt,
+                                            ))))
+                                        } else {
+                                            Ok(Either::Left(Err(ReceiveError::new(
+                                                receive_error::Step::Checksum,
+                                                payload,
+                                                error::Receive::Payload(
+                                                    payload::Error::ReceiveLength(error),
+                                                ),
+                                                self.state.attempt,
+                                            ))))
+                                        }
+                                    } else {
+                                        Ok(Either::Left(Err(ReceiveError::new(
+                                            receive_error::Step::Footer,
+                                            payload,
+                                            error::Receive::Payload(payload::Error::ReceiveLength(
+                                                error,
+                                            )),
+                                            self.state.attempt,
+                                        ))))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Step::Data { payload } => {
+                        self.state.checksum = self
+                            .state
+                            .checksum
+                            .wrapping_add(bytes[0] as u16)
+                            .wrapping_add(bytes[1] as u16);
+                        match payload.receive_data(bytes[0]) {
+                            Ok(Either::Left(payload)) => match payload.receive_data(bytes[1]) {
+                                Ok(Either::Left(payload)) => {
+                                    self.state.checksum = self
+                                        .state
+                                        .checksum
+                                        .wrapping_add(bytes[2] as u16)
+                                        .wrapping_add(bytes[3] as u16);
+                                    match payload.receive_data(bytes[2]) {
+                                        Ok(Either::Left(payload)) => {
+                                            match payload.receive_data(bytes[3]) {
+                                                Ok(Either::Left(payload)) => Ok(Either::Left(Ok(
+                                                    Self::next(Step::Data { payload }, self.state),
+                                                ))),
+                                                Ok(Either::Right(payload)) => {
+                                                    Ok(Either::Left(Ok(Self::next(
+                                                        Step::Checksum { payload },
+                                                        self.state,
+                                                    ))))
+                                                }
+                                                Err((error, payload, Some((length, index)))) => {
+                                                    Ok(Either::Left(Err(ReceiveError::new(
+                                                        if let Some(index) = align_index(index)
+                                                            && index < length.get()
+                                                        {
+                                                            receive_error::Step::Data {
+                                                                index,
+                                                                length,
+                                                            }
+                                                        } else {
+                                                            receive_error::Step::Checksum
+                                                        },
+                                                        payload,
+                                                        error::Receive::Payload(
+                                                            payload::Error::ReceiveData(error),
+                                                        ),
+                                                        self.state.attempt,
+                                                    ))))
+                                                }
+                                                Err((error, payload, None)) => {
+                                                    Ok(Either::Left(Err(ReceiveError::new(
+                                                        receive_error::Step::Checksum,
+                                                        payload,
+                                                        error::Receive::Payload(
+                                                            payload::Error::ReceiveData(error),
+                                                        ),
+                                                        self.state.attempt,
+                                                    ))))
+                                                }
+                                            }
+                                        }
+                                        Ok(Either::Right(payload)) => Ok(Either::Left(Ok(
+                                            Self::next(Step::Checksum { payload }, self.state),
+                                        ))),
+                                        Err((error, payload, Some((length, index)))) => {
+                                            Ok(Either::Left(Err(ReceiveError::new(
+                                                if let Some(index) = align_index(index)
+                                                    && index < length.get()
+                                                {
+                                                    receive_error::Step::Data { index, length }
+                                                } else {
+                                                    receive_error::Step::Checksum
+                                                },
+                                                payload,
+                                                error::Receive::Payload(
+                                                    payload::Error::ReceiveData(error),
+                                                ),
+                                                self.state.attempt,
+                                            ))))
+                                        }
+                                        Err((error, payload, None)) => {
+                                            Ok(Either::Left(Err(ReceiveError::new(
+                                                receive_error::Step::Checksum,
+                                                payload,
+                                                error::Receive::Payload(
+                                                    payload::Error::ReceiveData(error),
+                                                ),
+                                                self.state.attempt,
+                                            ))))
+                                        }
+                                    }
+                                }
+                                Ok(Either::Right(payload)) => {
+                                    // The checksum is contained in the last two bytes.
+                                    let full_checksum =
+                                        ((bytes[2] as u16) << 8) | (bytes[3] as u16);
+                                    if full_checksum == self.state.checksum {
+                                        Ok(Either::Left(Ok(Self::next(
+                                            Step::Footer { payload },
+                                            self.state,
+                                        ))))
+                                    } else {
+                                        Ok(Either::Left(Err(ReceiveError::new(
+                                            receive_error::Step::Footer,
+                                            payload.restart(),
+                                            error::Receive::Checksum {
+                                                calculated: self.state.checksum,
+                                                received: full_checksum,
+                                            },
+                                            self.state.attempt,
+                                        ))))
+                                    }
+                                }
                                 Err((error, payload, Some((length, index)))) => {
                                     Ok(Either::Left(Err(ReceiveError::new(
                                         if let Some(index) = align_index(index)
@@ -215,186 +425,58 @@ where
                                         self.state.attempt,
                                     ))))
                                 }
-                            }
-                        }
-                        Ok(Either::Right(payload)) => {
-                            // No data to receive, so we move right on to checksum.
-                            let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
-                            if full_checksum == self.state.checksum {
-                                Ok(Either::Left(Ok(Self::next(
-                                    Step::Footer { payload },
-                                    self.state,
-                                ))))
-                            } else {
-                                Ok(Either::Left(Err(ReceiveError::new(
-                                    receive_error::Step::Footer,
-                                    payload.restart(),
-                                    error::Receive::Checksum {
-                                        calculated: self.state.checksum,
-                                        received: full_checksum,
-                                    },
-                                    self.state.attempt,
-                                ))))
-                            }
-                        }
-                        Err((error, payload)) => {
-                            if let Some(nonzero_length) = NonZeroU16::new(bytes[1] as u16) {
-                                if nonzero_length.get() > 2 {
-                                    Ok(Either::Left(Err(ReceiveError::new(
-                                        receive_error::Step::Data {
-                                            length: nonzero_length,
-                                            index: 2,
-                                        },
-                                        payload,
-                                        error::Receive::Payload(payload::Error::ReceiveLength(
-                                            error,
-                                        )),
-                                        self.state.attempt,
+                            },
+                            Ok(Either::Right(payload)) => {
+                                // The checksum is contained in the last two bytes.
+                                let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
+                                if full_checksum == self.state.checksum {
+                                    Ok(Either::Left(Ok(Self::next(
+                                        Step::Footer { payload },
+                                        self.state,
                                     ))))
                                 } else {
                                     Ok(Either::Left(Err(ReceiveError::new(
-                                        receive_error::Step::Checksum,
-                                        payload,
-                                        error::Receive::Payload(payload::Error::ReceiveLength(
-                                            error,
-                                        )),
+                                        receive_error::Step::Footer,
+                                        payload.restart(),
+                                        error::Receive::Checksum {
+                                            calculated: self.state.checksum,
+                                            received: full_checksum,
+                                        },
                                         self.state.attempt,
                                     ))))
                                 }
-                            } else {
+                            }
+                            Err((error, payload, Some((length, index)))) => {
                                 Ok(Either::Left(Err(ReceiveError::new(
-                                    receive_error::Step::Footer,
+                                    if let Some(index) = align_index(index)
+                                        && index < length.get()
+                                    {
+                                        receive_error::Step::Data { index, length }
+                                    } else {
+                                        receive_error::Step::Checksum
+                                    },
                                     payload,
-                                    error::Receive::Payload(payload::Error::ReceiveLength(error)),
+                                    error::Receive::Payload(payload::Error::ReceiveData(error)),
+                                    self.state.attempt,
+                                ))))
+                            }
+                            Err((error, payload, None)) => {
+                                Ok(Either::Left(Err(ReceiveError::new(
+                                    receive_error::Step::Checksum,
+                                    payload,
+                                    error::Receive::Payload(payload::Error::ReceiveData(error)),
                                     self.state.attempt,
                                 ))))
                             }
                         }
                     }
-                }
-            }
-            Step::Data { payload } => {
-                self.state.checksum = self
-                    .state
-                    .checksum
-                    .wrapping_add(bytes[0] as u16)
-                    .wrapping_add(bytes[1] as u16);
-                match payload.receive_data(bytes[0]) {
-                    Ok(Either::Left(payload)) => match payload.receive_data(bytes[1]) {
-                        Ok(Either::Left(payload)) => {
-                            self.state.checksum = self
-                                .state
-                                .checksum
-                                .wrapping_add(bytes[2] as u16)
-                                .wrapping_add(bytes[3] as u16);
-                            match payload.receive_data(bytes[2]) {
-                                Ok(Either::Left(payload)) => {
-                                    match payload.receive_data(bytes[3]) {
-                                        Ok(Either::Left(payload)) => Ok(Either::Left(Ok(
-                                            Self::next(Step::Data { payload }, self.state),
-                                        ))),
-                                        Ok(Either::Right(payload)) => Ok(Either::Left(Ok(
-                                            Self::next(Step::Checksum { payload }, self.state),
-                                        ))),
-                                        Err((error, payload, Some((length, index)))) => {
-                                            Ok(Either::Left(Err(ReceiveError::new(
-                                                if let Some(index) = align_index(index)
-                                                    && index < length.get()
-                                                {
-                                                    receive_error::Step::Data { index, length }
-                                                } else {
-                                                    receive_error::Step::Checksum
-                                                },
-                                                payload,
-                                                error::Receive::Payload(
-                                                    payload::Error::ReceiveData(error),
-                                                ),
-                                                self.state.attempt,
-                                            ))))
-                                        }
-                                        Err((error, payload, None)) => {
-                                            Ok(Either::Left(Err(ReceiveError::new(
-                                                receive_error::Step::Checksum,
-                                                payload,
-                                                error::Receive::Payload(
-                                                    payload::Error::ReceiveData(error),
-                                                ),
-                                                self.state.attempt,
-                                            ))))
-                                        }
-                                    }
-                                }
-                                Ok(Either::Right(payload)) => Ok(Either::Left(Ok(Self::next(
-                                    Step::Checksum { payload },
-                                    self.state,
-                                )))),
-                                Err((error, payload, Some((length, index)))) => {
-                                    Ok(Either::Left(Err(ReceiveError::new(
-                                        if let Some(index) = align_index(index)
-                                            && index < length.get()
-                                        {
-                                            receive_error::Step::Data { index, length }
-                                        } else {
-                                            receive_error::Step::Checksum
-                                        },
-                                        payload,
-                                        error::Receive::Payload(payload::Error::ReceiveData(error)),
-                                        self.state.attempt,
-                                    ))))
-                                }
-                                Err((error, payload, None)) => {
-                                    Ok(Either::Left(Err(ReceiveError::new(
-                                        receive_error::Step::Checksum,
-                                        payload,
-                                        error::Receive::Payload(payload::Error::ReceiveData(error)),
-                                        self.state.attempt,
-                                    ))))
-                                }
-                            }
-                        }
-                        Ok(Either::Right(payload)) => {
-                            // The checksum is contained in the last two bytes.
-                            let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
-                            if full_checksum == self.state.checksum {
-                                Ok(Either::Left(Ok(Self::next(
-                                    Step::Footer { payload },
-                                    self.state,
-                                ))))
-                            } else {
-                                Ok(Either::Left(Err(ReceiveError::new(
-                                    receive_error::Step::Footer,
-                                    payload.restart(),
-                                    error::Receive::Checksum {
-                                        calculated: self.state.checksum,
-                                        received: full_checksum,
-                                    },
-                                    self.state.attempt,
-                                ))))
-                            }
-                        }
-                        Err((error, payload, Some((length, index)))) => {
-                            Ok(Either::Left(Err(ReceiveError::new(
-                                if let Some(index) = align_index(index)
-                                    && index < length.get()
-                                {
-                                    receive_error::Step::Data { index, length }
-                                } else {
-                                    receive_error::Step::Checksum
-                                },
-                                payload,
-                                error::Receive::Payload(payload::Error::ReceiveData(error)),
-                                self.state.attempt,
-                            ))))
-                        }
-                        Err((error, payload, None)) => Ok(Either::Left(Err(ReceiveError::new(
-                            receive_error::Step::Checksum,
-                            payload,
-                            error::Receive::Payload(payload::Error::ReceiveData(error)),
-                            self.state.attempt,
-                        )))),
-                    },
-                    Ok(Either::Right(payload)) => {
+                    Step::Checksum { payload } => {
                         // The checksum is contained in the last two bytes.
+                        self.state.checksum = self
+                            .state
+                            .checksum
+                            .wrapping_add(bytes[0] as u16)
+                            .wrapping_add(bytes[1] as u16);
                         let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
                         if full_checksum == self.state.checksum {
                             Ok(Either::Left(Ok(Self::next(
@@ -413,69 +495,24 @@ where
                             ))))
                         }
                     }
-                    Err((error, payload, Some((length, index)))) => {
-                        Ok(Either::Left(Err(ReceiveError::new(
-                            if let Some(index) = align_index(index)
-                                && index < length.get()
-                            {
-                                receive_error::Step::Data { index, length }
-                            } else {
-                                receive_error::Step::Checksum
+                    Step::Footer { payload } => {
+                        match Adapter::try_from(bytes[0]) {
+                            Ok(adapter) => match NonZeroU8::new(bytes[1]) {
+                                None => {
+                                    // We don't care about what the adapter was set to previously. We just
+                                    // want to store whatever type it's currently telling us it is.
+                                    Ok(Either::Right(Response { payload, adapter }))
+                                }
+                                Some(nonzero) => {
+                                    // We can no longer retry at this point. We simply return the error.
+                                    Err(error::Receive::NonZeroFooterCommand(nonzero))
+                                }
                             },
-                            payload,
-                            error::Receive::Payload(payload::Error::ReceiveData(error)),
-                            self.state.attempt,
-                        ))))
-                    }
-                    Err((error, payload, None)) => Ok(Either::Left(Err(ReceiveError::new(
-                        receive_error::Step::Checksum,
-                        payload,
-                        error::Receive::Payload(payload::Error::ReceiveData(error)),
-                        self.state.attempt,
-                    )))),
-                }
-            }
-            Step::Checksum { payload } => {
-                // The checksum is contained in the last two bytes.
-                self.state.checksum = self
-                    .state
-                    .checksum
-                    .wrapping_add(bytes[0] as u16)
-                    .wrapping_add(bytes[1] as u16);
-                let full_checksum = ((bytes[2] as u16) << 8) | (bytes[3] as u16);
-                if full_checksum == self.state.checksum {
-                    Ok(Either::Left(Ok(Self::next(
-                        Step::Footer { payload },
-                        self.state,
-                    ))))
-                } else {
-                    Ok(Either::Left(Err(ReceiveError::new(
-                        receive_error::Step::Footer,
-                        payload.restart(),
-                        error::Receive::Checksum {
-                            calculated: self.state.checksum,
-                            received: full_checksum,
-                        },
-                        self.state.attempt,
-                    ))))
-                }
-            }
-            Step::Footer { payload } => {
-                match Adapter::try_from(bytes[0]) {
-                    Ok(adapter) => match NonZeroU8::new(bytes[1]) {
-                        None => {
-                            // We don't care about what the adapter was set to previously. We just
-                            // want to store whatever type it's currently telling us it is.
-                            Ok(Either::Right(Response { payload, adapter }))
+                            Err(unknown) => {
+                                // We can no longer retry at this point. We simply return the error.
+                                Err(error::Receive::UnsupportedDevice(unknown))
+                            }
                         }
-                        Some(nonzero) => {
-                            // We can no longer retry at this point. We simply return the error.
-                            Err(error::Receive::NonZeroFooterCommand(nonzero))
-                        }
-                    },
-                    Err(unknown) => {
-                        // We can no longer retry at this point. We simply return the error.
-                        Err(error::Receive::UnsupportedDevice(unknown))
                     }
                 }
             }

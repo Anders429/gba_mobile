@@ -71,6 +71,7 @@ impl Start {
 
     pub(super) fn serial(
         self,
+        timer: Timer,
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
         phase: &mut Phase,
@@ -78,19 +79,23 @@ impl Start {
     ) -> Result<Either<Self, Response>, Error> {
         match self {
             Self::Wake(wait_for_idle) => Ok(Either::Left(wait_for_idle.serial().map_or_else(
-                || Self::BeginSession(Packet::new(payload::BeginSession, *transfer_length)),
+                || Self::BeginSession(Packet::new(payload::BeginSession, *transfer_length, timer)),
                 Self::Wake,
             ))),
             Self::BeginSession(packet) => packet
-                .serial()
+                .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self::BeginSession(packet)),
                     Either::Right(response) => {
                         *adapter = response.adapter;
                         match response.payload {
-                            payload::begin_session::ReceiveParsed::BeginSession => Either::Left(
-                                Self::Sio32(Packet::new(payload::EnableSio32, *transfer_length)),
-                            ),
+                            payload::begin_session::ReceiveParsed::BeginSession => {
+                                Either::Left(Self::Sio32(Packet::new(
+                                    payload::EnableSio32,
+                                    *transfer_length,
+                                    timer,
+                                )))
+                            }
                             payload::begin_session::ReceiveParsed::AlreadyActive => {
                                 Either::Right(Response::AlreadyActive)
                             }
@@ -99,7 +104,7 @@ impl Start {
                 })
                 .map_err(Error::BeginSession),
             Self::Sio32(packet) => packet
-                .serial()
+                .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self::Sio32(packet)),
                     Either::Right(response) => {
@@ -127,13 +132,14 @@ impl Start {
                         Self::ReadConfig1(Packet::new(
                             payload::ReadConfig::FirstHalf,
                             *transfer_length,
+                            timer,
                         ))
                     },
                     Self::WaitForIdle,
                 )))
             }
             Self::ReadConfig1(packet) => packet
-                .serial()
+                .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self::ReadConfig1(packet)),
                     Either::Right(response) => {
@@ -148,12 +154,13 @@ impl Start {
                         Either::Left(Self::ReadConfig2(Packet::new(
                             payload::ReadConfig::SecondHalf,
                             *transfer_length,
+                            timer,
                         )))
                     }
                 })
                 .map_err(Error::ReadConfig1),
             Self::ReadConfig2(packet) => packet
-                .serial()
+                .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self::ReadConfig2(packet)),
                     Either::Right(response) => {
@@ -173,17 +180,6 @@ impl Start {
                     }
                 })
                 .map_err(Error::ReadConfig2),
-        }
-    }
-
-    pub(super) fn schedule_timer(&self, timer: Timer) {
-        match self {
-            Self::Wake(_) => {}
-            Self::BeginSession(packet) => packet.schedule_timer(timer),
-            Self::Sio32(packet) => packet.schedule_timer(timer),
-            Self::WaitForIdle(_) => {}
-            Self::ReadConfig1(packet) => packet.schedule_timer(timer),
-            Self::ReadConfig2(packet) => packet.schedule_timer(timer),
         }
     }
 }

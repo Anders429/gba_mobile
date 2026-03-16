@@ -63,7 +63,10 @@ pub fn main() {
     log::info!("link connection status: {status:?}");
 
     if let Ok(Some(link)) = status {
-        log::info!("connected to {} adapter", link.adapter().expect("unable to check adapter"));
+        log::info!(
+            "connected to {} adapter",
+            link.adapter().expect("unable to check adapter")
+        );
         let config = link.config::<gba_mobile::config::mobile_system_gb::Config>();
         log::info!("attempted to parse Mobile System GB config: {config:?}");
         let pending_p2p = loop {

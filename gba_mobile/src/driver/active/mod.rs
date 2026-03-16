@@ -221,13 +221,6 @@ impl Active {
             // Reset the frame count so we don't timeout.
             self.state.frame = 0;
             self.flow = Some(new_flow);
-            // Schedule the flow to begin execution.
-            unsafe {
-                self.flow
-                    .as_ref()
-                    .unwrap_unchecked()
-                    .schedule_timer(self.state.timer);
-            }
             Ok(())
         } else if self.state.frame > frames::THREE_SECONDS {
             // Three seconds is how long the adapter will remain connected without any bytes
@@ -253,14 +246,6 @@ impl Active {
             match flow.serial(&mut self.state, &mut self.queue)? {
                 Either::Left(flow) => {
                     self.flow = Some(flow);
-                    // We are still actively processing this flow, so we continue execution.
-                    // If this flow's current request isn't triggered by timer, this is a no-op.
-                    unsafe {
-                        self.flow
-                            .as_ref()
-                            .unwrap_unchecked()
-                            .schedule_timer(self.state.timer);
-                    }
                     Ok(StateChange::StillActive)
                 }
                 Either::Right(state_change) => Ok(state_change),

@@ -13,9 +13,9 @@ pub(in super::super) struct Idle {
 }
 
 impl Idle {
-    pub(super) fn new(transfer_length: TransferLength) -> Self {
+    pub(super) fn new(transfer_length: TransferLength, timer: Timer) -> Self {
         Self {
-            idle: request::Idle::new(transfer_length),
+            idle: request::Idle::new(transfer_length, timer),
         }
     }
 
@@ -30,19 +30,18 @@ impl Idle {
         self.idle.timer()
     }
 
-    pub(super) fn serial(self, phase: &mut Phase) -> Result<(), Error> {
+    pub(super) fn serial(self, timer: Timer, phase: &mut Phase) -> Result<Option<Self>, Error> {
         self.idle
-            .serial()
-            .map(|_| {
-                if let Phase::Linked { frame, .. } = phase {
-                    // Reset the frame to 0 so that we will schedule an idle flow again.
-                    *frame = 0;
-                }
+            .serial(timer)
+            .map(|result| {
+                result.map(|idle| Idle { idle }).or_else(|| {
+                    if let Phase::Linked { frame, .. } = phase {
+                        // Reset the frame to 0 so that we will schedule an idle flow again.
+                        *frame = 0;
+                    }
+                    None
+                })
             })
             .map_err(Error::Idle)
-    }
-
-    pub(super) fn schedule_timer(&self, timer: Timer) {
-        self.idle.schedule_timer(timer);
     }
 }

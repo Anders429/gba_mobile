@@ -38,34 +38,36 @@ impl Flow {
         Self::Start(Start::new(transfer_length))
     }
 
-    pub(super) fn end(transfer_length: TransferLength) -> Self {
-        Self::End(End::new(transfer_length))
+    pub(super) fn end(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::End(End::new(transfer_length, timer))
     }
 
-    pub(super) fn reset(transfer_length: TransferLength) -> Self {
-        Self::Reset(Reset::new(transfer_length))
+    pub(super) fn reset(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::Reset(Reset::new(transfer_length, timer))
     }
 
-    pub(super) fn accept(transfer_length: TransferLength) -> Self {
-        Self::Accept(Accept::new(transfer_length))
+    pub(super) fn accept(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::Accept(Accept::new(transfer_length, timer))
     }
 
     pub(super) fn connect(
         transfer_length: TransferLength,
+        timer: Timer,
         adapter: Adapter,
         phone_number: ArrayVec<Digit, 32>,
         connection_generation: Generation,
     ) -> Self {
         Self::Connect(Connect::new(
             transfer_length,
+            timer,
             adapter,
             phone_number,
             connection_generation,
         ))
     }
 
-    pub(super) fn idle(transfer_length: TransferLength) -> Self {
-        Self::Idle(Idle::new(transfer_length))
+    pub(super) fn idle(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::Idle(Idle::new(transfer_length, timer))
     }
 
     pub(super) fn vblank(self) -> Result<Self, Timeout> {
@@ -101,6 +103,7 @@ impl Flow {
         match self {
             Self::Start(start) => start
                 .serial(
+                    state.timer,
                     &mut state.adapter,
                     &mut state.transfer_length,
                     &mut state.phase,
@@ -121,7 +124,7 @@ impl Flow {
                 })
                 .map_err(Error::Start),
             Self::End(end) => end
-                .serial(&mut state.adapter, &mut state.transfer_length)
+                .serial(state.timer, &mut state.adapter, &mut state.transfer_length)
                 .map(|flow| {
                     flow.map_or_else(
                         || {
@@ -137,6 +140,7 @@ impl Flow {
                 .map_err(Error::End),
             Self::Reset(reset) => reset
                 .serial(
+                    state.timer,
                     &mut state.adapter,
                     &mut state.transfer_length,
                     &mut state.phase,
@@ -150,7 +154,7 @@ impl Flow {
                 })
                 .map_err(Error::Reset),
             Self::Accept(accept) => accept
-                .serial(&mut state.adapter, &mut state.phase)
+                .serial(state.timer, &mut state.adapter, &mut state.phase)
                 .map(|flow| {
                     flow.map_or_else(
                         || Either::Right(StateChange::StillActive),
@@ -160,6 +164,7 @@ impl Flow {
                 .map_err(Error::Accept),
             Self::Connect(connect) => connect
                 .serial(
+                    state.timer,
                     &mut state.adapter,
                     &mut state.phase,
                     state.connection_generation,
@@ -172,20 +177,9 @@ impl Flow {
                 })
                 .map_err(Error::Connect),
             Self::Idle(idle) => idle
-                .serial(&mut state.phase)
+                .serial(state.timer, &mut state.phase)
                 .map(|_| Either::Right(StateChange::StillActive))
                 .map_err(Error::Idle),
-        }
-    }
-
-    pub(super) fn schedule_timer(&self, timer: Timer) {
-        match self {
-            Self::Start(start) => start.schedule_timer(timer),
-            Self::End(end) => end.schedule_timer(timer),
-            Self::Reset(reset) => reset.schedule_timer(timer),
-            Self::Accept(accept) => accept.schedule_timer(timer),
-            Self::Connect(connect) => connect.schedule_timer(timer),
-            Self::Idle(idle) => idle.schedule_timer(timer),
         }
     }
 }

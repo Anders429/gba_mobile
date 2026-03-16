@@ -2,6 +2,8 @@ pub(in crate::driver) mod idle;
 pub(in crate::driver) mod packet;
 pub(in crate::driver) mod wait_for_idle;
 
+mod communication;
+
 pub(super) use idle::Idle;
 pub(super) use packet::Packet;
 pub(super) use wait_for_idle::WaitForIdle;
