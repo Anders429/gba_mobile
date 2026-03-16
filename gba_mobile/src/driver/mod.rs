@@ -9,12 +9,11 @@ mod timers;
 pub use adapter::Adapter;
 
 use crate::{
-    ArrayVec, Generation, Timer,
+    ArrayVec, Digit, Generation, Timer,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
     },
-    phone_number::Digit,
 };
 use active::Active;
 use command::Command;
@@ -202,6 +201,21 @@ impl Driver {
         match &self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => Ok(active.adapter()),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn config(
+        &self,
+        link_generation: Generation,
+    ) -> Result<&[u8; 256], error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => Ok(active.config()),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }

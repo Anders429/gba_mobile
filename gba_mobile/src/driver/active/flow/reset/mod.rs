@@ -28,8 +28,8 @@ pub(in super::super) enum Reset {
 }
 
 impl Reset {
-    pub(super) fn new(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::Reset(Packet::new(payload::Reset, transfer_length, timer))
+    pub(super) fn new(transfer_length: TransferLength) -> Self {
+        Self::Reset(Packet::new(payload::Reset, transfer_length))
     }
 
     pub(super) fn vblank(self) -> Result<Self, Timeout> {
@@ -73,13 +73,12 @@ impl Reset {
         self,
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
-        timer: Timer,
         phase: &mut Phase,
         config: &mut [u8; 256],
     ) -> Result<Option<Self>, Error> {
         match self {
             Self::Reset(packet) => packet
-                .serial(timer)
+                .serial()
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self::Reset(packet)),
                     Either::Right(response) => {
@@ -95,11 +94,11 @@ impl Reset {
                 })
                 .map_err(Error::Reset),
             Self::WaitForSio8(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
-                || Self::EnableSio32(Packet::new(payload::EnableSio32, *transfer_length, timer)),
+                || Self::EnableSio32(Packet::new(payload::EnableSio32, *transfer_length)),
                 Self::WaitForSio8,
             ))),
             Self::EnableSio32(packet) => packet
-                .serial(timer)
+                .serial()
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self::EnableSio32(packet)),
                     Either::Right(response) => {
@@ -126,13 +125,12 @@ impl Reset {
                     Self::ReadConfig1(Packet::new(
                         payload::ReadConfig::FirstHalf,
                         *transfer_length,
-                        timer,
                     ))
                 },
                 Self::WaitForSio32,
             ))),
             Self::ReadConfig1(packet) => packet
-                .serial(timer)
+                .serial()
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self::ReadConfig1(packet)),
                     Either::Right(response) => {
@@ -147,13 +145,12 @@ impl Reset {
                         Some(Self::ReadConfig2(Packet::new(
                             payload::ReadConfig::SecondHalf,
                             *transfer_length,
-                            timer,
                         )))
                     }
                 })
                 .map_err(Error::ReadConfig1),
             Self::ReadConfig2(packet) => packet
-                .serial(timer)
+                .serial()
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self::ReadConfig2(packet)),
                     Either::Right(response) => {
@@ -173,6 +170,17 @@ impl Reset {
                     }
                 })
                 .map_err(Error::ReadConfig2),
+        }
+    }
+
+    pub(super) fn schedule_timer(&self, timer: Timer) {
+        match self {
+            Self::Reset(packet) => packet.schedule_timer(timer),
+            Self::WaitForSio8(_) => {}
+            Self::EnableSio32(packet) => packet.schedule_timer(timer),
+            Self::WaitForSio32(_) => {}
+            Self::ReadConfig1(packet) => packet.schedule_timer(timer),
+            Self::ReadConfig2(packet) => packet.schedule_timer(timer),
         }
     }
 }

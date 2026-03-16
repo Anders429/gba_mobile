@@ -1,20 +1,21 @@
-pub mod digit;
-
-mod into_digits;
-
-pub use digit::Digit;
-pub use into_digits::IntoDigits;
-
-use crate::phone_number::digit::Pair;
+use crate::{Digit, digit, digit::IntoDigits};
 use core::{
     fmt::{self, Debug, Display, Formatter},
     iter, slice,
 };
 
 #[derive(Clone, Default, Eq, PartialEq)]
-pub struct PhoneNumber([digit::Pair; 16]);
+pub struct PhoneNumber([digit::Pair; 8]);
 
 impl PhoneNumber {
+    pub const fn new() -> Self {
+        Self([digit::Pair::new(); 8])
+    }
+
+    pub(super) fn from_raw_bytes(bytes: [u8; 8]) -> Self {
+        Self(bytes.map(|byte| digit::Pair::from_raw(byte)))
+    }
+
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         for digit in self.into_iter() {
             write!(formatter, "{digit}")?;
@@ -41,15 +42,15 @@ impl FromIterator<Digit> for PhoneNumber {
         T: IntoIterator<Item = Digit>,
     {
         let mut iter = into_iter.into_iter();
-        let mut pairs: [digit::Pair; 16] = Default::default();
+        let mut pairs: [digit::Pair; 8] = Default::default();
 
-        // We can take up to a maximum of 32 digits, handled 2 at a time.
-        for i in 0..16 {
+        // We can take up to a maximum of 16 digits, handled 2 at a time.
+        for i in 0..8 {
             let first = iter.next();
             // Only get a second digit if the first digit was `Some`.
             let second = first.and_then(|_| iter.next());
 
-            pairs[i] = Pair::from_digits([first, second]);
+            pairs[i] = digit::Pair::from_digits([first, second]);
 
             if first.is_none() || second.is_none() {
                 // If either digit was `None`, we stop early.

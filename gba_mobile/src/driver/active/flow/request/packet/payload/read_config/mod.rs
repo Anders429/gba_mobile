@@ -2,7 +2,7 @@ pub(in crate::driver) mod data;
 pub(in crate::driver) mod error;
 
 use super::{Payload, command_error};
-use crate::driver::{Command, command};
+use crate::driver::Command;
 use core::num::NonZeroU16;
 use data::Data;
 use either::Either;

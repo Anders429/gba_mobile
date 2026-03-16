@@ -1,3 +1,4 @@
+pub mod config;
 pub mod connect;
 
 use crate::driver;

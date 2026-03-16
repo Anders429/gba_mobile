@@ -13,9 +13,9 @@ pub(in super::super) struct Idle {
 }
 
 impl Idle {
-    pub(super) fn new(transfer_length: TransferLength, timer: Timer) -> Self {
+    pub(super) fn new(transfer_length: TransferLength) -> Self {
         Self {
-            idle: request::Idle::new(transfer_length, timer),
+            idle: request::Idle::new(transfer_length),
         }
     }
 
@@ -40,5 +40,9 @@ impl Idle {
                 }
             })
             .map_err(Error::Idle)
+    }
+
+    pub(super) fn schedule_timer(&self, timer: Timer) {
+        self.idle.schedule_timer(timer);
     }
 }

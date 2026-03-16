@@ -135,16 +135,15 @@ impl Queue {
         self.next().and_then(|item| {
             match item {
                 Item::Start => Some(Flow::start(state.transfer_length)),
-                Item::End => Some(Flow::end(state.transfer_length, state.timer)),
-                Item::Reset => Some(Flow::reset(state.transfer_length, state.timer)),
+                Item::End => Some(Flow::end(state.transfer_length)),
+                Item::Reset => Some(Flow::reset(state.transfer_length)),
                 Item::Connect => match &state.phase {
                     Phase::Connecting(ConnectionRequest::Accept { .. }) => {
-                        Some(Flow::accept(state.transfer_length, state.timer))
+                        Some(Flow::accept(state.transfer_length))
                     }
                     Phase::Connecting(ConnectionRequest::Connect { phone_number }) => {
                         Some(Flow::connect(
                             state.transfer_length,
-                            state.timer,
                             state.adapter,
                             phone_number.clone(),
                             state.connection_generation,
@@ -157,7 +156,7 @@ impl Queue {
                     // would be pointless.
                     _ => None,
                 },
-                Item::Idle => Some(Flow::idle(state.transfer_length, state.timer)),
+                Item::Idle => Some(Flow::idle(state.transfer_length)),
                 _ => todo!(),
             }
         })

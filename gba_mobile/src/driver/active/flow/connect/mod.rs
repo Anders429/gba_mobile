@@ -8,9 +8,7 @@ use super::{
     super::{ConnectionFailure, ConnectionRequest, Phase},
     request::{Packet, packet::payload},
 };
-use crate::{
-    ArrayVec, Generation, Timer, driver::Adapter, mmio::serial::TransferLength, phone_number::Digit,
-};
+use crate::{ArrayVec, Digit, Generation, Timer, driver::Adapter, mmio::serial::TransferLength};
 use either::Either;
 
 #[derive(Debug)]
@@ -22,7 +20,6 @@ pub(in super::super) struct Connect {
 impl Connect {
     pub(super) fn new(
         transfer_length: TransferLength,
-        timer: Timer,
         adapter: Adapter,
         phone_number: ArrayVec<Digit, 32>,
         connection_generation: Generation,
@@ -31,7 +28,6 @@ impl Connect {
             packet: Packet::new(
                 payload::Connect::new(adapter, phone_number),
                 transfer_length,
-                timer,
             ),
             connection_generation,
         }
@@ -55,11 +51,10 @@ impl Connect {
         self,
         adapter: &mut Adapter,
         phase: &mut Phase,
-        timer: Timer,
         connection_generation: Generation,
     ) -> Result<Option<Self>, Error> {
         self.packet
-            .serial(timer)
+            .serial()
             .map(|response| match response {
                 Either::Left(packet) => Some(Self {
                     packet,
@@ -91,5 +86,9 @@ impl Connect {
                 }
             })
             .map_err(Error::Connect)
+    }
+
+    pub(super) fn schedule_timer(&self, timer: Timer) {
+        self.packet.schedule_timer(timer);
     }
 }

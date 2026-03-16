@@ -8,9 +8,10 @@
 #[cfg(test)]
 extern crate alloc;
 
+pub mod config;
+pub mod digit;
 pub mod link;
 pub mod p2p;
-pub mod phone_number;
 
 mod arrayvec;
 mod driver;
@@ -18,9 +19,10 @@ mod generation;
 mod mmio;
 mod timer;
 
+pub use config::Config;
+pub use digit::Digit;
 pub use driver::Adapter;
 pub use link::Link;
-pub use phone_number::PhoneNumber;
 pub use timer::Timer;
 
 use arrayvec::ArrayVec;

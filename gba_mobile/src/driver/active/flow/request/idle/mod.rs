@@ -18,11 +18,7 @@ pub(in crate::driver::active) struct Idle {
 }
 
 impl Idle {
-    pub(in crate::driver::active::flow) fn new(
-        transfer_length: TransferLength,
-        timer: Timer,
-    ) -> Self {
-        schedule_timer(timer, transfer_length);
+    pub(in crate::driver::active::flow) fn new(transfer_length: TransferLength) -> Self {
         Self {
             transfer_length,
             frame: 0,
@@ -67,5 +63,9 @@ impl Idle {
                 }
             }
         }
+    }
+
+    pub(in crate::driver::active::flow) fn schedule_timer(&self, timer: Timer) {
+        schedule_timer(timer, self.transfer_length);
     }
 }

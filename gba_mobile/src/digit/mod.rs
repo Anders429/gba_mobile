@@ -1,4 +1,7 @@
+mod into_digits;
 mod pair;
+
+pub use into_digits::IntoDigits;
 
 pub(crate) use pair::Pair;
 

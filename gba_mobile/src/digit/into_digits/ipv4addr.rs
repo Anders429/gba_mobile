@@ -1,5 +1,4 @@
-use super::IntoDigits;
-use crate::phone_number::Digit;
+use super::{Digit, IntoDigits};
 use core::{array, net::Ipv4Addr};
 use deranged::RangedU8;
 
@@ -53,7 +52,7 @@ impl Iterator for DigitsIter {
 
 #[cfg(test)]
 mod tests {
-    use crate::phone_number::{Digit, IntoDigits};
+    use crate::digit::{Digit, IntoDigits};
     use claims::{assert_none, assert_some_eq};
     use core::net::Ipv4Addr;
     use deranged::RangedU8;

@@ -2,9 +2,8 @@ pub(in crate::driver) mod error;
 
 use super::{Payload, command_error};
 use crate::{
-    ArrayVec,
+    ArrayVec, Digit,
     driver::{Adapter, Command, command},
-    phone_number::Digit,
 };
 use core::num::NonZeroU16;
 use either::Either;

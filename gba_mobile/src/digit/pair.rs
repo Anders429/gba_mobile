@@ -13,6 +13,15 @@ use deranged::RangedU8;
 pub(crate) struct Pair(u8);
 
 impl Pair {
+    pub(crate) const fn new() -> Self {
+        // Default to two empty digits.
+        Self(0xff)
+    }
+
+    pub(crate) fn from_raw(byte: u8) -> Self {
+        Self(byte)
+    }
+
     pub(crate) fn to_digits(self) -> [Option<Digit>; 2] {
         [self.0 & 0xf, (self.0 >> 4) & 0xf].map(|halfbyte| RangedU8::new(halfbyte).map(Digit::new))
     }
@@ -39,15 +48,14 @@ impl Debug for Pair {
 
 impl Default for Pair {
     fn default() -> Self {
-        // Default to two empty digits.
-        Self(0xff)
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Pair;
-    use crate::phone_number::Digit;
+    use crate::Digit;
     use alloc::format;
     use claims::assert_ok;
     use gba_test::test;

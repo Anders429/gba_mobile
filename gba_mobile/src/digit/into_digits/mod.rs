@@ -1,6 +1,6 @@
 pub mod ipv4addr;
 
-use crate::phone_number::Digit;
+use super::Digit;
 
 pub trait IntoDigits {
     type Digits: Iterator<Item = Digit>;

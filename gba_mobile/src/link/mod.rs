@@ -5,7 +5,7 @@ pub use error::Error;
 pub use pending::Pending;
 
 use crate::{
-    Adapter, ArrayVec, DRIVER, Generation, Timer, mmio::interrupt, p2p, phone_number::IntoDigits,
+    Adapter, ArrayVec, Config, DRIVER, Generation, Timer, digit::IntoDigits, mmio::interrupt, p2p,
 };
 
 #[derive(Debug)]
@@ -72,6 +72,20 @@ impl Link {
             let result = DRIVER.adapter(self.link_generation);
             interrupt::MASTER_ENABLE.write_volatile(prev_enable);
             result.map_err(Into::into)
+        }
+    }
+
+    pub fn config<Config>(&self) -> Result<Config, error::config::Error<Config::Error>>
+    where
+        Config: self::Config,
+    {
+        unsafe {
+            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
+            interrupt::MASTER_ENABLE.write_volatile(false);
+            let result = Config::read(DRIVER.config(self.link_generation)?)
+                .map_err(error::config::Error::config_error);
+            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
+            result
         }
     }
 }
