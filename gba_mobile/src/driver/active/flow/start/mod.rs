@@ -1,6 +1,8 @@
 mod error;
 mod timeout;
 
+use core::ptr;
+
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
@@ -21,6 +23,8 @@ pub(in super::super) enum Start {
     BeginSession(Packet<payload::BeginSession>),
     Sio32(Packet<payload::EnableSio32>),
     WaitForIdle(WaitForIdle),
+    ReadConfig1(Packet<payload::ReadConfig>),
+    ReadConfig2(Packet<payload::ReadConfig>),
 }
 
 impl Start {
@@ -43,6 +47,14 @@ impl Start {
                 .vblank()
                 .map(Self::WaitForIdle)
                 .map_err(Timeout::WaitForIdle),
+            Self::ReadConfig1(packet) => packet
+                .vblank()
+                .map(Self::ReadConfig1)
+                .map_err(Timeout::ReadConfig1),
+            Self::ReadConfig2(packet) => packet
+                .vblank()
+                .map(Self::ReadConfig2)
+                .map_err(Timeout::ReadConfig2),
         }
     }
 
@@ -52,6 +64,8 @@ impl Start {
             Self::BeginSession(packet) => packet.timer(),
             Self::Sio32(packet) => packet.timer(),
             Self::WaitForIdle(_) => {}
+            Self::ReadConfig1(packet) => packet.timer(),
+            Self::ReadConfig2(packet) => packet.timer(),
         }
     }
 
@@ -61,6 +75,7 @@ impl Start {
         transfer_length: &mut TransferLength,
         timer: Timer,
         phase: &mut Phase,
+        config: &mut [u8; 256],
     ) -> Result<Either<Self, Response>, Error> {
         match self {
             Self::Wake(wait_for_idle) => Ok(Either::Left(wait_for_idle.serial().map_or_else(
@@ -111,16 +126,60 @@ impl Start {
                     }
                 })
                 .map_err(Error::Sio32),
-            Self::WaitForIdle(wait_for_idle) => Ok(wait_for_idle.serial().map_or_else(
-                || {
-                    *phase = Phase::Linked {
-                        frame: 0,
-                        connection_failure: None,
-                    };
-                    Either::Right(Response::Success)
-                },
-                |wait_for_idle| Either::Left(Self::WaitForIdle(wait_for_idle)),
-            )),
+            Self::WaitForIdle(wait_for_idle) => {
+                Ok(Either::Left(wait_for_idle.serial().map_or_else(
+                    || {
+                        Self::ReadConfig1(Packet::new(
+                            payload::ReadConfig::FirstHalf,
+                            *transfer_length,
+                            timer,
+                        ))
+                    },
+                    Self::WaitForIdle,
+                )))
+            }
+            Self::ReadConfig1(packet) => packet
+                .serial(timer)
+                .map(|response| match response {
+                    Either::Left(packet) => Either::Left(Self::ReadConfig1(packet)),
+                    Either::Right(response) => {
+                        *adapter = response.adapter;
+                        unsafe {
+                            ptr::copy_nonoverlapping(
+                                response.payload.data().as_ptr(),
+                                config.as_mut_ptr(),
+                                128,
+                            );
+                        }
+                        Either::Left(Self::ReadConfig2(Packet::new(
+                            payload::ReadConfig::SecondHalf,
+                            *transfer_length,
+                            timer,
+                        )))
+                    }
+                })
+                .map_err(Error::ReadConfig1),
+            Self::ReadConfig2(packet) => packet
+                .serial(timer)
+                .map(|response| match response {
+                    Either::Left(packet) => Either::Left(Self::ReadConfig2(packet)),
+                    Either::Right(response) => {
+                        *adapter = response.adapter;
+                        unsafe {
+                            ptr::copy_nonoverlapping(
+                                response.payload.data().as_ptr(),
+                                config.as_mut_ptr().add(128),
+                                128,
+                            );
+                        }
+                        *phase = Phase::Linked {
+                            frame: 0,
+                            connection_failure: None,
+                        };
+                        Either::Right(Response::Success)
+                    }
+                })
+                .map_err(Error::ReadConfig2),
         }
     }
 }

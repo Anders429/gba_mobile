@@ -3,6 +3,7 @@ pub(in crate::driver::active::flow) mod begin_session;
 pub(in crate::driver::active::flow) mod connect;
 pub(in crate::driver::active::flow) mod enable_sio32;
 pub(in crate::driver::active::flow) mod end_session;
+pub(in crate::driver::active::flow) mod read_config;
 pub(in crate::driver::active::flow) mod reset;
 
 mod command_error;
@@ -15,6 +16,7 @@ pub(in crate::driver::active::flow) use begin_session::BeginSession;
 pub(in crate::driver::active::flow) use connect::Connect;
 pub(in crate::driver::active::flow) use enable_sio32::EnableSio32;
 pub(in crate::driver::active::flow) use end_session::EndSession;
+pub(in crate::driver::active::flow) use read_config::ReadConfig;
 pub(in crate::driver::active::flow) use reset::Reset;
 
 use crate::driver::Command;

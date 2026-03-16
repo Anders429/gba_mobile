@@ -46,49 +46,49 @@ impl Data {
                     byte,
                     index: RangedU8::new_static::<0>(),
                 },
-                Some(0),
+                Some(1),
             )),
             (Self::Byte1, _) => Err((
                 Error {
                     byte,
                     index: RangedU8::new_static::<1>(),
                 },
-                Some(1),
+                Some(2),
             )),
             (Self::Byte2, _) => Err((
                 Error {
                     byte,
                     index: RangedU8::new_static::<2>(),
                 },
-                Some(2),
+                Some(3),
             )),
             (Self::Byte3, _) => Err((
                 Error {
                     byte,
                     index: RangedU8::new_static::<3>(),
                 },
-                Some(3),
+                Some(4),
             )),
             (Self::Byte4, _) => Err((
                 Error {
                     byte,
                     index: RangedU8::new_static::<4>(),
                 },
-                Some(4),
+                Some(5),
             )),
             (Self::Byte5, _) => Err((
                 Error {
                     byte,
                     index: RangedU8::new_static::<5>(),
                 },
-                Some(5),
+                Some(6),
             )),
             (Self::Byte6, _) => Err((
                 Error {
                     byte,
                     index: RangedU8::new_static::<6>(),
                 },
-                Some(6),
+                Some(7),
             )),
             (Self::Byte7, _) => Err((
                 Error {

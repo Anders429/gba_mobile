@@ -1,6 +1,8 @@
 mod error;
 mod timeout;
 
+use core::ptr;
+
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
@@ -21,6 +23,8 @@ pub(in super::super) enum Reset {
     WaitForSio8(WaitForIdle),
     EnableSio32(Packet<payload::EnableSio32>),
     WaitForSio32(WaitForIdle),
+    ReadConfig1(Packet<payload::ReadConfig>),
+    ReadConfig2(Packet<payload::ReadConfig>),
 }
 
 impl Reset {
@@ -43,6 +47,14 @@ impl Reset {
                 .vblank()
                 .map(Self::WaitForSio32)
                 .map_err(Timeout::WaitForSio32),
+            Self::ReadConfig1(packet) => packet
+                .vblank()
+                .map(Self::ReadConfig1)
+                .map_err(Timeout::ReadConfig1),
+            Self::ReadConfig2(packet) => packet
+                .vblank()
+                .map(Self::ReadConfig2)
+                .map_err(Timeout::ReadConfig2),
         }
     }
 
@@ -52,6 +64,8 @@ impl Reset {
             Self::WaitForSio8(_) => {}
             Self::EnableSio32(packet) => packet.timer(),
             Self::WaitForSio32(_) => {}
+            Self::ReadConfig1(packet) => packet.timer(),
+            Self::ReadConfig2(packet) => packet.timer(),
         }
     }
 
@@ -61,6 +75,7 @@ impl Reset {
         transfer_length: &mut TransferLength,
         timer: Timer,
         phase: &mut Phase,
+        config: &mut [u8; 256],
     ) -> Result<Option<Self>, Error> {
         match self {
             Self::Reset(packet) => packet
@@ -106,16 +121,58 @@ impl Reset {
                     }
                 })
                 .map_err(Error::EnableSio32),
-            Self::WaitForSio32(wait_for_idle) => Ok(wait_for_idle.serial().map_or_else(
+            Self::WaitForSio32(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
                 || {
-                    *phase = Phase::Linked {
-                        frame: 0,
-                        connection_failure: None,
-                    };
-                    None
+                    Self::ReadConfig1(Packet::new(
+                        payload::ReadConfig::FirstHalf,
+                        *transfer_length,
+                        timer,
+                    ))
                 },
-                |wait_for_idle| Some(Self::WaitForSio32(wait_for_idle)),
-            )),
+                Self::WaitForSio32,
+            ))),
+            Self::ReadConfig1(packet) => packet
+                .serial(timer)
+                .map(|response| match response {
+                    Either::Left(packet) => Some(Self::ReadConfig1(packet)),
+                    Either::Right(response) => {
+                        *adapter = response.adapter;
+                        unsafe {
+                            ptr::copy_nonoverlapping(
+                                response.payload.data().as_ptr(),
+                                config.as_mut_ptr(),
+                                128,
+                            );
+                        }
+                        Some(Self::ReadConfig2(Packet::new(
+                            payload::ReadConfig::SecondHalf,
+                            *transfer_length,
+                            timer,
+                        )))
+                    }
+                })
+                .map_err(Error::ReadConfig1),
+            Self::ReadConfig2(packet) => packet
+                .serial(timer)
+                .map(|response| match response {
+                    Either::Left(packet) => Some(Self::ReadConfig2(packet)),
+                    Either::Right(response) => {
+                        *adapter = response.adapter;
+                        unsafe {
+                            ptr::copy_nonoverlapping(
+                                response.payload.data().as_ptr(),
+                                config.as_mut_ptr().add(128),
+                                128,
+                            );
+                        }
+                        *phase = Phase::Linked {
+                            frame: 0,
+                            connection_failure: None,
+                        };
+                        None
+                    }
+                })
+                .map_err(Error::ReadConfig2),
         }
     }
 }

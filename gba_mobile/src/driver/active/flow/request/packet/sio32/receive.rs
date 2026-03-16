@@ -84,6 +84,15 @@ where
     }
 }
 
+/// Align a u16 up to the nearest multiple of 4, offset by 2.
+///
+/// This alignment ensures that indexes passed to `ReceiveError` continue to read aligned.
+fn align_index(val: u16) -> Option<u16> {
+    val.saturating_sub(2)
+        .checked_add(3)
+        .map(|val| (val & !3) + 2)
+}
+
 impl<Payload> super::super::Receive<Payload> for Receive<Payload>
 where
     Payload: self::Payload,
@@ -154,7 +163,13 @@ where
                                         ))),
                                         Err((error, payload, Some((length, index)))) => {
                                             Ok(Either::Left(Err(ReceiveError::new(
-                                                receive_error::Step::Data { index, length },
+                                                if let Some(index) = align_index(index)
+                                                    && index < length.get()
+                                                {
+                                                    receive_error::Step::Data { index, length }
+                                                } else {
+                                                    receive_error::Step::Checksum
+                                                },
                                                 payload,
                                                 error::Receive::Payload(
                                                     payload::Error::ReceiveData(error),
@@ -180,7 +195,13 @@ where
                                 )))),
                                 Err((error, payload, Some((length, index)))) => {
                                     Ok(Either::Left(Err(ReceiveError::new(
-                                        receive_error::Step::Data { index, length },
+                                        if let Some(index) = align_index(index)
+                                            && index < length.get()
+                                        {
+                                            receive_error::Step::Data { index, length }
+                                        } else {
+                                            receive_error::Step::Checksum
+                                        },
                                         payload,
                                         error::Receive::Payload(payload::Error::ReceiveData(error)),
                                         self.state.attempt,
@@ -277,7 +298,13 @@ where
                                         ))),
                                         Err((error, payload, Some((length, index)))) => {
                                             Ok(Either::Left(Err(ReceiveError::new(
-                                                receive_error::Step::Data { index, length },
+                                                if let Some(index) = align_index(index)
+                                                    && index < length.get()
+                                                {
+                                                    receive_error::Step::Data { index, length }
+                                                } else {
+                                                    receive_error::Step::Checksum
+                                                },
                                                 payload,
                                                 error::Receive::Payload(
                                                     payload::Error::ReceiveData(error),
@@ -303,7 +330,13 @@ where
                                 )))),
                                 Err((error, payload, Some((length, index)))) => {
                                     Ok(Either::Left(Err(ReceiveError::new(
-                                        receive_error::Step::Data { index, length },
+                                        if let Some(index) = align_index(index)
+                                            && index < length.get()
+                                        {
+                                            receive_error::Step::Data { index, length }
+                                        } else {
+                                            receive_error::Step::Checksum
+                                        },
                                         payload,
                                         error::Receive::Payload(payload::Error::ReceiveData(error)),
                                         self.state.attempt,
@@ -341,7 +374,13 @@ where
                         }
                         Err((error, payload, Some((length, index)))) => {
                             Ok(Either::Left(Err(ReceiveError::new(
-                                receive_error::Step::Data { index, length },
+                                if let Some(index) = align_index(index)
+                                    && index < length.get()
+                                {
+                                    receive_error::Step::Data { index, length }
+                                } else {
+                                    receive_error::Step::Checksum
+                                },
                                 payload,
                                 error::Receive::Payload(payload::Error::ReceiveData(error)),
                                 self.state.attempt,
@@ -376,7 +415,13 @@ where
                     }
                     Err((error, payload, Some((length, index)))) => {
                         Ok(Either::Left(Err(ReceiveError::new(
-                            receive_error::Step::Data { index, length },
+                            if let Some(index) = align_index(index)
+                                && index < length.get()
+                            {
+                                receive_error::Step::Data { index, length }
+                            } else {
+                                receive_error::Step::Checksum
+                            },
                             payload,
                             error::Receive::Payload(payload::Error::ReceiveData(error)),
                             self.state.attempt,

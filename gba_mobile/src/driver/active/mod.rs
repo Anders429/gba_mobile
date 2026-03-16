@@ -71,6 +71,7 @@ struct State {
     timer: Timer,
 
     phase: Phase,
+    config: [u8; 256],
 
     frame: u8,
 }
@@ -86,6 +87,7 @@ impl State {
             timer,
 
             phase: Phase::Linking,
+            config: [0; 256],
 
             frame: 0,
         }

@@ -109,6 +109,7 @@ impl Flow {
                     &mut state.transfer_length,
                     state.timer,
                     &mut state.phase,
+                    &mut state.config,
                 )
                 .map(|response| match response {
                     Either::Left(start) => Either::Left(Self::Start(start)),
@@ -145,6 +146,7 @@ impl Flow {
                     &mut state.transfer_length,
                     state.timer,
                     &mut state.phase,
+                    &mut state.config,
                 )
                 .map(|flow| {
                     flow.map_or_else(
