@@ -117,5 +117,89 @@ impl super::Config for Config {
         })
     }
 
-    fn write(&self, bytes: &mut [u8; 256]) {}
+    fn write(&self, bytes: &mut [u8; 256]) {
+        // Header.
+        bytes[0] = b'M';
+        bytes[1] = b'A';
+
+        // Registration.
+        bytes[2] = self.registration as u8;
+
+        // DNS.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                self.primary_dns.octets().as_ptr(),
+                bytes.as_mut_ptr().add(4),
+                4,
+            );
+            ptr::copy_nonoverlapping(
+                self.secondary_dns.octets().as_ptr(),
+                bytes.as_mut_ptr().add(8),
+                4,
+            );
+        }
+
+        // User data.
+        unsafe {
+            ptr::copy_nonoverlapping(self.login_id.as_ptr(), bytes.as_mut_ptr().add(12), 10);
+            ptr::copy_nonoverlapping(self.email.as_ptr(), bytes.as_mut_ptr().add(44), 24);
+        }
+
+        // Servers.
+        unsafe {
+            ptr::copy_nonoverlapping(self.smtp_server.as_ptr(), bytes.as_mut_ptr().add(74), 20);
+            ptr::copy_nonoverlapping(self.pop_server.as_ptr(), bytes.as_mut_ptr().add(94), 19);
+        }
+
+        // Configuration slots.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                self.configuration_slots[0]
+                    .phone_number
+                    .as_raw_bytes()
+                    .as_ptr(),
+                bytes.as_mut_ptr().add(118),
+                8,
+            );
+            ptr::copy_nonoverlapping(
+                self.configuration_slots[0].id.as_ptr(),
+                bytes.as_mut_ptr().add(126),
+                16,
+            );
+            ptr::copy_nonoverlapping(
+                self.configuration_slots[1]
+                    .phone_number
+                    .as_raw_bytes()
+                    .as_ptr(),
+                bytes.as_mut_ptr().add(142),
+                8,
+            );
+            ptr::copy_nonoverlapping(
+                self.configuration_slots[1].id.as_ptr(),
+                bytes.as_mut_ptr().add(150),
+                16,
+            );
+            ptr::copy_nonoverlapping(
+                self.configuration_slots[2]
+                    .phone_number
+                    .as_raw_bytes()
+                    .as_ptr(),
+                bytes.as_mut_ptr().add(166),
+                8,
+            );
+            ptr::copy_nonoverlapping(
+                self.configuration_slots[2].id.as_ptr(),
+                bytes.as_mut_ptr().add(174),
+                16,
+            );
+        }
+
+        // Checksum.
+        let checksum = bytes[..190]
+            .iter()
+            .copied()
+            .fold(0u16, |sum, byte| sum.wrapping_add(byte as u16));
+        bytes[190] = (checksum >> 8) as u8;
+        bytes[191] = checksum as u8;
+    }
 }

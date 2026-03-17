@@ -10,6 +10,7 @@ use deranged::RangedU8;
 /// These are packed optional `Digit`s, stored two to a byte. If a halfbyte does not represent a
 /// valid digit, it is considered to represent no digit.
 #[derive(Clone, Copy, Eq, PartialEq)]
+#[repr(transparent)]
 pub(crate) struct Pair(u8);
 
 impl Pair {

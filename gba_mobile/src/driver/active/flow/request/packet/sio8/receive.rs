@@ -4,12 +4,13 @@ use super::{
     super::{
         Payload, Response, Timeout, communication, error, payload,
         payload::{ReceiveCommand, ReceiveData, ReceiveLength, ReceiveParsed},
+        schedule_serial,
     },
     ReceiveError, receive_error,
 };
 use crate::{
     driver::{Adapter, Command, frames},
-    mmio::serial::SIODATA8,
+    mmio::serial::{SIODATA8, TransferLength},
 };
 use either::Either;
 
@@ -144,8 +145,9 @@ where
                 }
                 _ => 0x4b,
             };
-            unsafe { SIODATA8.write_volatile(byte) };
             self.state.communication_state = communication::State::Receive;
+            unsafe { SIODATA8.write_volatile(byte) };
+            schedule_serial(TransferLength::_8Bit);
         }
     }
 

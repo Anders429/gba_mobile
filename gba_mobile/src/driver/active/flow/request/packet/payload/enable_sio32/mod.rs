@@ -1,7 +1,7 @@
 pub(in crate::driver) mod error;
 
 use super::{Payload, command_error};
-use crate::driver::Command;
+use crate::{driver::Command, mmio::serial::TransferLength};
 use either::Either;
 
 #[derive(Debug)]
@@ -71,14 +71,18 @@ impl super::ReceiveLength for ReceiveLength {
         match self {
             Self::EnableSio32 => {
                 if length == 0 {
-                    Ok(Either::Right(ReceiveParsed::EnableSio32))
+                    Ok(Either::Right(ReceiveParsed {
+                        transfer_length: TransferLength::_32Bit,
+                    }))
                 } else {
                     Err((error::InvalidLength::EnableSio32(length), EnableSio32))
                 }
             }
             Self::DisableSio32 => {
                 if length == 0 {
-                    Ok(Either::Right(ReceiveParsed::DisableSio32))
+                    Ok(Either::Right(ReceiveParsed {
+                        transfer_length: TransferLength::_8Bit,
+                    }))
                 } else {
                     Err((error::InvalidLength::DisableSio32(length), EnableSio32))
                 }
@@ -134,18 +138,17 @@ impl super::ReceiveData for ReceiveData {
 }
 
 #[derive(Debug)]
-pub(in crate::driver) enum ReceiveParsed {
-    EnableSio32,
-    DisableSio32,
+pub(in crate::driver) struct ReceiveParsed {
+    pub(in crate::driver::active::flow) transfer_length: TransferLength,
 }
 
 impl super::ReceiveParsed for ReceiveParsed {
     type ReceiveCommand = EnableSio32;
 
     fn command(&self) -> Command {
-        match self {
-            Self::EnableSio32 => Command::Sio32Mode,
-            Self::DisableSio32 => Command::Reset,
+        match self.transfer_length {
+            TransferLength::_32Bit => Command::Sio32Mode,
+            TransferLength::_8Bit => Command::Reset,
         }
     }
 

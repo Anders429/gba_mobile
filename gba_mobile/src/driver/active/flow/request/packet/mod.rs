@@ -111,19 +111,10 @@ where
 
     fn timer(&mut self) {
         match self {
-            Self::Send(send) => {
-                send.timer();
-                schedule_serial(Sio::TRANSFER_LENGTH);
-            }
+            Self::Send(send) => send.timer(),
             Self::WaitForReceive(_) => {}
-            Self::Receive(receive) => {
-                receive.timer();
-                schedule_serial(Sio::TRANSFER_LENGTH);
-            }
-            Self::ReceiveError(receive_error) => {
-                receive_error.timer();
-                schedule_serial(Sio::TRANSFER_LENGTH);
-            }
+            Self::Receive(receive) => receive.timer(),
+            Self::ReceiveError(receive_error) => receive_error.timer(),
         }
     }
 
@@ -162,6 +153,8 @@ where
         }
         .map(|response| {
             response.map_left(|state| {
+                // No matter whether we actually received data here, we still want to make sure the
+                // timer is running.
                 state.schedule_timer(timer);
                 state
             })

@@ -1,6 +1,6 @@
 use super::PhoneNumber;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Slot {
     pub phone_number: PhoneNumber,
     pub id: [u8; 16],

@@ -3,7 +3,8 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
 pub enum Registration {
     Incomplete = 0x01,
     Complete = 0x81,

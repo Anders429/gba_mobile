@@ -1,10 +1,12 @@
 use super::{
-    super::{MAX_RETRIES, Payload, Timeout, communication, error, payload::Send as _},
+    super::{
+        MAX_RETRIES, Payload, Timeout, communication, error, payload::Send as _, schedule_serial,
+    },
     WaitForReceive,
 };
 use crate::{
     driver::{Command, frames},
-    mmio::serial::SIODATA8,
+    mmio::serial::{SIODATA8, TransferLength},
 };
 use either::Either;
 
@@ -123,9 +125,9 @@ where
                 Step::FooterCommand => 0x00,
             };
 
-            unsafe { SIODATA8.write_volatile(byte) };
-
             self.communication_state = communication::State::Receive;
+            unsafe { SIODATA8.write_volatile(byte) };
+            schedule_serial(TransferLength::_8Bit);
         }
     }
 

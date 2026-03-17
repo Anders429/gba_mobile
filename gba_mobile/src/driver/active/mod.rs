@@ -6,7 +6,7 @@ pub(in crate::driver) use flow::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
-    ArrayVec, Digit, Generation, Timer,
+    ArrayVec, Config, Digit, Generation, Timer,
     driver::{Adapter, frames},
     mmio::serial::TransferLength,
 };
@@ -192,10 +192,18 @@ impl Active {
         &self.state.config
     }
 
+    pub(crate) fn write_config<Config>(&mut self, config: Config)
+    where
+        Config: self::Config,
+    {
+        config.write(&mut self.state.config);
+        self.queue.set_write_config();
+    }
+
     pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
         match &mut self.state.phase {
             Phase::Linked { frame, .. } => {
-                if *frame >= frames::ONE_SECOND {
+                if *frame == frames::ONE_SECOND {
                     // Schedule a new idle pulse once per second.
                     //
                     // This ensures the link stays alive, despite us not sending any packet

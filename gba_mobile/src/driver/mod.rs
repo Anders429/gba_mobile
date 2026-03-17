@@ -9,7 +9,7 @@ mod timers;
 pub use adapter::Adapter;
 
 use crate::{
-    ArrayVec, Digit, Generation, Timer,
+    ArrayVec, Config, Digit, Generation, Timer,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -216,6 +216,25 @@ impl Driver {
         match &self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => Ok(active.config()),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn write_config<Config>(
+        &mut self,
+        link_generation: Generation,
+        config: Config,
+    ) -> Result<(), error::link::Error>
+    where
+        Config: self::Config,
+    {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => Ok(active.write_config(config)),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }

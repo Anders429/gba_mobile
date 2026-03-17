@@ -1,10 +1,10 @@
 use super::{
-    super::{MAX_RETRIES, Payload, Timeout, communication, error},
+    super::{MAX_RETRIES, Payload, Timeout, communication, error, schedule_serial},
     WaitForReceive,
 };
 use crate::{
     driver::{Command, frames},
-    mmio::serial::SIODATA32,
+    mmio::serial::{SIODATA32, TransferLength},
 };
 use core::num::NonZeroU16;
 use either::Either;
@@ -119,8 +119,10 @@ where
                 }
                 _ => 0x4b_4b_4b_4b,
             };
-            unsafe { SIODATA32.write_volatile(bytes) };
+
             self.state.communication_state = communication::State::Receive;
+            unsafe { SIODATA32.write_volatile(bytes) };
+            schedule_serial(TransferLength::_32Bit);
         }
     }
 

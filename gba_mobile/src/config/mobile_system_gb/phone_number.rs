@@ -1,7 +1,9 @@
 use crate::{Digit, digit, digit::IntoDigits};
 use core::{
     fmt::{self, Debug, Display, Formatter},
-    iter, slice,
+    iter,
+    mem::transmute,
+    slice,
 };
 
 #[derive(Clone, Default, Eq, PartialEq)]
@@ -14,6 +16,10 @@ impl PhoneNumber {
 
     pub(super) fn from_raw_bytes(bytes: [u8; 8]) -> Self {
         Self(bytes.map(|byte| digit::Pair::from_raw(byte)))
+    }
+
+    pub(super) fn as_raw_bytes(&self) -> &[u8; 8] {
+        unsafe { transmute(&self.0) }
     }
 
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {

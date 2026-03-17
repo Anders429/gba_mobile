@@ -53,12 +53,16 @@ impl Link {
         unsafe {
             let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
             interrupt::MASTER_ENABLE.write_volatile(false);
-            let connection_generation = DRIVER.connect(
-                self.link_generation,
-                ArrayVec::try_from_iter(phone_number.into_digits())?,
-            )?;
+            let result = ArrayVec::try_from_iter(phone_number.into_digits())
+                .map_err(Into::into)
+                .and_then(|digits| {
+                    DRIVER
+                        .connect(self.link_generation, digits)
+                        .map_err(Into::into)
+                });
             interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-            Ok(p2p::Pending {
+
+            result.map(|connection_generation| p2p::Pending {
                 link_generation: self.link_generation,
                 connection_generation,
             })
@@ -82,8 +86,25 @@ impl Link {
         unsafe {
             let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
             interrupt::MASTER_ENABLE.write_volatile(false);
-            let result = Config::read(DRIVER.config(self.link_generation)?)
-                .map_err(error::config::Error::config_error);
+            let result = DRIVER
+                .config(self.link_generation)
+                .map_err(Into::into)
+                .and_then(|bytes| Config::read(bytes).map_err(error::config::Error::config_error));
+            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
+            result
+        }
+    }
+
+    pub fn write_config<Config>(&self, config: Config) -> Result<(), Error>
+    where
+        Config: self::Config,
+    {
+        unsafe {
+            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
+            interrupt::MASTER_ENABLE.write_volatile(false);
+            let result = DRIVER
+                .write_config(self.link_generation, config)
+                .map_err(Into::into);
             interrupt::MASTER_ENABLE.write_volatile(prev_enable);
             result
         }

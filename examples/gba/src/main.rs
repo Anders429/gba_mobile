@@ -7,7 +7,7 @@
 use core::net::Ipv4Addr;
 
 use gba::prelude::*;
-use gba_mobile::Timer;
+use gba_mobile::{Timer, config::mobile_system_gb};
 
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
@@ -23,11 +23,11 @@ extern "C" fn irq_handler(bits: IrqBits) {
     if bits.vblank() {
         gba_mobile::vblank();
     }
-    if bits.serial() {
-        gba_mobile::serial();
-    }
     if bits.timer0() {
         gba_mobile::timer();
+    }
+    if bits.serial() {
+        gba_mobile::serial();
     }
 }
 
@@ -67,8 +67,23 @@ pub fn main() {
             "connected to {} adapter",
             link.adapter().expect("unable to check adapter")
         );
-        let config = link.config::<gba_mobile::config::mobile_system_gb::Config>();
+
+        let write_config = mobile_system_gb::Config {
+            registration: mobile_system_gb::Registration::Complete,
+            primary_dns: Ipv4Addr::LOCALHOST,
+            secondary_dns: Ipv4Addr::UNSPECIFIED,
+            login_id: *b"test id   ",
+            email: *b"fake_email@test.com     ",
+            smtp_server: *b"abcdefghijklmnopqrst",
+            pop_server: [0; 19],
+            configuration_slots: Default::default(),
+        };
+        link.write_config(write_config)
+            .expect("couldn't write config");
+
+        let config = link.config::<mobile_system_gb::Config>();
         log::info!("attempted to parse Mobile System GB config: {config:?}");
+
         let pending_p2p = loop {
             let keys = gba::mmio::KEYINPUT.read();
             if keys.a() {

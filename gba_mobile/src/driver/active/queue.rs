@@ -157,6 +157,11 @@ impl Queue {
                     // would be pointless.
                     _ => None,
                 },
+                Item::WriteConfig => Some(Flow::write_config(
+                    state.transfer_length,
+                    state.timer,
+                    &state.config,
+                )),
                 Item::Idle => Some(Flow::idle(state.transfer_length, state.timer)),
                 _ => todo!(),
             }
@@ -248,6 +253,7 @@ impl Iterator for Queue {
             self.clear_socket_2_transfer_data();
             Some(Item::Socket2Read)
         } else if self.has(Queue::WRITE_CONFIG) {
+            log::info!("Triggering config write");
             self.clear(Queue::WRITE_CONFIG);
             Some(Item::WriteConfig)
         } else if self.has(Queue::START | Queue::END) {

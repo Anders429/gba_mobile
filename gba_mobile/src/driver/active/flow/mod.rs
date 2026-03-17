@@ -7,6 +7,7 @@ mod request;
 mod reset;
 mod start;
 mod timeout;
+mod write_config;
 
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
@@ -20,6 +21,7 @@ use end::End;
 use idle::Idle;
 use reset::Reset;
 use start::Start;
+use write_config::WriteConfig;
 
 #[derive(Debug)]
 pub(super) enum Flow {
@@ -29,6 +31,8 @@ pub(super) enum Flow {
 
     Accept(Accept),
     Connect(Connect),
+
+    WriteConfig(WriteConfig),
 
     Idle(Idle),
 }
@@ -66,6 +70,14 @@ impl Flow {
         ))
     }
 
+    pub(super) fn write_config(
+        transfer_length: TransferLength,
+        timer: Timer,
+        config: &[u8; 256],
+    ) -> Self {
+        Self::WriteConfig(WriteConfig::new(transfer_length, timer, config))
+    }
+
     pub(super) fn idle(transfer_length: TransferLength, timer: Timer) -> Self {
         Self::Idle(Idle::new(transfer_length, timer))
     }
@@ -80,6 +92,10 @@ impl Flow {
                 .vblank()
                 .map(Self::Connect)
                 .map_err(Timeout::Connect),
+            Self::WriteConfig(write_config) => write_config
+                .vblank()
+                .map(Self::WriteConfig)
+                .map_err(Timeout::WriteConfig),
             Self::Idle(idle) => idle.vblank().map(Self::Idle).map_err(Timeout::Idle),
         }
     }
@@ -91,6 +107,7 @@ impl Flow {
             Self::Reset(reset) => reset.timer(),
             Self::Accept(accept) => accept.timer(),
             Self::Connect(connect) => connect.timer(),
+            Self::WriteConfig(write_config) => write_config.timer(),
             Self::Idle(idle) => idle.timer(),
         }
     }
@@ -176,6 +193,15 @@ impl Flow {
                     )
                 })
                 .map_err(Error::Connect),
+            Self::WriteConfig(write_config) => write_config
+                .serial(state.timer, &mut state.adapter, state.transfer_length)
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::WriteConfig(flow)),
+                    )
+                })
+                .map_err(Error::WriteConfig),
             Self::Idle(idle) => idle
                 .serial(state.timer, &mut state.phase)
                 .map(|_| Either::Right(StateChange::StillActive))

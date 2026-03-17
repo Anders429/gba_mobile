@@ -2,12 +2,13 @@ use super::{
     super::{
         Payload, Response, Timeout, communication, error, payload,
         payload::{ReceiveData, ReceiveLength, ReceiveParsed},
+        schedule_serial,
     },
     ReceiveError, receive_error,
 };
 use crate::{
     driver::{Adapter, frames},
-    mmio::serial::SIODATA32,
+    mmio::serial::{SIODATA32, TransferLength},
 };
 use core::num::{NonZeroU8, NonZeroU16};
 use either::Either;
@@ -124,8 +125,10 @@ where
                 }
                 _ => 0x4b_4b_4b_4b,
             };
-            unsafe { SIODATA32.write_volatile(bytes) };
+
             self.state.communication_state = communication::State::Receive;
+            unsafe { SIODATA32.write_volatile(bytes) };
+            schedule_serial(TransferLength::_32Bit);
         }
     }
 

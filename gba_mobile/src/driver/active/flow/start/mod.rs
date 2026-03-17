@@ -1,8 +1,6 @@
 mod error;
 mod timeout;
 
-use core::ptr;
-
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
@@ -15,6 +13,7 @@ use crate::{
     driver::Adapter,
     mmio::serial::{SIOCNT, TransferLength},
 };
+use core::ptr;
 use either::Either;
 
 #[derive(Debug)]
@@ -109,14 +108,7 @@ impl Start {
                     Either::Left(packet) => Either::Left(Self::Sio32(packet)),
                     Either::Right(response) => {
                         *adapter = response.adapter;
-                        match response.payload {
-                            payload::enable_sio32::ReceiveParsed::EnableSio32 => {
-                                *transfer_length = TransferLength::_32Bit
-                            }
-                            payload::enable_sio32::ReceiveParsed::DisableSio32 => {
-                                *transfer_length = TransferLength::_8Bit
-                            }
-                        };
+                        *transfer_length = response.payload.transfer_length;
                         unsafe {
                             SIOCNT.write_volatile(
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),
