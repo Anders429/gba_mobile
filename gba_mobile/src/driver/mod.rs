@@ -6,6 +6,8 @@ mod command;
 mod frames;
 mod timers;
 
+use core::net::Ipv4Addr;
+
 pub use adapter::Adapter;
 
 use crate::{
@@ -166,8 +168,26 @@ impl Driver {
         }
     }
 
-    pub(crate) fn login(&mut self) {
-        todo!()
+    pub(crate) fn login(
+        &mut self,
+        link_generation: Generation,
+        phone_number: ArrayVec<Digit, 32>,
+        id: ArrayVec<u8, 32>,
+        password: ArrayVec<u8, 32>,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+    ) -> Result<Generation, error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => {
+                Ok(active.login(phone_number, id, password, primary_dns, secondary_dns))
+            }
+            State::Error(error) => Err(error.clone().into()),
+        }
     }
 
     pub(crate) fn connection_status(

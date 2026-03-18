@@ -3,12 +3,15 @@ mod connect;
 mod end;
 mod error;
 mod idle;
+mod login;
 mod request;
 mod reset;
 mod start;
 mod status;
 mod timeout;
 mod write_config;
+
+use core::net::Ipv4Addr;
 
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
@@ -20,6 +23,7 @@ use connect::Connect;
 use either::Either;
 use end::End;
 use idle::Idle;
+use login::Login;
 use reset::Reset;
 use start::Start;
 use status::Status;
@@ -33,6 +37,7 @@ pub(super) enum Flow {
 
     Accept(Accept),
     Connect(Connect),
+    Login(Login),
 
     WriteConfig(WriteConfig),
 
@@ -73,6 +78,30 @@ impl Flow {
         ))
     }
 
+    pub(super) fn login(
+        transfer_length: TransferLength,
+        timer: Timer,
+        adapter: Adapter,
+        phone_number: ArrayVec<Digit, 32>,
+        id: ArrayVec<u8, 32>,
+        password: ArrayVec<u8, 32>,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+        connection_generation: Generation,
+    ) -> Self {
+        Self::Login(Login::new(
+            transfer_length,
+            timer,
+            adapter,
+            phone_number,
+            id,
+            password,
+            primary_dns,
+            secondary_dns,
+            connection_generation,
+        ))
+    }
+
     pub(super) fn write_config(
         transfer_length: TransferLength,
         timer: Timer,
@@ -99,6 +128,7 @@ impl Flow {
                 .vblank()
                 .map(Self::Connect)
                 .map_err(Timeout::Connect),
+            Self::Login(login) => login.vblank().map(Self::Login).map_err(Timeout::Login),
             Self::WriteConfig(write_config) => write_config
                 .vblank()
                 .map(Self::WriteConfig)
@@ -115,6 +145,7 @@ impl Flow {
             Self::Reset(reset) => reset.timer(),
             Self::Accept(accept) => accept.timer(),
             Self::Connect(connect) => connect.timer(),
+            Self::Login(login) => login.timer(),
             Self::WriteConfig(write_config) => write_config.timer(),
             Self::Status(status) => status.timer(),
             Self::Idle(idle) => idle.timer(),
@@ -202,6 +233,21 @@ impl Flow {
                     )
                 })
                 .map_err(Error::Connect),
+            Self::Login(login) => login
+                .serial(
+                    state.timer,
+                    &mut state.adapter,
+                    state.transfer_length,
+                    &mut state.phase,
+                    state.connection_generation,
+                )
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::Login(flow)),
+                    )
+                })
+                .map_err(Error::Login),
             Self::WriteConfig(write_config) => write_config
                 .serial(state.timer, &mut state.adapter, state.transfer_length)
                 .map(|flow| {

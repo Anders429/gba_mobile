@@ -6,7 +6,9 @@ pub use pending::Pending;
 
 use crate::{
     Adapter, ArrayVec, Config, DRIVER, Generation, Timer, digit::IntoDigits, mmio::interrupt, p2p,
+    ppp,
 };
+use core::net::Ipv4Addr;
 
 #[derive(Debug)]
 pub struct Link {
@@ -63,6 +65,53 @@ impl Link {
             interrupt::MASTER_ENABLE.write_volatile(prev_enable);
 
             result.map(|connection_generation| p2p::Pending {
+                link_generation: self.link_generation,
+                connection_generation,
+            })
+        }
+    }
+
+    pub fn login<PhoneNumber, Id, Password>(
+        &self,
+        phone_number: PhoneNumber,
+        id: Id,
+        password: Password,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+    ) -> Result<ppp::Pending, error::login::Error>
+    where
+        PhoneNumber: IntoDigits,
+        Id: IntoIterator<Item = u8>,
+        Password: IntoIterator<Item = u8>,
+    {
+        unsafe {
+            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
+            interrupt::MASTER_ENABLE.write_volatile(false);
+            let result = ArrayVec::try_from_iter(phone_number.into_digits())
+                .map_err(Into::into)
+                .and_then(|digits| {
+                    ArrayVec::try_from_iter(id)
+                        .map_err(error::login::Error::id)
+                        .and_then(|id| {
+                            ArrayVec::try_from_iter(password)
+                                .map_err(error::login::Error::password)
+                                .and_then(|password| {
+                                    DRIVER
+                                        .login(
+                                            self.link_generation,
+                                            digits,
+                                            id,
+                                            password,
+                                            primary_dns,
+                                            secondary_dns,
+                                        )
+                                        .map_err(Into::into)
+                                })
+                        })
+                });
+            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
+
+            result.map(|connection_generation| ppp::Pending {
                 link_generation: self.link_generation,
                 connection_generation,
             })

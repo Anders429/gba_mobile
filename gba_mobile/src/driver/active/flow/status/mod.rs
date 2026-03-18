@@ -46,24 +46,41 @@ impl Status {
                 Either::Left(packet) => Some(Self { packet }),
                 Either::Right(response) => {
                     *adapter = response.adapter;
-                    if matches!(phase, Phase::Connected(_)) {
+                    match phase {
                         // Only update the phase if we are currently connected.
                         //
                         // It is possible that we could have had the phase change between when we
                         // started execution of this flow and when we completed it. In that case, we do
                         // not want to overwrite the phase.
-                        match response.payload {
-                            payload::connection_status::ReceiveParsed::Connected => {
-                                // Reset the frame count so that we can trigger this flow again.
-                                *phase = Phase::Connected(0);
-                            }
-                            payload::connection_status::ReceiveParsed::NotConnected => {
-                                *phase = Phase::Linked {
-                                    frame: 0,
-                                    connection_failure: Some(ConnectionFailure::LostConnection),
+                        Phase::Connected(frame) => {
+                            match response.payload {
+                                payload::connection_status::ReceiveParsed::Connected => {
+                                    // Reset the frame count so that we can trigger this flow again.
+                                    *frame = 0;
+                                }
+                                payload::connection_status::ReceiveParsed::NotConnected => {
+                                    *phase = Phase::Linked {
+                                        frame: 0,
+                                        connection_failure: Some(ConnectionFailure::LostConnection),
+                                    };
                                 }
                             }
                         }
+                        Phase::LoggedIn { frame, .. } => {
+                            match response.payload {
+                                payload::connection_status::ReceiveParsed::Connected => {
+                                    // Reset the frame count so that we can trigger this flow again.
+                                    *frame = 0;
+                                }
+                                payload::connection_status::ReceiveParsed::NotConnected => {
+                                    *phase = Phase::Linked {
+                                        frame: 0,
+                                        connection_failure: Some(ConnectionFailure::LostConnection),
+                                    };
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                     None
                 }

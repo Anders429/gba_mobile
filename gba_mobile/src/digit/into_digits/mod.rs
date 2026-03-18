@@ -1,4 +1,5 @@
-pub mod ipv4addr;
+mod ipv4addr;
+mod slice;
 
 use super::Digit;
 

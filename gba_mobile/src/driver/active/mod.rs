@@ -11,8 +11,8 @@ use crate::{
     mmio::serial::TransferLength,
 };
 use core::{
-    fmt,
-    fmt::{Display, Formatter},
+    fmt::{self, Display, Formatter},
+    net::Ipv4Addr,
 };
 use either::Either;
 use flow::Flow;
@@ -20,9 +20,19 @@ use queue::Queue;
 
 #[derive(Debug)]
 enum ConnectionRequest {
-    Accept { frame: u8 },
-    Connect { phone_number: ArrayVec<Digit, 32> },
-    Login,
+    Accept {
+        frame: u8,
+    },
+    Connect {
+        phone_number: ArrayVec<Digit, 32>,
+    },
+    Login {
+        phone_number: ArrayVec<Digit, 32>,
+        id: ArrayVec<u8, 32>,
+        password: ArrayVec<u8, 32>,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +68,13 @@ enum Phase {
     Connecting(ConnectionRequest),
     /// Connection established.
     Connected(u8),
+    // Logged in to PPP.
+    LoggedIn {
+        frame: u8,
+        ip: Ipv4Addr,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+    },
 
     /// This link is being closed.
     Ending,
@@ -149,6 +166,13 @@ impl Active {
     /// Listen for an incoming p2p connection.
     pub(super) fn accept(&mut self) -> Generation {
         self.state.connection_generation = self.state.connection_generation.increment();
+        if matches!(
+            self.state.phase,
+            Phase::Connecting(_) | Phase::Connected(_) | Phase::LoggedIn { .. }
+        ) {
+            // If we are already connected or attempting to connect, disconnect first.
+            self.queue.set_disconnect();
+        }
         self.state.phase = Phase::Connecting(ConnectionRequest::Accept { frame: 255 });
         self.queue.set_connect();
         self.state.connection_generation
@@ -157,7 +181,42 @@ impl Active {
     /// Connect to a p2p peer.
     pub(super) fn connect(&mut self, phone_number: ArrayVec<Digit, 32>) -> Generation {
         self.state.connection_generation = self.state.connection_generation.increment();
+        if matches!(
+            self.state.phase,
+            Phase::Connecting(_) | Phase::Connected(_) | Phase::LoggedIn { .. }
+        ) {
+            // If we are already connected or attempting to connect, disconnect first.
+            self.queue.set_disconnect();
+        }
         self.state.phase = Phase::Connecting(ConnectionRequest::Connect { phone_number });
+        self.queue.set_connect();
+        self.state.connection_generation
+    }
+
+    /// Connect via PPP protocol.
+    pub(super) fn login(
+        &mut self,
+        phone_number: ArrayVec<Digit, 32>,
+        id: ArrayVec<u8, 32>,
+        password: ArrayVec<u8, 32>,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+    ) -> Generation {
+        self.state.connection_generation = self.state.connection_generation.increment();
+        if matches!(
+            self.state.phase,
+            Phase::Connecting(_) | Phase::Connected(_) | Phase::LoggedIn { .. }
+        ) {
+            // If we are already connected or attempting to connect, disconnect first.
+            self.queue.set_disconnect();
+        }
+        self.state.phase = Phase::Connecting(ConnectionRequest::Login {
+            phone_number,
+            id,
+            password,
+            primary_dns,
+            secondary_dns,
+        });
         self.queue.set_connect();
         self.state.connection_generation
     }
@@ -226,7 +285,7 @@ impl Active {
                 }
                 *frame = frame.saturating_add(1);
             }
-            Phase::Connected(frame) => {
+            Phase::Connected(frame) | Phase::LoggedIn { frame, .. } => {
                 if *frame == frames::ONE_SECOND {
                     // Schedule a new status flow once per second.
                     //

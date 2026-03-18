@@ -7,7 +7,7 @@
 use core::net::Ipv4Addr;
 
 use gba::prelude::*;
-use gba_mobile::{Timer, config::mobile_system_gb};
+use gba_mobile::{Digit, Timer, config::mobile_system_gb};
 
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
@@ -83,6 +83,35 @@ pub fn main() {
 
         let config = link.config::<mobile_system_gb::Config>();
         log::info!("attempted to parse Mobile System GB config: {config:?}");
+
+        let pending_ppp = {
+            log::info!("logging in!");
+            link.login(
+                // #9677
+                [
+                    Digit::try_from(b'#').unwrap(),
+                    Digit::try_from(b'9').unwrap(),
+                    Digit::try_from(b'6').unwrap(),
+                    Digit::try_from(b'7').unwrap(),
+                    Digit::try_from(b'7').unwrap(),
+                ].as_slice(),
+                [],
+                [],
+                Ipv4Addr::UNSPECIFIED,
+                Ipv4Addr::UNSPECIFIED,
+            ).expect("login failed")
+        };
+        let ppp_status = loop {
+            VBlankIntrWait();
+
+            let status = pending_ppp.status();
+
+            if let Ok(None) = status {
+                continue;
+            }
+            break status;
+        };
+        log::info!("ppp connection status: {ppp_status:?}");
 
         let pending_p2p = loop {
             let keys = gba::mmio::KEYINPUT.read();

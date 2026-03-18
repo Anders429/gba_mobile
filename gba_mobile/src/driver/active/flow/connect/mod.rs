@@ -5,7 +5,7 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::{
-    super::{ConnectionFailure, ConnectionRequest, Phase},
+    super::{ConnectionFailure, ConnectionRequest, Phase, Queue},
     request::{Packet, packet::payload},
 };
 use crate::{ArrayVec, Digit, Generation, Timer, driver::Adapter, mmio::serial::TransferLength};

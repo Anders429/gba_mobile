@@ -150,7 +150,23 @@ impl Queue {
                             state.connection_generation,
                         ))
                     }
-                    Phase::Connecting(_) => todo!(),
+                    Phase::Connecting(ConnectionRequest::Login {
+                        phone_number,
+                        id,
+                        password,
+                        primary_dns,
+                        secondary_dns,
+                    }) => Some(Flow::login(
+                        state.transfer_length,
+                        state.timer,
+                        state.adapter,
+                        phone_number.clone(),
+                        id.clone(),
+                        password.clone(),
+                        *primary_dns,
+                        *secondary_dns,
+                        state.connection_generation,
+                    )),
                     // If we have this item on the queue, but have left the connecting phase, we
                     // can't determine what type of connection request should be attempted. This
                     // also means we likely have ended the session anyway, so a connection attempt

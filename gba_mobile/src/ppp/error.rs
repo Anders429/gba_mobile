@@ -1,7 +1,3 @@
-pub mod config;
-pub mod connect;
-pub mod login;
-
 use crate::driver;
 use core::{
     fmt,
@@ -10,7 +6,7 @@ use core::{
 
 #[derive(Debug)]
 pub struct Error {
-    internal: driver::error::link::Error,
+    internal: driver::error::connection::Error,
 }
 
 impl Display for Error {
@@ -25,8 +21,8 @@ impl core::error::Error for Error {
     }
 }
 
-impl From<driver::error::link::Error> for Error {
-    fn from(error: driver::error::link::Error) -> Self {
+impl From<driver::error::connection::Error> for Error {
+    fn from(error: driver::error::connection::Error) -> Self {
         Self { internal: error }
     }
 }
