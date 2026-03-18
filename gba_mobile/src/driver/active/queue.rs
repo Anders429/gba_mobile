@@ -162,6 +162,7 @@ impl Queue {
                     state.timer,
                     &state.config,
                 )),
+                Item::Status => Some(Flow::status(state.transfer_length, state.timer)),
                 Item::Idle => Some(Flow::idle(state.transfer_length, state.timer)),
                 _ => todo!(),
             }

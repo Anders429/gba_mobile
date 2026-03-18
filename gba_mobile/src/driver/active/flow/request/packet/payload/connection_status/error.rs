@@ -1,3 +1,4 @@
+use super::data;
 use crate::driver::{Command, command};
 use core::{
     fmt,
@@ -13,7 +14,7 @@ impl Display for UnsupportedCommand {
             formatter,
             "unsupported command {}; supported commands are {} and {}",
             self.0,
-            Command::WriteConfigurationData,
+            Command::TelephoneStatus,
             Command::CommandError
         )
     }
@@ -23,17 +24,17 @@ impl core::error::Error for UnsupportedCommand {}
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum InvalidLength {
-    WriteConfig(u8),
+    TelephoneStatus(u8),
     CommandError(u8),
 }
 
 impl Display for InvalidLength {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::WriteConfig(length) => write!(
+            Self::TelephoneStatus(length) => write!(
                 formatter,
-                "received length of {length} for {} packet, but expected length of 2",
-                Command::WriteConfigurationData,
+                "received length of {length} for {} packet, but expected length of 3",
+                Command::TelephoneStatus,
             ),
             Self::CommandError(length) => write!(
                 formatter,
@@ -48,9 +49,7 @@ impl core::error::Error for InvalidLength {}
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum InvalidData {
-    FirstHalfOffset(u8),
-    SecondHalfOffset(u8),
-    InvalidLength(u8),
+    TelephoneStatus(data::InvalidStatus),
     UnknownCommandError(command::error::Unknown),
     UnexpectedCommandError(command::Error),
 }
@@ -58,23 +57,12 @@ pub(in crate::driver) enum InvalidData {
 impl Display for InvalidData {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::FirstHalfOffset(offset) => write!(
-                formatter,
-                "received offset of {offset} when writing first half of config, but expected offset of 0"
-            ),
-            Self::SecondHalfOffset(offset) => write!(
-                formatter,
-                "received offset of {offset} when writing second half of config, but expected offset of 128"
-            ),
-            Self::InvalidLength(length) => write!(
-                formatter,
-                "received length of {length} when writing config, but expected length of 128"
-            ),
+            Self::TelephoneStatus(_) => formatter.write_str("connection status data error"),
             Self::UnknownCommandError(_) => {
                 formatter.write_str("unable to parse command error payload")
             }
             Self::UnexpectedCommandError(_) => {
-                formatter.write_str("received unexpected command error for writing config")
+                formatter.write_str("received unexpected command error for beginning session")
             }
         }
     }
@@ -83,9 +71,7 @@ impl Display for InvalidData {
 impl core::error::Error for InvalidData {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::FirstHalfOffset(_) => None,
-            Self::SecondHalfOffset(_) => None,
-            Self::InvalidLength(_) => None,
+            Self::TelephoneStatus(error) => Some(error),
             Self::UnknownCommandError(unknown) => Some(unknown),
             Self::UnexpectedCommandError(error) => Some(error),
         }

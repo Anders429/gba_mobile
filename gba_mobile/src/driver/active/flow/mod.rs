@@ -6,6 +6,7 @@ mod idle;
 mod request;
 mod reset;
 mod start;
+mod status;
 mod timeout;
 mod write_config;
 
@@ -21,6 +22,7 @@ use end::End;
 use idle::Idle;
 use reset::Reset;
 use start::Start;
+use status::Status;
 use write_config::WriteConfig;
 
 #[derive(Debug)]
@@ -34,6 +36,7 @@ pub(super) enum Flow {
 
     WriteConfig(WriteConfig),
 
+    Status(Status),
     Idle(Idle),
 }
 
@@ -78,6 +81,10 @@ impl Flow {
         Self::WriteConfig(WriteConfig::new(transfer_length, timer, config))
     }
 
+    pub(super) fn status(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::Status(Status::new(transfer_length, timer))
+    }
+
     pub(super) fn idle(transfer_length: TransferLength, timer: Timer) -> Self {
         Self::Idle(Idle::new(transfer_length, timer))
     }
@@ -96,6 +103,7 @@ impl Flow {
                 .vblank()
                 .map(Self::WriteConfig)
                 .map_err(Timeout::WriteConfig),
+            Self::Status(status) => status.vblank().map(Self::Status).map_err(Timeout::Status),
             Self::Idle(idle) => idle.vblank().map(Self::Idle).map_err(Timeout::Idle),
         }
     }
@@ -108,6 +116,7 @@ impl Flow {
             Self::Accept(accept) => accept.timer(),
             Self::Connect(connect) => connect.timer(),
             Self::WriteConfig(write_config) => write_config.timer(),
+            Self::Status(status) => status.timer(),
             Self::Idle(idle) => idle.timer(),
         }
     }
@@ -202,9 +211,23 @@ impl Flow {
                     )
                 })
                 .map_err(Error::WriteConfig),
+            Self::Status(status) => status
+                .serial(state.timer, &mut state.adapter, &mut state.phase)
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::Status(flow)),
+                    )
+                })
+                .map_err(Error::Status),
             Self::Idle(idle) => idle
                 .serial(state.timer, &mut state.phase)
-                .map(|_| Either::Right(StateChange::StillActive))
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::Idle(flow)),
+                    )
+                })
                 .map_err(Error::Idle),
         }
     }

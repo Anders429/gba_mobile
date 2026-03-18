@@ -29,6 +29,7 @@ enum ConnectionRequest {
 pub(in crate::driver) enum ConnectionFailure {
     Connect,
     Login,
+    LostConnection,
 }
 
 impl Display for ConnectionFailure {
@@ -36,6 +37,7 @@ impl Display for ConnectionFailure {
         match self {
             Self::Connect => formatter.write_str("unable to connect"),
             Self::Login => formatter.write_str("unable to login"),
+            Self::LostConnection => formatter.write_str("lost connection"),
         }
     }
 }
@@ -55,7 +57,7 @@ enum Phase {
     /// Attempting to establish a connection.
     Connecting(ConnectionRequest),
     /// Connection established.
-    Connected,
+    Connected(u8),
 
     /// This link is being closed.
     Ending,
@@ -216,6 +218,16 @@ impl Active {
                 if *frame == frames::ONE_SECOND {
                     // Schedule a new connection attempt every second.
                     self.queue.set_connect();
+                }
+                *frame = frame.saturating_add(1);
+            }
+            Phase::Connected(frame) => {
+                if *frame == frames::ONE_SECOND {
+                    // Schedule a new status flow once per second.
+                    //
+                    // This ensures we are constantly aware of whether the connection is still
+                    // live.
+                    self.queue.set_status();
                 }
                 *frame = frame.saturating_add(1);
             }

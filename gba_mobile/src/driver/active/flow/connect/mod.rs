@@ -75,7 +75,7 @@ impl Connect {
                         // which case we should not update the phase.
                         match response.payload {
                             payload::connect::ReceiveParsed::Connected => {
-                                *phase = Phase::Connected;
+                                *phase = Phase::Connected(0);
                             }
                             payload::connect::ReceiveParsed::NotConnected => {
                                 *phase = Phase::Linked {

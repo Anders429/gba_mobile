@@ -61,7 +61,7 @@ impl Accept {
                                     //
                                     // It is possible to have the phase change during execution of the
                                     // flow, in which case we should not update the phase.
-                                    *phase = Phase::Connected;
+                                    *phase = Phase::Connected(0);
                                 }
                                 payload::accept_connection::ReceiveParsed::NotConnected => {
                                     *frame = 0;

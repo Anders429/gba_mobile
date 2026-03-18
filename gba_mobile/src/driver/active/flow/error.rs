@@ -1,4 +1,4 @@
-use super::{accept, connect, end, idle, reset, start, write_config};
+use super::{accept, connect, end, idle, reset, start, status, write_config};
 use core::{
     fmt,
     fmt::{Display, Formatter},
@@ -12,6 +12,7 @@ pub(in crate::driver) enum Error {
     Accept(accept::Error),
     Connect(connect::Error),
     WriteConfig(write_config::Error),
+    Status(status::Error),
     Idle(idle::Error),
 }
 
@@ -24,6 +25,7 @@ impl Display for Error {
             Self::Accept(_) => formatter.write_str("error during accept"),
             Self::Connect(_) => formatter.write_str("error during connect"),
             Self::WriteConfig(_) => formatter.write_str("error during write config"),
+            Self::Status(_) => formatter.write_str("error during status"),
             Self::Idle(_) => formatter.write_str("error during idle"),
         }
     }
@@ -38,6 +40,7 @@ impl core::error::Error for Error {
             Self::Accept(error) => Some(error),
             Self::Connect(error) => Some(error),
             Self::WriteConfig(error) => Some(error),
+            Self::Status(error) => Some(error),
             Self::Idle(error) => Some(error),
         }
     }
