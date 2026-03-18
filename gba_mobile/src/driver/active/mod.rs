@@ -198,6 +198,11 @@ impl Active {
     where
         Config: self::Config,
     {
+        // Clear config before writing to it.
+        //
+        // We don't require config formats to guarantee that they overwrite every byte.
+        self.state.config.fill(0);
+
         config.write(&mut self.state.config);
         self.queue.set_write_config();
     }
