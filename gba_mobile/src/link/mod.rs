@@ -1,4 +1,5 @@
-mod error;
+pub mod error;
+
 mod pending;
 
 pub use error::Error;

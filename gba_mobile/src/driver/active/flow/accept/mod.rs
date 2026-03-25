@@ -5,7 +5,7 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::{
-    super::{ConnectionRequest, Phase},
+    super::{ConnectionRequest, Phase, Socket, socket},
     request::{Packet, packet::payload},
 };
 use crate::{Timer, driver::Adapter, mmio::serial::TransferLength};
@@ -45,6 +45,7 @@ impl Accept {
         timer: Timer,
         adapter: &mut Adapter,
         phase: &mut Phase,
+        socket: &mut Socket,
     ) -> Result<Option<Self>, Error> {
         match self {
             Self::AcceptConnection(packet) => packet
@@ -62,6 +63,7 @@ impl Accept {
                                     // It is possible to have the phase change during execution of the
                                     // flow, in which case we should not update the phase.
                                     *phase = Phase::Connected(0);
+                                    socket.set_id(socket::Id::P2P);
                                 }
                                 payload::accept_connection::ReceiveParsed::NotConnected => {
                                     *frame = 0;

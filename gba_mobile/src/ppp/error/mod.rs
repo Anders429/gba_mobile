@@ -1,3 +1,5 @@
+pub mod socket;
+
 use crate::driver;
 use core::{
     fmt,

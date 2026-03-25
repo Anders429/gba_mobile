@@ -1,3 +1,4 @@
+use super::super::addr;
 use core::net::Ipv4Addr;
 use either::Either;
 
@@ -9,47 +10,22 @@ pub(in crate::driver) struct Response {
 }
 
 #[derive(Debug)]
-enum Addr {
-    Octet1,
-    Octet2(u8),
-    Octet3(u8, u8),
-    Octet4(u8, u8, u8),
-}
-
-impl Addr {
-    fn new() -> Self {
-        Self::Octet1
-    }
-
-    fn receive_data(self, byte: u8) -> Either<Self, Ipv4Addr> {
-        match self {
-            Self::Octet1 => Either::Left(Self::Octet2(byte)),
-            Self::Octet2(octet1) => Either::Left(Self::Octet3(octet1, byte)),
-            Self::Octet3(octet1, octet2) => Either::Left(Self::Octet4(octet1, octet2, byte)),
-            Self::Octet4(octet1, octet2, octet3) => {
-                Either::Right(Ipv4Addr::from_octets([octet1, octet2, octet3, byte]))
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
 pub(in crate::driver) enum Data {
-    Ip(Addr),
+    Ip(addr::Data),
     PrimaryDns {
         ip: Ipv4Addr,
-        addr: Addr,
+        addr: addr::Data,
     },
     SecondaryDns {
         ip: Ipv4Addr,
         primary_dns: Ipv4Addr,
-        addr: Addr,
+        addr: addr::Data,
     },
 }
 
 impl Data {
     pub(super) fn new() -> Self {
-        Self::Ip(Addr::new())
+        Self::Ip(addr::Data::new())
     }
 
     pub(super) fn receive_data(self, byte: u8) -> Either<Self, Response> {
@@ -58,7 +34,7 @@ impl Data {
                 Either::Left(addr) => Either::Left(Self::Ip(addr)),
                 Either::Right(ip) => Either::Left(Self::PrimaryDns {
                     ip,
-                    addr: Addr::new(),
+                    addr: addr::Data::new(),
                 }),
             },
             Self::PrimaryDns { ip, addr } => match addr.receive_data(byte) {
@@ -66,7 +42,7 @@ impl Data {
                 Either::Right(primary_dns) => Either::Left(Self::SecondaryDns {
                     ip,
                     primary_dns,
-                    addr: Addr::new(),
+                    addr: addr::Data::new(),
                 }),
             },
             Self::SecondaryDns {

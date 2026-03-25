@@ -1,8 +1,9 @@
-use super::{ConnectionRequest, Flow, Phase, State};
+use super::{ConnectionRequest, Flow, Phase, State, socket};
 use core::{
     fmt::{self, Debug, Formatter},
     ops::BitOr,
 };
+use deranged::RangedU8;
 
 #[derive(Clone)]
 pub(super) struct Queue(u16);
@@ -173,6 +174,103 @@ impl Queue {
                     // would be pointless.
                     _ => None,
                 },
+                Item::Socket1Open => {
+                    if let Phase::LoggedIn {
+                        socket_generations,
+                        socket_states,
+                        ..
+                    } = &state.phase
+                    {
+                        match &socket_states[0] {
+                            socket::State::Connecting(
+                                socket::Request::Dns { domain, port },
+                                socket::Protocol::Tcp,
+                            ) => Some(Flow::open_tcp_with_dns(
+                                state.transfer_length,
+                                state.timer,
+                                domain.clone(),
+                                *port,
+                                RangedU8::new_static::<0>(),
+                                state.connection_generation,
+                                socket_generations[0],
+                            )),
+                            socket::State::Connecting(
+                                socket::Request::Dns { domain, port },
+                                socket::Protocol::Udp,
+                            ) => todo!(),
+                            socket::State::Connecting(
+                                socket::Request::SocketAddr(addr),
+                                socket::Protocol::Tcp,
+                            ) => Some(Flow::open_tcp_with_socket_addr(
+                                state.transfer_length,
+                                state.timer,
+                                *addr,
+                                RangedU8::new_static::<0>(),
+                                state.connection_generation,
+                                socket_generations[0],
+                            )),
+                            socket::State::Connecting(
+                                socket::Request::SocketAddr(addr),
+                                socket::Protocol::Udp,
+                            ) => todo!(),
+                            // We cannot determine what type of socket to open or how to do it, so we
+                            // do nothing.
+                            _ => None,
+                        }
+                    } else {
+                        // We are not in the correct phase to open a socket, so we do nothing.
+                        None
+                    }
+                }
+                Item::Socket2Open => {
+                    if let Phase::LoggedIn {
+                        socket_generations,
+                        socket_states,
+                        ..
+                    } = &state.phase
+                    {
+                        match &socket_states[1] {
+                            socket::State::Connecting(
+                                socket::Request::Dns { domain, port },
+                                socket::Protocol::Tcp,
+                            ) => Some(Flow::open_tcp_with_dns(
+                                state.transfer_length,
+                                state.timer,
+                                domain.clone(),
+                                *port,
+                                RangedU8::new_static::<1>(),
+                                state.connection_generation,
+                                socket_generations[1],
+                            )),
+                            socket::State::Connecting(
+                                socket::Request::Dns { domain, port },
+                                socket::Protocol::Udp,
+                            ) => todo!(),
+                            socket::State::Connecting(
+                                socket::Request::SocketAddr(addr),
+                                socket::Protocol::Tcp,
+                            ) => Some(Flow::open_tcp_with_socket_addr(
+                                state.transfer_length,
+                                state.timer,
+                                *addr,
+                                RangedU8::new_static::<1>(),
+                                state.connection_generation,
+                                socket_generations[1],
+                            )),
+                            socket::State::Connecting(
+                                socket::Request::SocketAddr(addr),
+                                socket::Protocol::Udp,
+                            ) => todo!(),
+                            // We cannot determine what type of socket to open or how to do it, so we
+                            // do nothing.
+                            _ => None,
+                        }
+                    } else {
+                        // We are not in the correct phase to open a socket, so we do nothing.
+                        None
+                    }
+                }
+
                 Item::WriteConfig => Some(Flow::write_config(
                     state.transfer_length,
                     state.timer,
@@ -270,7 +368,6 @@ impl Iterator for Queue {
             self.clear_socket_2_transfer_data();
             Some(Item::Socket2Read)
         } else if self.has(Queue::WRITE_CONFIG) {
-            log::info!("Triggering config write");
             self.clear(Queue::WRITE_CONFIG);
             Some(Item::WriteConfig)
         } else if self.has(Queue::START | Queue::END) {

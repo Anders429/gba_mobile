@@ -1,3 +1,5 @@
+pub(in crate::driver) mod socket;
+
 mod flow;
 mod queue;
 mod timeout;
@@ -12,11 +14,12 @@ use crate::{
 };
 use core::{
     fmt::{self, Display, Formatter},
-    net::Ipv4Addr,
+    net::{Ipv4Addr, SocketAddrV4},
 };
 use either::Either;
 use flow::Flow;
 use queue::Queue;
+use socket::Socket;
 
 #[derive(Debug)]
 enum ConnectionRequest {
@@ -74,6 +77,8 @@ enum Phase {
         ip: Ipv4Addr,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
+        socket_generations: [Generation; 2],
+        socket_states: [socket::State; 2],
     },
 
     /// This link is being closed.
@@ -89,6 +94,7 @@ struct State {
     timer: Timer,
 
     phase: Phase,
+    sockets: [Socket; 2],
     config: [u8; 256],
 
     frame: u8,
@@ -105,6 +111,7 @@ impl State {
             timer,
 
             phase: Phase::Linking,
+            sockets: [Socket::new(), Socket::new()],
             config: [0; 256],
 
             frame: 0,
@@ -222,7 +229,7 @@ impl Active {
     }
 
     pub(crate) fn connection_status(
-        &mut self,
+        &self,
         connection_generation: Generation,
     ) -> Result<bool, super::error::connection::Error> {
         if self.state.connection_generation != connection_generation {
@@ -242,6 +249,107 @@ impl Active {
             Phase::Connecting(_) => Ok(false),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
             _ => Ok(true),
+        }
+    }
+
+    pub(crate) fn open_tcp(
+        &mut self,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Option<(Generation, crate::socket::Index)>, super::error::connection::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &mut self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn {
+                socket_generations,
+                socket_states,
+                ..
+            } => {
+                // Find the first available socket.
+                let mut socket_index = None;
+                for (index, socket_state) in socket_states.iter().enumerate() {
+                    if matches!(
+                        socket_state,
+                        socket::State::Available | socket::State::Failure(_)
+                    ) {
+                        if index == 0 {
+                            socket_index = Some(crate::socket::Index::One);
+                        } else {
+                            socket_index = Some(crate::socket::Index::Two);
+                        }
+                        break;
+                    }
+                }
+                if let Some(socket_index) = socket_index {
+                    // Schedule the request.
+                    let request = match host {
+                        Either::Left(ip) => {
+                            socket::Request::SocketAddr(SocketAddrV4::new(ip, port))
+                        }
+                        Either::Right(domain) => socket::Request::Dns { domain, port },
+                    };
+                    socket_states[usize::from(socket_index)] =
+                        socket::State::Connecting(request, socket::Protocol::Tcp);
+                    if matches!(socket_index, crate::socket::Index::One) {
+                        self.queue.set_socket_1_open();
+                    } else {
+                        self.queue.set_socket_2_open();
+                    }
+
+                    // Return the new socket generation.
+                    socket_generations[usize::from(socket_index)].increment();
+                    Ok(Some((
+                        socket_generations[usize::from(socket_index)],
+                        socket_index,
+                    )))
+                } else {
+                    // There are no unused sockets.
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    pub(crate) fn socket_status(
+        &self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+        index: crate::socket::Index,
+    ) -> Result<bool, super::error::socket::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn {
+                socket_generations,
+                socket_states,
+                ..
+            } => {
+                if socket_generations[usize::from(index)] != socket_generation {
+                    return Err(super::error::socket::Error::superseded());
+                }
+
+                match &socket_states[usize::from(index)] {
+                    socket::State::Available => Err(super::error::socket::Error::superseded()),
+                    socket::State::Connecting(_, _) => Ok(false),
+                    socket::State::Connected => Ok(true),
+                    socket::State::Failure(error) => Err(error.clone().into()),
+                }
+            }
         }
     }
 

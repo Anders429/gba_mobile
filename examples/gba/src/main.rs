@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![allow(static_mut_refs)]
 
 use core::net::Ipv4Addr;
 
@@ -94,12 +93,14 @@ pub fn main() {
                     Digit::try_from(b'6').unwrap(),
                     Digit::try_from(b'7').unwrap(),
                     Digit::try_from(b'7').unwrap(),
-                ].as_slice(),
+                ]
+                .as_slice(),
                 [],
                 [],
-                Ipv4Addr::UNSPECIFIED,
-                Ipv4Addr::UNSPECIFIED,
-            ).expect("login failed")
+                Ipv4Addr::from_octets([8, 8, 8, 8]),
+                Ipv4Addr::from_octets([8, 8, 4, 4]),
+            )
+            .expect("login failed")
         };
         let ppp_status = loop {
             VBlankIntrWait();
@@ -112,6 +113,23 @@ pub fn main() {
             break status;
         };
         log::info!("ppp connection status: {ppp_status:?}");
+
+        if let Ok(Some(ppp)) = ppp_status {
+            let pending_tcp = ppp
+                .open_tcp("www.google.com:80")
+                .expect("TCP connection attempt failed");
+            let tcp_status = loop {
+                VBlankIntrWait();
+
+                let status = pending_tcp.status();
+
+                if let Ok(None) = status {
+                    continue;
+                }
+                break status;
+            };
+            log::info!("tcp connection status: {tcp_status:?}");
+        }
 
         let pending_p2p = loop {
             let keys = gba::mmio::KEYINPUT.read();

@@ -16,9 +16,11 @@ use crate::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
     },
+    socket,
 };
 use active::Active;
 use command::Command;
+use either::Either;
 use error::Error;
 
 #[derive(Debug)]
@@ -208,6 +210,45 @@ impl Driver {
 
     pub(crate) fn disconnect(&mut self) {
         todo!()
+    }
+
+    /// Returns `Ok(None)` if there are no available sockets.
+    pub(crate) fn open_tcp(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Option<(Generation, socket::Index)>, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.open_tcp(connection_generation, host, port),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn socket_status(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        socket_generation: Generation,
+        index: socket::Index,
+    ) -> Result<bool, error::socket::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => {
+                active.socket_status(connection_generation, socket_generation, index)
+            }
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
     }
 
     pub(crate) fn adapter(

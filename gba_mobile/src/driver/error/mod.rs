@@ -1,6 +1,7 @@
 pub(crate) mod close_link;
 pub(crate) mod connection;
 pub(crate) mod link;
+pub(crate) mod socket;
 
 use super::active;
 use core::{

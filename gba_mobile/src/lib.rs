@@ -13,6 +13,7 @@ pub mod digit;
 pub mod link;
 pub mod p2p;
 pub mod ppp;
+pub mod socket;
 
 mod arrayvec;
 mod driver;
