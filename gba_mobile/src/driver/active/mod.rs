@@ -252,11 +252,12 @@ impl Active {
         }
     }
 
-    pub(crate) fn open_tcp(
+    pub(crate) fn open_socket(
         &mut self,
         connection_generation: Generation,
         host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
         port: u16,
+        protocol: socket::Protocol,
     ) -> Result<Option<(Generation, crate::socket::Index)>, super::error::connection::Error> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -297,7 +298,7 @@ impl Active {
                         Either::Right(domain) => socket::Request::Dns { domain, port },
                     };
                     socket_states[usize::from(socket_index)] =
-                        socket::State::Connecting(request, socket::Protocol::Tcp);
+                        socket::State::Connecting(request, protocol);
                     if matches!(socket_index, crate::socket::Index::One) {
                         self.queue.set_socket_1_open();
                     } else {

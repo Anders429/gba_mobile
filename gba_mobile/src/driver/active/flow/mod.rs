@@ -5,6 +5,7 @@ mod error;
 mod idle;
 mod login;
 mod open_tcp;
+mod open_udp;
 mod request;
 mod reset;
 mod start;
@@ -27,6 +28,7 @@ use end::End;
 use idle::Idle;
 use login::Login;
 use open_tcp::OpenTcp;
+use open_udp::OpenUdp;
 use reset::Reset;
 use start::Start;
 use status::Status;
@@ -43,6 +45,7 @@ pub(super) enum Flow {
     Login(Login),
 
     OpenTcp(OpenTcp),
+    OpenUdp(OpenUdp),
 
     WriteConfig(WriteConfig),
 
@@ -145,6 +148,44 @@ impl Flow {
         ))
     }
 
+    pub(super) fn open_udp_with_dns(
+        transfer_length: TransferLength,
+        timer: Timer,
+        domain: ArrayVec<u8, 255>,
+        port: u16,
+        socket_index: RangedU8<0, 1>,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Self {
+        Self::OpenUdp(OpenUdp::with_dns(
+            transfer_length,
+            timer,
+            domain,
+            port,
+            socket_index,
+            connection_generation,
+            socket_generation,
+        ))
+    }
+
+    pub(super) fn open_udp_with_socket_addr(
+        transfer_length: TransferLength,
+        timer: Timer,
+        addr: SocketAddrV4,
+        socket_index: RangedU8<0, 1>,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Self {
+        Self::OpenUdp(OpenUdp::with_socket_addr(
+            transfer_length,
+            timer,
+            addr,
+            socket_index,
+            connection_generation,
+            socket_generation,
+        ))
+    }
+
     pub(super) fn write_config(
         transfer_length: TransferLength,
         timer: Timer,
@@ -176,6 +217,10 @@ impl Flow {
                 .vblank()
                 .map(Self::OpenTcp)
                 .map_err(Timeout::OpenTcp),
+            Self::OpenUdp(open_udp) => open_udp
+                .vblank()
+                .map(Self::OpenUdp)
+                .map_err(Timeout::OpenUdp),
             Self::WriteConfig(write_config) => write_config
                 .vblank()
                 .map(Self::WriteConfig)
@@ -194,6 +239,7 @@ impl Flow {
             Self::Connect(connect) => connect.timer(),
             Self::Login(login) => login.timer(),
             Self::OpenTcp(open_tcp) => open_tcp.timer(),
+            Self::OpenUdp(open_udp) => open_udp.timer(),
             Self::WriteConfig(write_config) => write_config.timer(),
             Self::Status(status) => status.timer(),
             Self::Idle(idle) => idle.timer(),
@@ -318,6 +364,22 @@ impl Flow {
                     )
                 })
                 .map_err(Error::OpenTcp),
+            Self::OpenUdp(open_udp) => open_udp
+                .serial(
+                    state.timer,
+                    &mut state.adapter,
+                    state.transfer_length,
+                    &mut state.phase,
+                    &mut state.sockets,
+                    state.connection_generation,
+                )
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::OpenUdp(flow)),
+                    )
+                })
+                .map_err(Error::OpenUdp),
             Self::WriteConfig(write_config) => write_config
                 .serial(state.timer, &mut state.adapter, state.transfer_length)
                 .map(|flow| {

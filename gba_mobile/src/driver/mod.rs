@@ -226,7 +226,36 @@ impl Driver {
 
         match &mut self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_tcp(connection_generation, host, port),
+            State::Active(active) => active.open_socket(
+                connection_generation,
+                host,
+                port,
+                active::socket::Protocol::Tcp,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    /// Returns `Ok(None)` if there are no available sockets.
+    pub(crate) fn open_udp(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Option<(Generation, socket::Index)>, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.open_socket(
+                connection_generation,
+                host,
+                port,
+                active::socket::Protocol::Udp,
+            ),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }

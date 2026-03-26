@@ -19,7 +19,7 @@ impl From<u8> for Id {
 }
 
 #[derive(Debug)]
-pub(super) enum Protocol {
+pub(in crate::driver) enum Protocol {
     Tcp,
     Udp,
 }

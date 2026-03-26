@@ -197,7 +197,15 @@ impl Queue {
                             socket::State::Connecting(
                                 socket::Request::Dns { domain, port },
                                 socket::Protocol::Udp,
-                            ) => todo!(),
+                            ) => Some(Flow::open_udp_with_dns(
+                                state.transfer_length,
+                                state.timer,
+                                domain.clone(),
+                                *port,
+                                RangedU8::new_static::<0>(),
+                                state.connection_generation,
+                                socket_generations[0],
+                            )),
                             socket::State::Connecting(
                                 socket::Request::SocketAddr(addr),
                                 socket::Protocol::Tcp,
@@ -212,7 +220,14 @@ impl Queue {
                             socket::State::Connecting(
                                 socket::Request::SocketAddr(addr),
                                 socket::Protocol::Udp,
-                            ) => todo!(),
+                            ) => Some(Flow::open_udp_with_socket_addr(
+                                state.transfer_length,
+                                state.timer,
+                                *addr,
+                                RangedU8::new_static::<0>(),
+                                state.connection_generation,
+                                socket_generations[0],
+                            )),
                             // We cannot determine what type of socket to open or how to do it, so we
                             // do nothing.
                             _ => None,
@@ -245,7 +260,15 @@ impl Queue {
                             socket::State::Connecting(
                                 socket::Request::Dns { domain, port },
                                 socket::Protocol::Udp,
-                            ) => todo!(),
+                            ) => Some(Flow::open_udp_with_dns(
+                                state.transfer_length,
+                                state.timer,
+                                domain.clone(),
+                                *port,
+                                RangedU8::new_static::<1>(),
+                                state.connection_generation,
+                                socket_generations[1],
+                            )),
                             socket::State::Connecting(
                                 socket::Request::SocketAddr(addr),
                                 socket::Protocol::Tcp,
@@ -260,7 +283,14 @@ impl Queue {
                             socket::State::Connecting(
                                 socket::Request::SocketAddr(addr),
                                 socket::Protocol::Udp,
-                            ) => todo!(),
+                            ) => Some(Flow::open_udp_with_socket_addr(
+                                state.transfer_length,
+                                state.timer,
+                                *addr,
+                                RangedU8::new_static::<1>(),
+                                state.connection_generation,
+                                socket_generations[1],
+                            )),
                             // We cannot determine what type of socket to open or how to do it, so we
                             // do nothing.
                             _ => None,

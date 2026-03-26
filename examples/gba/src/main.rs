@@ -129,6 +129,25 @@ pub fn main() {
                 break status;
             };
             log::info!("tcp connection status: {tcp_status:?}");
+
+            // In theory, UDP works. But libmobile is bugged to not return another packet on retry
+            // in SIO32, and UDP not being implemented there means that this attempts to retry
+            // receiving the packet.
+
+            // let pending_udp = ppp
+            //     .open_udp("www.example.com:80")
+            //     .expect("UDP connection attempt failed");
+            // let udp_status = loop {
+            //     VBlankIntrWait();
+
+            //     let status = pending_udp.status();
+
+            //     if let Ok(None) = status {
+            //         continue;
+            //     }
+            //     break status;
+            // };
+            // log::info!("udp connection status: {udp_status:?}");
         }
 
         let pending_p2p = loop {
