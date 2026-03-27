@@ -11,6 +11,7 @@ mod reset;
 mod start;
 mod status;
 mod timeout;
+mod transfer_data;
 mod write_config;
 
 use core::net::{Ipv4Addr, SocketAddrV4};
@@ -19,7 +20,7 @@ use deranged::RangedU8;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{Phase, Queue, State, StateChange};
+use super::{Phase, Queue, Socket, State, StateChange};
 use crate::{ArrayVec, Digit, Generation, Timer, driver::Adapter, mmio::serial::TransferLength};
 use accept::Accept;
 use connect::Connect;
@@ -32,6 +33,7 @@ use open_udp::OpenUdp;
 use reset::Reset;
 use start::Start;
 use status::Status;
+use transfer_data::TransferData;
 use write_config::WriteConfig;
 
 #[derive(Debug)]
@@ -46,6 +48,8 @@ pub(super) enum Flow {
 
     OpenTcp(OpenTcp),
     OpenUdp(OpenUdp),
+
+    TransferData(TransferData),
 
     WriteConfig(WriteConfig),
 
@@ -186,6 +190,22 @@ impl Flow {
         ))
     }
 
+    pub(super) fn transfer_data(
+        transfer_length: TransferLength,
+        timer: Timer,
+        socket: &Socket,
+        index: crate::socket::Index,
+    ) -> Self {
+        // TODO: Read in data from some buffer.
+        Self::TransferData(TransferData::new(
+            transfer_length,
+            timer,
+            socket.id(),
+            ArrayVec::new(),
+            index,
+        ))
+    }
+
     pub(super) fn write_config(
         transfer_length: TransferLength,
         timer: Timer,
@@ -221,6 +241,10 @@ impl Flow {
                 .vblank()
                 .map(Self::OpenUdp)
                 .map_err(Timeout::OpenUdp),
+            Self::TransferData(transfer_data) => transfer_data
+                .vblank()
+                .map(Self::TransferData)
+                .map_err(Timeout::TransferData),
             Self::WriteConfig(write_config) => write_config
                 .vblank()
                 .map(Self::WriteConfig)
@@ -240,6 +264,7 @@ impl Flow {
             Self::Login(login) => login.timer(),
             Self::OpenTcp(open_tcp) => open_tcp.timer(),
             Self::OpenUdp(open_udp) => open_udp.timer(),
+            Self::TransferData(transfer_data) => transfer_data.timer(),
             Self::WriteConfig(write_config) => write_config.timer(),
             Self::Status(status) => status.timer(),
             Self::Idle(idle) => idle.timer(),
@@ -380,6 +405,20 @@ impl Flow {
                     )
                 })
                 .map_err(Error::OpenUdp),
+            Self::TransferData(transfer_data) => transfer_data
+                .serial(
+                    state.timer,
+                    &mut state.adapter,
+                    &mut state.sockets,
+                    &mut state.phase,
+                )
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::TransferData(flow)),
+                    )
+                })
+                .map_err(Error::TransferData),
             Self::WriteConfig(write_config) => write_config
                 .serial(state.timer, &mut state.adapter, state.transfer_length)
                 .map(|flow| {

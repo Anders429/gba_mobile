@@ -394,7 +394,7 @@ impl Active {
                 }
                 *frame = frame.saturating_add(1);
             }
-            Phase::Connected(frame) | Phase::LoggedIn { frame, .. } => {
+            Phase::Connected(frame) => {
                 if *frame == frames::ONE_SECOND {
                     // Schedule a new status flow once per second.
                     //
@@ -403,6 +403,53 @@ impl Active {
                     self.queue.set_status();
                 }
                 *frame = frame.saturating_add(1);
+
+                // TODO: Require that the receive buffer is empty.
+                if self.state.sockets[0].frame() == frames::ONE_SECOND {
+                    // Schedule a new data transfer once per second.
+                    //
+                    // This ensures any available data is received and available if the user
+                    // requests it.
+                    self.queue.set_socket_1_transfer();
+                }
+                self.state.sockets[0].increment_frame();
+            }
+            Phase::LoggedIn {
+                frame,
+                socket_states,
+                ..
+            } => {
+                if *frame == frames::ONE_SECOND {
+                    // Schedule a new status flow once per second.
+                    //
+                    // This ensures we are constantly aware of whether the connection is still
+                    // live.
+                    self.queue.set_status();
+                }
+                *frame = frame.saturating_add(1);
+
+                for (index, socket_state) in socket_states.iter().enumerate() {
+                    let socket = &mut self.state.sockets[index];
+                    // TODO: Require that the receive buffer is empty.
+                    if matches!(socket_state, socket::State::Connected) {
+                        if socket.frame() == frames::TWO_SECONDS {
+                            // Schedule a new data transfer once every two seconds.
+                            //
+                            // This ensures any available data is received and available if the
+                            // user requests it.
+                            //
+                            // We use two seconds to give space for other requests. Otherwise,
+                            // these high priority requests would not allow anything else to
+                            // execute when both sockets are open.
+                            if index == 0 {
+                                self.queue.set_socket_1_transfer();
+                            } else {
+                                self.queue.set_socket_2_transfer();
+                            }
+                        }
+                        socket.increment_frame();
+                    }
+                }
             }
             _ => {}
         }

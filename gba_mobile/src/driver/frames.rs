@@ -4,6 +4,7 @@
 //! as idle pulses, timeouts, etc.
 
 pub(in crate::driver) const ONE_SECOND: u8 = 60;
+pub(in crate::driver) const TWO_SECONDS: u8 = 120;
 pub(in crate::driver) const THREE_SECONDS: u8 = 180;
 pub(in crate::driver) const FIFTEEN_SECONDS: u16 = 900;
 

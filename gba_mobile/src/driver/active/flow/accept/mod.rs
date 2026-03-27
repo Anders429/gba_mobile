@@ -64,6 +64,7 @@ impl Accept {
                                     // flow, in which case we should not update the phase.
                                     *phase = Phase::Connected(0);
                                     socket.set_id(socket::Id::P2P);
+                                    socket.reset_frame();
                                 }
                                 payload::accept_connection::ReceiveParsed::NotConnected => {
                                     *frame = 0;

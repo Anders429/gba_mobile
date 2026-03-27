@@ -78,6 +78,7 @@ impl Connect {
                             payload::connect::ReceiveParsed::Connected => {
                                 *phase = Phase::Connected(0);
                                 socket.set_id(socket::Id::P2P);
+                                socket.reset_frame();
                             }
                             payload::connect::ReceiveParsed::NotConnected => {
                                 *phase = Phase::Linked {

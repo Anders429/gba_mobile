@@ -32,16 +32,13 @@ impl Queue {
     ///
     /// If we attempt to use a socket that is currently not configured, the data read will be
     /// dropped.
-    const SOCKET_1_READ: Self = Self(0b0000_0001_0000_0000);
-    const SOCKET_1_WRITE: Self = Self(0b0000_0010_0000_0000);
-    const SOCKET_2_READ: Self = Self(0b0000_00100_0000_0000);
-    const SOCKET_2_WRITE: Self = Self(0b0000_1000_0000_0000);
-    // TODO: Can read and write be combined?
+    const SOCKET_1_TRANSFER: Self = Self(0b0000_0001_0000_0000);
+    const SOCKET_2_TRANSFER: Self = Self(0b0000_0010_0000_0000);
 
     /// To ensure we read/write on both sockets equally, we use this bit to toggle which should be
     /// read/written with higher priority. This way, if we continually write to both, we will see
     /// progress made on the communication over both as well.
-    const SOCKET_2_PRIORITY: Self = Self(0b0001_0000_0000_0000);
+    const SOCKET_2_PRIORITY: Self = Self(0b0000_0100_0000_0000);
 
     const WRITE_CONFIG: Self = Self(0b0010_0000_0000_0000);
 
@@ -104,20 +101,12 @@ impl Queue {
         }
     }
 
-    pub(super) fn set_socket_1_read(&mut self) {
-        self.set(Self::SOCKET_1_READ);
+    pub(super) fn set_socket_1_transfer(&mut self) {
+        self.set(Self::SOCKET_1_TRANSFER);
     }
 
-    pub(super) fn set_socket_1_write(&mut self) {
-        self.set(Self::SOCKET_1_WRITE);
-    }
-
-    pub(super) fn set_socket_2_read(&mut self) {
-        self.set(Self::SOCKET_2_READ);
-    }
-
-    pub(super) fn set_socket_2_write(&mut self) {
-        self.set(Self::SOCKET_2_WRITE);
+    pub(super) fn set_socket_2_transfer(&mut self) {
+        self.set(Self::SOCKET_2_TRANSFER);
     }
 
     pub(super) fn set_write_config(&mut self) {
@@ -301,6 +290,19 @@ impl Queue {
                     }
                 }
 
+                Item::Socket1Transfer => Some(Flow::transfer_data(
+                    state.transfer_length,
+                    state.timer,
+                    &state.sockets[0],
+                    crate::socket::Index::One,
+                )),
+                Item::Socket2Transfer => Some(Flow::transfer_data(
+                    state.transfer_length,
+                    state.timer,
+                    &state.sockets[1],
+                    crate::socket::Index::Two,
+                )),
+
                 Item::WriteConfig => Some(Flow::write_config(
                     state.transfer_length,
                     state.timer,
@@ -325,13 +327,13 @@ impl Queue {
         self.0 = self.0 & !bits.0
     }
 
-    fn clear_socket_1_transfer_data(&mut self) {
+    fn clear_socket_1_transfer(&mut self) {
         self.set(Queue::SOCKET_2_PRIORITY);
-        self.clear(Queue::SOCKET_1_WRITE | Queue::SOCKET_1_READ);
+        self.clear(Queue::SOCKET_1_TRANSFER);
     }
 
-    fn clear_socket_2_transfer_data(&mut self) {
-        self.clear(Queue::SOCKET_2_PRIORITY | Queue::SOCKET_2_WRITE | Queue::SOCKET_2_READ);
+    fn clear_socket_2_transfer(&mut self) {
+        self.clear(Queue::SOCKET_2_PRIORITY | Queue::SOCKET_2_TRANSFER);
     }
 
     fn clear_session(&mut self) {
@@ -379,24 +381,15 @@ impl Iterator for Queue {
     /// Redundant items will be queued as necessary. For example, if we are ending the session, the
     /// status bit is redundant as it will make no difference afterward.
     fn next(&mut self) -> Option<Self::Item> {
-        if self.has(Queue::SOCKET_2_PRIORITY | Queue::SOCKET_2_WRITE) {
-            self.clear_socket_2_transfer_data();
-            Some(Item::Socket2Write)
-        } else if self.has(Queue::SOCKET_2_PRIORITY | Queue::SOCKET_2_READ) {
-            self.clear_socket_2_transfer_data();
-            Some(Item::Socket2Read)
-        } else if self.has(Queue::SOCKET_1_WRITE) {
-            self.clear_socket_1_transfer_data();
-            Some(Item::Socket1Write)
-        } else if self.has(Queue::SOCKET_1_READ) {
-            self.clear_socket_1_transfer_data();
-            Some(Item::Socket1Read)
-        } else if self.has(Queue::SOCKET_2_WRITE) {
-            self.clear_socket_2_transfer_data();
-            Some(Item::Socket2Write)
-        } else if self.has(Queue::SOCKET_2_READ) {
-            self.clear_socket_2_transfer_data();
-            Some(Item::Socket2Read)
+        if self.has(Queue::SOCKET_2_PRIORITY | Queue::SOCKET_2_TRANSFER) {
+            self.clear_socket_2_transfer();
+            Some(Item::Socket2Transfer)
+        } else if self.has(Queue::SOCKET_1_TRANSFER) {
+            self.clear_socket_1_transfer();
+            Some(Item::Socket1Transfer)
+        } else if self.has(Queue::SOCKET_2_TRANSFER) {
+            self.clear_socket_2_transfer();
+            Some(Item::Socket2Transfer)
         } else if self.has(Queue::WRITE_CONFIG) {
             self.clear(Queue::WRITE_CONFIG);
             Some(Item::WriteConfig)
@@ -454,10 +447,8 @@ pub(super) enum Item {
     Socket2Open,
     Socket2Close,
 
-    Socket1Read,
-    Socket1Write,
-    Socket2Read,
-    Socket2Write,
+    Socket1Transfer,
+    Socket2Transfer,
 
     WriteConfig,
 

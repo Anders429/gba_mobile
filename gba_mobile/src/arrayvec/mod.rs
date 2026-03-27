@@ -70,7 +70,7 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len() as usize) }
     }
 
-    fn try_push(&mut self, element: T) -> Result<(), error::Capacity<CAP>> {
+    pub(crate) fn try_push(&mut self, element: T) -> Result<(), error::Capacity<CAP>> {
         let len = self.len() as usize;
         if len < CAP {
             unsafe {

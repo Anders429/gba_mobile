@@ -184,6 +184,7 @@ impl OpenTcp {
                                     sockets.get_unchecked_mut(self.socket_index.get() as usize)
                                 };
                                 socket.set_id(id);
+                                socket.reset_frame();
                                 if let Some(socket_state) = socket_state {
                                     *socket_state = socket::State::Connected;
                                 }

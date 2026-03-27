@@ -60,7 +60,7 @@ impl WriteConfig {
         adapter: &mut Adapter,
         transfer_length: TransferLength,
     ) -> Result<Option<Self>, Error> {
-        let result = match self {
+        match self {
             Self::WriteConfig1(packet, data) => packet
                 .serial(timer)
                 .map(|response| match response {
@@ -88,7 +88,6 @@ impl WriteConfig {
                     }
                 })
                 .map_err(Error::WriteConfig2),
-        };
-        result
+        }
     }
 }

@@ -181,6 +181,7 @@ impl OpenUdp {
                         let socket =
                             unsafe { sockets.get_unchecked_mut(self.socket_index.get() as usize) };
                         socket.set_id(response.payload.id);
+                        socket.reset_frame();
                         if let Some(socket_state) = socket_state {
                             *socket_state = socket::State::Connected;
                         }
