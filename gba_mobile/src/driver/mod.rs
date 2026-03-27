@@ -34,16 +34,18 @@ enum State {
 }
 
 #[derive(Debug)]
-pub(crate) struct Driver {
+pub struct Driver {
     link_generation: Generation,
+    timer: Timer,
 
     state: State,
 }
 
 impl Driver {
-    pub(crate) const fn new() -> Self {
+    pub const fn new(timer: Timer) -> Self {
         Self {
             link_generation: Generation::new(),
+            timer,
 
             state: State::Inactive,
         }
@@ -77,16 +79,16 @@ impl Driver {
         }
     }
 
-    pub(crate) fn link(&mut self, timer: Timer) -> Generation {
+    pub(crate) fn link(&mut self) -> Generation {
         self.link_generation = self.link_generation.increment();
-        Self::enable_interrupts(timer);
+        Self::enable_interrupts(self.timer);
         match &mut self.state {
             State::Inactive | State::Error(_) => {
                 Self::enable_communication();
-                self.state = State::Active(Active::new(timer));
+                self.state = State::Active(Active::new());
             }
             State::Active(active) => {
-                active.start_link(timer);
+                active.start_link();
             }
         }
         self.link_generation
@@ -333,7 +335,7 @@ impl Driver {
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => {
-                if let Err(timeout) = active.vblank() {
+                if let Err(timeout) = active.vblank(self.timer) {
                     self.state = State::Error(Error::Timeout(timeout));
                 }
             }
@@ -344,7 +346,7 @@ impl Driver {
     pub(crate) fn timer(&mut self) {
         match &mut self.state {
             State::Inactive => {}
-            State::Active(active) => active.timer(),
+            State::Active(active) => active.timer(self.timer),
             State::Error(_) => {}
         }
     }
@@ -352,7 +354,7 @@ impl Driver {
     pub(crate) fn serial(&mut self) {
         match &mut self.state {
             State::Inactive => {}
-            State::Active(active) => match active.serial() {
+            State::Active(active) => match active.serial(self.timer) {
                 Ok(active::StateChange::StillActive) => {}
                 Ok(active::StateChange::Inactive) => self.state = State::Inactive,
                 Err(error) => self.state = State::Error(Error::Error(error)),

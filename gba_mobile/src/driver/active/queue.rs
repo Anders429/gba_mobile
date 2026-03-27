@@ -1,4 +1,5 @@
 use super::{ConnectionRequest, Flow, Phase, State, socket};
+use crate::Timer;
 use core::{
     fmt::{self, Debug, Formatter},
     ops::BitOr,
@@ -121,20 +122,20 @@ impl Queue {
         self.set(Self::IDLE);
     }
 
-    pub(super) fn next_flow(&mut self, state: &State) -> Option<Flow> {
+    pub(super) fn next_flow(&mut self, state: &State, timer: Timer) -> Option<Flow> {
         self.next().and_then(|item| {
             match item {
                 Item::Start => Some(Flow::start(state.transfer_length)),
-                Item::End => Some(Flow::end(state.transfer_length, state.timer)),
-                Item::Reset => Some(Flow::reset(state.transfer_length, state.timer)),
+                Item::End => Some(Flow::end(state.transfer_length, timer)),
+                Item::Reset => Some(Flow::reset(state.transfer_length, timer)),
                 Item::Connect => match &state.phase {
                     Phase::Connecting(ConnectionRequest::Accept { .. }) => {
-                        Some(Flow::accept(state.transfer_length, state.timer))
+                        Some(Flow::accept(state.transfer_length, timer))
                     }
                     Phase::Connecting(ConnectionRequest::Connect { phone_number }) => {
                         Some(Flow::connect(
                             state.transfer_length,
-                            state.timer,
+                            timer,
                             state.adapter,
                             phone_number.clone(),
                             state.connection_generation,
@@ -148,7 +149,7 @@ impl Queue {
                         secondary_dns,
                     }) => Some(Flow::login(
                         state.transfer_length,
-                        state.timer,
+                        timer,
                         state.adapter,
                         phone_number.clone(),
                         id.clone(),
@@ -176,7 +177,7 @@ impl Queue {
                                 socket::Protocol::Tcp,
                             ) => Some(Flow::open_tcp_with_dns(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 domain.clone(),
                                 *port,
                                 RangedU8::new_static::<0>(),
@@ -188,7 +189,7 @@ impl Queue {
                                 socket::Protocol::Udp,
                             ) => Some(Flow::open_udp_with_dns(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 domain.clone(),
                                 *port,
                                 RangedU8::new_static::<0>(),
@@ -200,7 +201,7 @@ impl Queue {
                                 socket::Protocol::Tcp,
                             ) => Some(Flow::open_tcp_with_socket_addr(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 *addr,
                                 RangedU8::new_static::<0>(),
                                 state.connection_generation,
@@ -211,7 +212,7 @@ impl Queue {
                                 socket::Protocol::Udp,
                             ) => Some(Flow::open_udp_with_socket_addr(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 *addr,
                                 RangedU8::new_static::<0>(),
                                 state.connection_generation,
@@ -239,7 +240,7 @@ impl Queue {
                                 socket::Protocol::Tcp,
                             ) => Some(Flow::open_tcp_with_dns(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 domain.clone(),
                                 *port,
                                 RangedU8::new_static::<1>(),
@@ -251,7 +252,7 @@ impl Queue {
                                 socket::Protocol::Udp,
                             ) => Some(Flow::open_udp_with_dns(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 domain.clone(),
                                 *port,
                                 RangedU8::new_static::<1>(),
@@ -263,7 +264,7 @@ impl Queue {
                                 socket::Protocol::Tcp,
                             ) => Some(Flow::open_tcp_with_socket_addr(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 *addr,
                                 RangedU8::new_static::<1>(),
                                 state.connection_generation,
@@ -274,7 +275,7 @@ impl Queue {
                                 socket::Protocol::Udp,
                             ) => Some(Flow::open_udp_with_socket_addr(
                                 state.transfer_length,
-                                state.timer,
+                                timer,
                                 *addr,
                                 RangedU8::new_static::<1>(),
                                 state.connection_generation,
@@ -292,24 +293,24 @@ impl Queue {
 
                 Item::Socket1Transfer => Some(Flow::transfer_data(
                     state.transfer_length,
-                    state.timer,
+                    timer,
                     &state.sockets[0],
                     crate::socket::Index::One,
                 )),
                 Item::Socket2Transfer => Some(Flow::transfer_data(
                     state.transfer_length,
-                    state.timer,
+                    timer,
                     &state.sockets[1],
                     crate::socket::Index::Two,
                 )),
 
                 Item::WriteConfig => Some(Flow::write_config(
                     state.transfer_length,
-                    state.timer,
+                    timer,
                     &state.config,
                 )),
-                Item::Status => Some(Flow::status(state.transfer_length, state.timer)),
-                Item::Idle => Some(Flow::idle(state.transfer_length, state.timer)),
+                Item::Status => Some(Flow::status(state.transfer_length, timer)),
+                Item::Idle => Some(Flow::idle(state.transfer_length, timer)),
                 _ => todo!(),
             }
         })

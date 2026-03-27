@@ -33,7 +33,7 @@ use generation::Generation;
 use mmio::interrupt;
 
 #[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver = Driver::new();
+static mut DRIVER: Driver = Driver::new(Timer::_0);
 
 pub fn vblank() {
     unsafe {

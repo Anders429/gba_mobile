@@ -91,7 +91,6 @@ struct State {
 
     transfer_length: TransferLength,
     adapter: Adapter,
-    timer: Timer,
 
     phase: Phase,
     sockets: [Socket; 2],
@@ -101,14 +100,13 @@ struct State {
 }
 
 impl State {
-    fn new(timer: Timer) -> Self {
+    fn new() -> Self {
         Self {
             connection_generation: Generation::new(),
 
             transfer_length: TransferLength::_8Bit,
             // Arbitrary default. It will be overwritten after the first packet is received.
             adapter: Adapter::Blue,
-            timer,
 
             phase: Phase::Linking,
             sockets: [Socket::new(), Socket::new()],
@@ -130,17 +128,17 @@ pub(super) struct Active {
 impl Active {
     /// Define a new active communication state, attempting to immediately link with the Mobile
     /// Adapter.
-    pub(super) fn new(timer: Timer) -> Self {
+    pub(super) fn new() -> Self {
         Self {
             queue: Queue::new(),
             flow: Some(Flow::start(TransferLength::_8Bit)),
 
-            state: State::new(timer),
+            state: State::new(),
         }
     }
 
     /// Start a new link, closing any existing link if one is active.
-    pub(super) fn start_link(&mut self, timer: Timer) {
+    pub(super) fn start_link(&mut self) {
         match self.state.phase {
             Phase::Linking | Phase::Ending => {
                 // In either of these phases, we do not need to schedule the end of the previous
@@ -153,7 +151,6 @@ impl Active {
             }
         }
         self.state.phase = Phase::Linking;
-        self.state.timer = timer;
     }
 
     pub(super) fn link_status(&self) -> Result<bool, super::error::link::Error> {
@@ -375,7 +372,7 @@ impl Active {
         self.queue.set_write_config();
     }
 
-    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+    pub(super) fn vblank(&mut self, timer: Timer) -> Result<(), Timeout> {
         match &mut self.state.phase {
             Phase::Linked { frame, .. } => {
                 if *frame == frames::ONE_SECOND {
@@ -457,7 +454,7 @@ impl Active {
         if let Some(flow) = self.flow.take() {
             self.flow = Some(flow.vblank()?);
             Ok(())
-        } else if let Some(new_flow) = self.queue.next_flow(&self.state) {
+        } else if let Some(new_flow) = self.queue.next_flow(&self.state, timer) {
             // Reset the frame count so we don't timeout.
             self.state.frame = 0;
             self.flow = Some(new_flow);
@@ -474,16 +471,16 @@ impl Active {
         }
     }
 
-    pub(super) fn timer(&mut self) {
-        self.state.timer.stop();
+    pub(super) fn timer(&mut self, timer: Timer) {
+        timer.stop();
         if let Some(flow) = &mut self.flow {
             flow.timer()
         }
     }
 
-    pub(super) fn serial(&mut self) -> Result<StateChange, Error> {
+    pub(super) fn serial(&mut self, timer: Timer) -> Result<StateChange, Error> {
         if let Some(flow) = self.flow.take() {
-            match flow.serial(&mut self.state, &mut self.queue)? {
+            match flow.serial(&mut self.state, &mut self.queue, timer)? {
                 Either::Left(flow) => {
                     self.flow = Some(flow);
                     Ok(StateChange::StillActive)

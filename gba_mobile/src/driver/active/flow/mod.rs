@@ -275,11 +275,12 @@ impl Flow {
         self,
         state: &mut State,
         queue: &mut Queue,
+        timer: Timer,
     ) -> Result<Either<Self, StateChange>, Error> {
         match self {
             Self::Start(start) => start
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     &mut state.transfer_length,
                     &mut state.phase,
@@ -300,7 +301,7 @@ impl Flow {
                 })
                 .map_err(Error::Start),
             Self::End(end) => end
-                .serial(state.timer, &mut state.adapter, &mut state.transfer_length)
+                .serial(timer, &mut state.adapter, &mut state.transfer_length)
                 .map(|flow| {
                     flow.map_or_else(
                         || {
@@ -316,7 +317,7 @@ impl Flow {
                 .map_err(Error::End),
             Self::Reset(reset) => reset
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     &mut state.transfer_length,
                     &mut state.phase,
@@ -331,7 +332,7 @@ impl Flow {
                 .map_err(Error::Reset),
             Self::Accept(accept) => accept
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     &mut state.phase,
                     &mut state.sockets[0],
@@ -345,7 +346,7 @@ impl Flow {
                 .map_err(Error::Accept),
             Self::Connect(connect) => connect
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     &mut state.phase,
                     &mut state.sockets[0],
@@ -360,7 +361,7 @@ impl Flow {
                 .map_err(Error::Connect),
             Self::Login(login) => login
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     state.transfer_length,
                     &mut state.phase,
@@ -375,7 +376,7 @@ impl Flow {
                 .map_err(Error::Login),
             Self::OpenTcp(open_tcp) => open_tcp
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     state.transfer_length,
                     &mut state.phase,
@@ -391,7 +392,7 @@ impl Flow {
                 .map_err(Error::OpenTcp),
             Self::OpenUdp(open_udp) => open_udp
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     state.transfer_length,
                     &mut state.phase,
@@ -407,7 +408,7 @@ impl Flow {
                 .map_err(Error::OpenUdp),
             Self::TransferData(transfer_data) => transfer_data
                 .serial(
-                    state.timer,
+                    timer,
                     &mut state.adapter,
                     &mut state.sockets,
                     &mut state.phase,
@@ -420,7 +421,7 @@ impl Flow {
                 })
                 .map_err(Error::TransferData),
             Self::WriteConfig(write_config) => write_config
-                .serial(state.timer, &mut state.adapter, state.transfer_length)
+                .serial(timer, &mut state.adapter, state.transfer_length)
                 .map(|flow| {
                     flow.map_or_else(
                         || Either::Right(StateChange::StillActive),
@@ -429,7 +430,7 @@ impl Flow {
                 })
                 .map_err(Error::WriteConfig),
             Self::Status(status) => status
-                .serial(state.timer, &mut state.adapter, &mut state.phase)
+                .serial(timer, &mut state.adapter, &mut state.phase)
                 .map(|flow| {
                     flow.map_or_else(
                         || Either::Right(StateChange::StillActive),
@@ -438,7 +439,7 @@ impl Flow {
                 })
                 .map_err(Error::Status),
             Self::Idle(idle) => idle
-                .serial(state.timer, &mut state.phase)
+                .serial(timer, &mut state.phase)
                 .map(|flow| {
                     flow.map_or_else(
                         || Either::Right(StateChange::StillActive),

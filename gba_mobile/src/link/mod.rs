@@ -6,8 +6,7 @@ pub use error::Error;
 pub use pending::Pending;
 
 use crate::{
-    Adapter, ArrayVec, Config, DRIVER, Generation, Timer, digit::IntoDigits, mmio::interrupt, p2p,
-    ppp,
+    Adapter, ArrayVec, Config, DRIVER, Generation, digit::IntoDigits, mmio::interrupt, p2p, ppp,
 };
 use core::net::Ipv4Addr;
 
@@ -17,11 +16,11 @@ pub struct Link {
 }
 
 impl Link {
-    pub fn new(timer: Timer) -> Pending {
+    pub fn new() -> Pending {
         unsafe {
             let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
             interrupt::MASTER_ENABLE.write_volatile(false);
-            let link_generation = DRIVER.link(timer);
+            let link_generation = DRIVER.link();
             interrupt::MASTER_ENABLE.write_volatile(prev_enable);
             Pending { link_generation }
         }

@@ -46,7 +46,7 @@ pub fn main() {
 
     VBlankIntrWait();
 
-    let pending_link = gba_mobile::Link::new(Timer::_0);
+    let pending_link = gba_mobile::Link::new();
 
     let status = loop {
         VBlankIntrWait();
