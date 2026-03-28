@@ -195,7 +195,7 @@ impl Driver {
     }
 
     pub(crate) fn connection_status(
-        &mut self,
+        &self,
         link_generation: Generation,
         connection_generation: Generation,
     ) -> Result<bool, error::connection::Error> {
@@ -203,7 +203,7 @@ impl Driver {
             return Err(error::link::Error::superseded().into());
         }
 
-        match &mut self.state {
+        match &self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => active.connection_status(connection_generation),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
@@ -331,7 +331,7 @@ impl Driver {
         }
     }
 
-    pub(crate) fn vblank(&mut self) {
+    pub fn vblank(&mut self) {
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => {
@@ -343,7 +343,7 @@ impl Driver {
         }
     }
 
-    pub(crate) fn timer(&mut self) {
+    pub fn timer(&mut self) {
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => active.timer(self.timer),
@@ -351,7 +351,7 @@ impl Driver {
         }
     }
 
-    pub(crate) fn serial(&mut self) {
+    pub fn serial(&mut self) {
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => match active.serial(self.timer) {

@@ -6,7 +6,23 @@
 use core::net::Ipv4Addr;
 
 use gba::prelude::*;
-use gba_mobile::{Digit, Timer, config::mobile_system_gb};
+use gba_mobile::{Digit, Driver, Link, Timer, config::mobile_system_gb};
+
+#[unsafe(link_section = ".ewram")]
+static mut DRIVER: Driver = Driver::new(Timer::_0);
+
+// TODO: This function should probably be unsafe.
+#[allow(static_mut_refs)]
+fn with_driver<T, F>(f: F) -> T
+where
+    F: FnOnce(&mut Driver) -> T,
+{
+    let previous_ime = IME.read();
+    IME.write(false);
+    let result = f(unsafe { &mut DRIVER });
+    IME.write(previous_ime);
+    result
+}
 
 #[panic_handler]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
@@ -20,13 +36,13 @@ extern "C" fn irq_handler(bits: IrqBits) {
     // To use gba_mobile, you must provide an interrupt handler that calls the library's interrupt
     // handler functions.
     if bits.vblank() {
-        gba_mobile::vblank();
+        with_driver(Driver::vblank);
     }
     if bits.timer0() {
-        gba_mobile::timer();
+        with_driver(Driver::timer);
     }
     if bits.serial() {
-        gba_mobile::serial();
+        with_driver(Driver::serial);
     }
 }
 
@@ -46,12 +62,12 @@ pub fn main() {
 
     VBlankIntrWait();
 
-    let pending_link = gba_mobile::Link::new();
+    let pending_link = with_driver(Link::new);
 
     let status = loop {
         VBlankIntrWait();
 
-        let status = pending_link.status();
+        let status = with_driver(|driver| pending_link.status(driver));
 
         if let Ok(None) = status {
             continue;
@@ -64,7 +80,7 @@ pub fn main() {
     if let Ok(Some(link)) = status {
         log::info!(
             "connected to {} adapter",
-            link.adapter().expect("unable to check adapter")
+            with_driver(|driver| link.adapter(driver)).expect("unable to check adapter")
         );
 
         let write_config = mobile_system_gb::Config {
@@ -77,35 +93,38 @@ pub fn main() {
             pop_server: [0; 19],
             configuration_slots: Default::default(),
         };
-        link.write_config(write_config)
+        with_driver(|driver| link.write_config(driver, write_config))
             .expect("couldn't write config");
 
-        let config = link.config::<mobile_system_gb::Config>();
+        let config = with_driver(|driver| link.config::<mobile_system_gb::Config>(driver));
         log::info!("attempted to parse Mobile System GB config: {config:?}");
 
         let pending_ppp = {
             log::info!("logging in!");
-            link.login(
-                // #9677
-                [
-                    Digit::try_from(b'#').unwrap(),
-                    Digit::try_from(b'9').unwrap(),
-                    Digit::try_from(b'6').unwrap(),
-                    Digit::try_from(b'7').unwrap(),
-                    Digit::try_from(b'7').unwrap(),
-                ]
-                .as_slice(),
-                [],
-                [],
-                Ipv4Addr::from_octets([8, 8, 8, 8]),
-                Ipv4Addr::from_octets([8, 8, 4, 4]),
-            )
+            with_driver(|driver| {
+                link.login(
+                    driver,
+                    // #9677
+                    [
+                        Digit::try_from(b'#').unwrap(),
+                        Digit::try_from(b'9').unwrap(),
+                        Digit::try_from(b'6').unwrap(),
+                        Digit::try_from(b'7').unwrap(),
+                        Digit::try_from(b'7').unwrap(),
+                    ]
+                    .as_slice(),
+                    [],
+                    [],
+                    Ipv4Addr::from_octets([8, 8, 8, 8]),
+                    Ipv4Addr::from_octets([8, 8, 4, 4]),
+                )
+            })
             .expect("login failed")
         };
         let ppp_status = loop {
             VBlankIntrWait();
 
-            let status = pending_ppp.status();
+            let status = with_driver(|driver| pending_ppp.status(driver));
 
             if let Ok(None) = status {
                 continue;
@@ -115,13 +134,12 @@ pub fn main() {
         log::info!("ppp connection status: {ppp_status:?}");
 
         if let Ok(Some(ppp)) = ppp_status {
-            let pending_tcp = ppp
-                .open_tcp("www.google.com:80")
+            let pending_tcp = with_driver(|driver| ppp.open_tcp(driver, "www.google.com:80"))
                 .expect("TCP connection attempt failed");
             let tcp_status = loop {
                 VBlankIntrWait();
 
-                let status = pending_tcp.status();
+                let status = with_driver(|driver| pending_tcp.status(driver));
 
                 if let Ok(None) = status {
                     continue;
@@ -154,13 +172,13 @@ pub fn main() {
             let keys = gba::mmio::KEYINPUT.read();
             if keys.a() {
                 log::info!("connecting!");
-                let pending_p2p = link
-                    .connect(Ipv4Addr::LOCALHOST)
+                let pending_p2p = with_driver(|driver| link.connect(driver, Ipv4Addr::LOCALHOST))
                     .expect("p2p connection failed");
                 break pending_p2p;
             } else if keys.b() {
                 log::info!("accepting!");
-                let pending_p2p = link.accept().expect("p2p connection failed");
+                let pending_p2p =
+                    with_driver(|driver| link.accept(driver)).expect("p2p connection failed");
                 break pending_p2p;
             }
         };
@@ -168,7 +186,7 @@ pub fn main() {
         let p2p_status = loop {
             VBlankIntrWait();
 
-            let status = pending_p2p.status();
+            let status = with_driver(|driver| pending_p2p.status(driver));
 
             if let Ok(None) = status {
                 continue;

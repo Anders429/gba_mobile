@@ -5,9 +5,8 @@ pub use error::Error;
 pub use pending::Pending;
 
 use crate::{
-    DRIVER, Generation,
+    Driver, Generation,
     arrayvec::ArrayVec,
-    mmio::interrupt,
     socket::{self, ToSocket, to_socket::Host},
 };
 use either::Either;
@@ -23,6 +22,7 @@ pub struct PPP {
 impl PPP {
     pub fn open_tcp<ToSocket>(
         &self,
+        driver: &mut Driver,
         to_socket: ToSocket,
     ) -> Result<socket::Pending, error::socket::Error<ToSocket::Error>>
     where
@@ -36,30 +36,25 @@ impl PPP {
             Host::Name(name) => Either::Right(ArrayVec::try_from_iter(name.into_iter().copied())?),
         };
 
-        unsafe {
-            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
-            interrupt::MASTER_ENABLE.write_volatile(false);
-            let result = DRIVER.open_tcp(
+        driver
+            .open_tcp(
                 self.link_generation,
                 self.connection_generation,
                 internal_host,
                 port,
-            );
-            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-
-            result?
-                .map(|(socket_generation, index)| socket::Pending {
-                    link_generation: self.link_generation,
-                    connection_generation: self.connection_generation,
-                    socket_generation,
-                    index,
-                })
-                .ok_or_else(error::socket::Error::no_available_sockets)
-        }
+            )?
+            .map(|(socket_generation, index)| socket::Pending {
+                link_generation: self.link_generation,
+                connection_generation: self.connection_generation,
+                socket_generation,
+                index,
+            })
+            .ok_or_else(error::socket::Error::no_available_sockets)
     }
 
     pub fn open_udp<ToSocket>(
         &self,
+        driver: &mut Driver,
         to_socket: ToSocket,
     ) -> Result<socket::Pending, error::socket::Error<ToSocket::Error>>
     where
@@ -73,25 +68,19 @@ impl PPP {
             Host::Name(name) => Either::Right(ArrayVec::try_from_iter(name.into_iter().copied())?),
         };
 
-        unsafe {
-            let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
-            interrupt::MASTER_ENABLE.write_volatile(false);
-            let result = DRIVER.open_udp(
+        driver
+            .open_udp(
                 self.link_generation,
                 self.connection_generation,
                 internal_host,
                 port,
-            );
-            interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-
-            result?
-                .map(|(socket_generation, index)| socket::Pending {
-                    link_generation: self.link_generation,
-                    connection_generation: self.connection_generation,
-                    socket_generation,
-                    index,
-                })
-                .ok_or_else(error::socket::Error::no_available_sockets)
-        }
+            )?
+            .map(|(socket_generation, index)| socket::Pending {
+                link_generation: self.link_generation,
+                connection_generation: self.connection_generation,
+                socket_generation,
+                index,
+            })
+            .ok_or_else(error::socket::Error::no_available_sockets)
     }
 }

@@ -23,44 +23,12 @@ mod timer;
 
 pub use config::Config;
 pub use digit::Digit;
-pub use driver::Adapter;
+pub use driver::{Adapter, Driver};
 pub use link::Link;
 pub use timer::Timer;
 
 use arrayvec::ArrayVec;
-use driver::Driver;
 use generation::Generation;
-use mmio::interrupt;
-
-#[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver = Driver::new(Timer::_0);
-
-pub fn vblank() {
-    unsafe {
-        let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
-        interrupt::MASTER_ENABLE.write_volatile(false);
-        DRIVER.vblank();
-        interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-    }
-}
-
-pub fn timer() {
-    unsafe {
-        let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
-        interrupt::MASTER_ENABLE.write_volatile(false);
-        DRIVER.timer();
-        interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-    }
-}
-
-pub fn serial() {
-    unsafe {
-        let prev_enable = interrupt::MASTER_ENABLE.read_volatile();
-        interrupt::MASTER_ENABLE.write_volatile(false);
-        DRIVER.serial();
-        interrupt::MASTER_ENABLE.write_volatile(prev_enable);
-    }
-}
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
