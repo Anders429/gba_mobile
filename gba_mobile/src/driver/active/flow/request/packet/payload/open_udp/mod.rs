@@ -1,7 +1,7 @@
 pub(in crate::driver) mod error;
 
 use super::{Payload, command_error};
-use crate::driver::{Command, active::socket};
+use crate::{driver::Command, socket};
 use core::{net::SocketAddrV4, num::NonZeroU16};
 use either::Either;
 

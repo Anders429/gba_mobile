@@ -1,7 +1,8 @@
+pub(crate) mod flow;
+pub(crate) mod queue;
+
 pub(in crate::driver) mod socket;
 
-mod flow;
-mod queue;
 mod timeout;
 
 pub(in crate::driver) use flow::Error;
@@ -19,7 +20,6 @@ use core::{
 use either::Either;
 use flow::Flow;
 use queue::Queue;
-use socket::Socket;
 
 #[derive(Debug)]
 enum ConnectionRequest {
@@ -78,7 +78,7 @@ enum Phase {
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
         socket_generations: [Generation; 2],
-        socket_states: [socket::State; 2],
+        socket_requests: [Option<(socket::Request, socket::Protocol)>; 2],
     },
 
     /// This link is being closed.
@@ -93,7 +93,6 @@ struct State {
     adapter: Adapter,
 
     phase: Phase,
-    sockets: [Socket; 2],
     config: [u8; 256],
 
     frame: u8,
@@ -109,7 +108,6 @@ impl State {
             adapter: Adapter::Blue,
 
             phase: Phase::Linking,
-            sockets: [Socket::new(), Socket::new()],
             config: [0; 256],
 
             frame: 0,
@@ -118,14 +116,22 @@ impl State {
 }
 
 #[derive(Debug)]
-pub(super) struct Active {
-    queue: Queue,
-    flow: Option<Flow>,
+pub(super) struct Active<Socket1, Socket2>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+{
+    queue: Queue<Socket1, Socket2>,
+    flow: Option<Flow<Socket1, Socket2>>,
 
     state: State,
 }
 
-impl Active {
+impl<Socket1, Socket2> Active<Socket1, Socket2>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+{
     /// Define a new active communication state, attempting to immediately link with the Mobile
     /// Adapter.
     pub(super) fn new() -> Self {
@@ -249,13 +255,14 @@ impl Active {
         }
     }
 
-    pub(crate) fn open_socket(
+    pub(crate) fn open_socket<Buffer, const INDEX: usize>(
         &mut self,
         connection_generation: Generation,
         host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
         port: u16,
         protocol: socket::Protocol,
-    ) -> Result<Option<(Generation, crate::socket::Index)>, super::error::connection::Error> {
+        socket: &mut crate::Socket<Buffer>,
+    ) -> Result<Generation, super::error::connection::Error> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
         }
@@ -268,59 +275,33 @@ impl Active {
             Phase::Ending => Err(super::error::link::Error::closed().into()),
             Phase::LoggedIn {
                 socket_generations,
-                socket_states,
+                socket_requests,
                 ..
             } => {
-                // Find the first available socket.
-                let mut socket_index = None;
-                for (index, socket_state) in socket_states.iter().enumerate() {
-                    if matches!(
-                        socket_state,
-                        socket::State::Available | socket::State::Failure(_)
-                    ) {
-                        if index == 0 {
-                            socket_index = Some(crate::socket::Index::One);
-                        } else {
-                            socket_index = Some(crate::socket::Index::Two);
-                        }
-                        break;
-                    }
-                }
-                if let Some(socket_index) = socket_index {
-                    // Schedule the request.
-                    let request = match host {
-                        Either::Left(ip) => {
-                            socket::Request::SocketAddr(SocketAddrV4::new(ip, port))
-                        }
-                        Either::Right(domain) => socket::Request::Dns { domain, port },
-                    };
-                    socket_states[usize::from(socket_index)] =
-                        socket::State::Connecting(request, protocol);
-                    if matches!(socket_index, crate::socket::Index::One) {
-                        self.queue.set_socket_1_open();
-                    } else {
-                        self.queue.set_socket_2_open();
-                    }
+                socket.status = crate::socket::Status::Connecting;
+                let request = match host {
+                    Either::Left(ip) => socket::Request::SocketAddr(SocketAddrV4::new(ip, port)),
+                    Either::Right(domain) => socket::Request::Dns { domain, port },
+                };
+                socket_requests[INDEX] = Some((request, protocol));
 
-                    // Return the new socket generation.
-                    socket_generations[usize::from(socket_index)].increment();
-                    Ok(Some((
-                        socket_generations[usize::from(socket_index)],
-                        socket_index,
-                    )))
+                if INDEX == 0 {
+                    self.queue.set_socket_1_open();
                 } else {
-                    // There are no unused sockets.
-                    Ok(None)
+                    self.queue.set_socket_2_open();
                 }
+
+                socket_generations[INDEX] = socket_generations[INDEX].increment();
+                Ok(socket_generations[INDEX])
             }
         }
     }
 
-    pub(crate) fn socket_status(
+    pub(crate) fn socket_status<Buffer, const INDEX: usize>(
         &self,
         connection_generation: Generation,
         socket_generation: Generation,
-        index: crate::socket::Index,
+        socket: &crate::Socket<Buffer>,
     ) -> Result<bool, super::error::socket::Error> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -333,19 +314,21 @@ impl Active {
             Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
             Phase::LoggedIn {
-                socket_generations,
-                socket_states,
-                ..
+                socket_generations, ..
             } => {
-                if socket_generations[usize::from(index)] != socket_generation {
+                if socket_generations[INDEX] != socket_generation {
                     return Err(super::error::socket::Error::superseded());
                 }
 
-                match &socket_states[usize::from(index)] {
-                    socket::State::Available => Err(super::error::socket::Error::superseded()),
-                    socket::State::Connecting(_, _) => Ok(false),
-                    socket::State::Connected => Ok(true),
-                    socket::State::Failure(error) => Err(error.clone().into()),
+                match socket.status {
+                    crate::socket::Status::NotConnected => {
+                        Err(super::error::socket::Error::superseded())
+                    }
+                    crate::socket::Status::Connecting => Ok(false),
+                    crate::socket::Status::Connected => Ok(true),
+                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::ConnectionLost => Err(todo!()),
+                    crate::socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
         }
@@ -372,7 +355,12 @@ impl Active {
         self.queue.set_write_config();
     }
 
-    pub(super) fn vblank(&mut self, timer: Timer) -> Result<(), Timeout> {
+    pub(super) fn vblank(
+        &mut self,
+        timer: Timer,
+        socket_1: &mut Socket1,
+        socket_2: &mut Socket2,
+    ) -> Result<(), Timeout> {
         match &mut self.state.phase {
             Phase::Linked { frame, .. } => {
                 if *frame == frames::ONE_SECOND {
@@ -402,20 +390,20 @@ impl Active {
                 *frame = frame.saturating_add(1);
 
                 // TODO: Require that the receive buffer is empty.
-                if self.state.sockets[0].frame() == frames::ONE_SECOND {
-                    // Schedule a new data transfer once per second.
-                    //
-                    // This ensures any available data is received and available if the user
-                    // requests it.
-                    self.queue.set_socket_1_transfer();
+                if let Some((frame, status)) = socket_1.vblank_info() {
+                    if matches!(status, crate::socket::Status::Connected) {
+                        if *frame == frames::ONE_SECOND {
+                            // Schedule a new data transfer once per second.
+                            //
+                            // This ensures any available data is received and available if the
+                            // user requests it.
+                            self.queue.set_socket_1_transfer();
+                        }
+                        *frame = frame.saturating_add(1);
+                    }
                 }
-                self.state.sockets[0].increment_frame();
             }
-            Phase::LoggedIn {
-                frame,
-                socket_states,
-                ..
-            } => {
+            Phase::LoggedIn { frame, .. } => {
                 if *frame == frames::ONE_SECOND {
                     // Schedule a new status flow once per second.
                     //
@@ -425,11 +413,9 @@ impl Active {
                 }
                 *frame = frame.saturating_add(1);
 
-                for (index, socket_state) in socket_states.iter().enumerate() {
-                    let socket = &mut self.state.sockets[index];
-                    // TODO: Require that the receive buffer is empty.
-                    if matches!(socket_state, socket::State::Connected) {
-                        if socket.frame() == frames::TWO_SECONDS {
+                if let Some((frame, status)) = socket_1.vblank_info() {
+                    if matches!(status, crate::socket::Status::Connected) {
+                        if *frame == frames::TWO_SECONDS {
                             // Schedule a new data transfer once every two seconds.
                             //
                             // This ensures any available data is received and available if the
@@ -438,13 +424,26 @@ impl Active {
                             // We use two seconds to give space for other requests. Otherwise,
                             // these high priority requests would not allow anything else to
                             // execute when both sockets are open.
-                            if index == 0 {
-                                self.queue.set_socket_1_transfer();
-                            } else {
-                                self.queue.set_socket_2_transfer();
-                            }
+                            self.queue.set_socket_1_transfer();
                         }
-                        socket.increment_frame();
+                        *frame = frame.saturating_add(1);
+                    }
+                }
+
+                if let Some((frame, status)) = socket_2.vblank_info() {
+                    if matches!(status, crate::socket::Status::Connected) {
+                        if *frame == frames::TWO_SECONDS {
+                            // Schedule a new data transfer once every two seconds.
+                            //
+                            // This ensures any available data is received and available if the
+                            // user requests it.
+                            //
+                            // We use two seconds to give space for other requests. Otherwise,
+                            // these high priority requests would not allow anything else to
+                            // execute when both sockets are open.
+                            self.queue.set_socket_2_transfer();
+                        }
+                        *frame = frame.saturating_add(1);
                     }
                 }
             }
@@ -454,7 +453,10 @@ impl Active {
         if let Some(flow) = self.flow.take() {
             self.flow = Some(flow.vblank()?);
             Ok(())
-        } else if let Some(new_flow) = self.queue.next_flow(&self.state, timer) {
+        } else if let Some(new_flow) =
+            self.queue
+                .next_flow(&mut self.state, timer, socket_1, socket_2)
+        {
             // Reset the frame count so we don't timeout.
             self.state.frame = 0;
             self.flow = Some(new_flow);
@@ -478,9 +480,14 @@ impl Active {
         }
     }
 
-    pub(super) fn serial(&mut self, timer: Timer) -> Result<StateChange, Error> {
+    pub(super) fn serial(
+        &mut self,
+        timer: Timer,
+        socket_1: &mut Socket1,
+        socket_2: &mut Socket2,
+    ) -> Result<StateChange, Error> {
         if let Some(flow) = self.flow.take() {
-            match flow.serial(&mut self.state, &mut self.queue, timer)? {
+            match flow.serial(&mut self.state, &mut self.queue, timer, socket_1, socket_2)? {
                 Either::Left(flow) => {
                     self.flow = Some(flow);
                     Ok(StateChange::StillActive)

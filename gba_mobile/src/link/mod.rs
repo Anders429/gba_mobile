@@ -5,18 +5,27 @@ mod pending;
 pub use error::Error;
 pub use pending::Pending;
 
-use crate::{Adapter, ArrayVec, Config, Driver, Generation, digit::IntoDigits, p2p, ppp};
-use core::net::Ipv4Addr;
+use crate::{
+    Adapter, ArrayVec, Config, Driver, Generation, Socket, connection, digit::IntoDigits, internet,
+    socket,
+};
+use core::{marker::PhantomData, net::Ipv4Addr};
 
 #[derive(Debug)]
-pub struct Link {
+pub struct Link<Driver> {
     link_generation: Generation,
+    driver: PhantomData<Driver>,
 }
 
-impl Link {
-    pub fn new(driver: &mut Driver) -> Pending {
+impl<Socket1, Socket2> Link<Driver<Socket1, Socket2>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
+    pub fn new(driver: &mut Driver<Socket1, Socket2>) -> Pending<Driver<Socket1, Socket2>> {
         Pending {
             link_generation: driver.link(),
+            driver: PhantomData,
         }
     }
 
@@ -24,46 +33,15 @@ impl Link {
         // TODO
     }
 
-    pub fn accept(&self, driver: &mut Driver) -> Result<p2p::Pending, Error> {
-        driver
-            .accept(self.link_generation)
-            .map(|connection_generation| p2p::Pending {
-                link_generation: self.link_generation,
-                connection_generation,
-            })
-            .map_err(Into::into)
-    }
-
-    pub fn connect<PhoneNumber>(
-        &self,
-        driver: &mut Driver,
-        phone_number: PhoneNumber,
-    ) -> Result<p2p::Pending, error::connect::Error>
-    where
-        PhoneNumber: IntoDigits,
-    {
-        ArrayVec::try_from_iter(phone_number.into_digits())
-            .map_err(Into::into)
-            .and_then(|digits| {
-                driver
-                    .connect(self.link_generation, digits)
-                    .map_err(Into::into)
-            })
-            .map(|connection_generation| p2p::Pending {
-                link_generation: self.link_generation,
-                connection_generation,
-            })
-    }
-
     pub fn login<PhoneNumber, Id, Password>(
         &self,
-        driver: &mut Driver,
+        driver: &mut Driver<Socket1, Socket2>,
         phone_number: PhoneNumber,
         id: Id,
         password: Password,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
-    ) -> Result<ppp::Pending, error::login::Error>
+    ) -> Result<internet::Pending<Driver<Socket1, Socket2>>, error::login::Error>
     where
         PhoneNumber: IntoDigits,
         Id: IntoIterator<Item = u8>,
@@ -91,19 +69,20 @@ impl Link {
                             })
                     })
             })
-            .map(|connection_generation| ppp::Pending {
+            .map(|connection_generation| internet::Pending {
                 link_generation: self.link_generation,
                 connection_generation,
+                driver: PhantomData,
             })
     }
 
-    pub fn adapter(&self, driver: &Driver) -> Result<Adapter, Error> {
+    pub fn adapter(&self, driver: &Driver<Socket1, Socket2>) -> Result<Adapter, Error> {
         driver.adapter(self.link_generation).map_err(Into::into)
     }
 
     pub fn config<Config>(
         &self,
-        driver: &Driver,
+        driver: &Driver<Socket1, Socket2>,
     ) -> Result<Config, error::config::Error<Config::Error>>
     where
         Config: self::Config,
@@ -114,12 +93,62 @@ impl Link {
             .and_then(|bytes| Config::read(bytes).map_err(error::config::Error::config_error))
     }
 
-    pub fn write_config<Config>(&self, driver: &mut Driver, config: Config) -> Result<(), Error>
+    pub fn write_config<Config>(
+        &self,
+        driver: &mut Driver<Socket1, Socket2>,
+        config: Config,
+    ) -> Result<(), Error>
     where
         Config: self::Config,
     {
         driver
             .write_config(self.link_generation, config)
             .map_err(Into::into)
+    }
+}
+
+impl<Buffer, Socket2> Link<Driver<Socket<Buffer>, Socket2>>
+where
+    Socket2: socket::Slot,
+{
+    pub fn accept(
+        &self,
+        driver: &mut Driver<Socket<Buffer>, Socket2>,
+    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2>, connection::P2p>, Error> {
+        driver
+            .accept(self.link_generation)
+            .map(|connection_generation| connection::Pending {
+                link_generation: self.link_generation,
+                connection_generation,
+                socket: connection::P2p,
+                driver: PhantomData,
+            })
+            .map_err(Into::into)
+    }
+
+    pub fn connect<PhoneNumber>(
+        &self,
+        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        phone_number: PhoneNumber,
+    ) -> Result<
+        connection::Pending<Driver<Socket<Buffer>, Socket2>, connection::P2p>,
+        error::connect::Error,
+    >
+    where
+        PhoneNumber: IntoDigits,
+    {
+        ArrayVec::try_from_iter(phone_number.into_digits())
+            .map_err(Into::into)
+            .and_then(|digits| {
+                driver
+                    .connect(self.link_generation, digits)
+                    .map_err(Into::into)
+            })
+            .map(|connection_generation| connection::Pending {
+                link_generation: self.link_generation,
+                connection_generation,
+                socket: connection::P2p,
+                driver: PhantomData,
+            })
     }
 }

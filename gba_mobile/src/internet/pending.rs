@@ -1,14 +1,11 @@
+use super::{Error, Internet};
+use crate::{Driver, Generation, socket};
 use core::marker::PhantomData;
-
-use crate::{
-    Driver, Generation,
-    link::{Error, Link},
-    socket,
-};
 
 #[derive(Debug)]
 pub struct Pending<Driver> {
     pub(crate) link_generation: Generation,
+    pub(crate) connection_generation: Generation,
     pub(crate) driver: PhantomData<Driver>,
 }
 
@@ -19,21 +16,17 @@ where
 {
     pub fn status(
         &self,
-        driver: &Driver<Socket1, Socket2>,
-    ) -> Result<Option<Link<Driver<Socket1, Socket2>>>, Error> {
+        driver: &mut Driver<Socket1, Socket2>,
+    ) -> Result<Option<Internet<Driver<Socket1, Socket2>>>, Error> {
         driver
-            .link_status(self.link_generation)
+            .connection_status(self.link_generation, self.connection_generation)
             .map(|finished| {
-                finished.then(|| Link {
+                finished.then(|| Internet {
                     link_generation: self.link_generation,
+                    connection_generation: self.connection_generation,
                     driver: PhantomData,
                 })
             })
-            .map_err(|error| error.into())
-    }
-
-    /// Cancel this pending link.
-    pub fn cancel(self) {
-        todo!()
+            .map_err(Into::into)
     }
 }

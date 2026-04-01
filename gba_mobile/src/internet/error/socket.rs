@@ -1,4 +1,4 @@
-use crate::{arrayvec, driver, ppp};
+use crate::{arrayvec, driver, internet};
 use core::{
     fmt,
     fmt::{Debug, Display, Formatter},
@@ -10,12 +10,6 @@ pub struct Error<SocketError> {
 }
 
 impl<SocketError> Error<SocketError> {
-    pub(crate) fn no_available_sockets() -> Self {
-        Self {
-            kind: Kind::NoAvailableSockets,
-        }
-    }
-
     pub(crate) fn socket(error: SocketError) -> Self {
         Self {
             kind: Kind::Socket(error),
@@ -56,8 +50,7 @@ impl<SocketError> From<arrayvec::error::Capacity<255>> for Error<SocketError> {
 
 #[derive(Debug)]
 enum Kind<SocketError> {
-    Connection(ppp::Error),
-    NoAvailableSockets,
+    Connection(internet::Error),
     Socket(SocketError),
     DomainNameCapacity(arrayvec::error::Capacity<255>),
 }
@@ -66,7 +59,6 @@ impl<SocketError> Display for Kind<SocketError> {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::Connection(_) => formatter.write_str("Mobile Adapter connection error"),
-            Self::NoAvailableSockets => formatter.write_str("there are no available sockets"),
             Self::Socket(_) => formatter.write_str("failed to convert to socket address"),
             Self::DomainNameCapacity(_) => {
                 formatter.write_str("could not process domain name lookup request")
@@ -82,7 +74,6 @@ where
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Connection(error) => Some(error),
-            Self::NoAvailableSockets => None,
             Self::Socket(error) => Some(error),
             Self::DomainNameCapacity(error) => Some(error),
         }

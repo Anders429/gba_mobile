@@ -5,7 +5,8 @@ mod data;
 use super::{Payload, command_error};
 use crate::{
     ArrayVec,
-    driver::{Command, active::socket, command},
+    driver::{Command, command},
+    socket,
 };
 use core::num::NonZeroU16;
 use data::Data;

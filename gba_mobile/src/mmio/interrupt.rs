@@ -1,7 +1,6 @@
 use core::ops::BitOr;
 
 pub(crate) const ENABLE: *mut Enable = 0x0400_0200 as *mut Enable;
-pub(crate) const MASTER_ENABLE: *mut bool = 0x0400_0208 as *mut bool;
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Enable(u16);

@@ -4,40 +4,34 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{
-    super::{Phase, Socket, socket},
-    request::{Packet, packet::payload},
-};
-use crate::{ArrayVec, Timer, driver::Adapter, mmio::serial::TransferLength};
+use super::request::{Packet, packet::payload};
+use crate::{Socket, Timer, driver::Adapter, mmio::serial::TransferLength, socket};
 use either::Either;
 
 #[derive(Debug)]
 pub(in super::super) struct TransferData {
     packet: Packet<payload::TransferData>,
-    index: crate::socket::Index,
 }
 
 impl TransferData {
-    pub(super) fn new(
+    pub(super) fn new<Buffer>(
         transfer_length: TransferLength,
         timer: Timer,
-        id: socket::Id,
-        data: ArrayVec<u8, 254>,
-        index: crate::socket::Index,
+        socket: &mut Socket<Buffer>,
     ) -> Self {
         Self {
-            packet: Packet::new(payload::TransferData::new(id, data), transfer_length, timer),
-            index,
+            packet: Packet::new(
+                payload::TransferData::new(socket.id, socket.write_buffer.take()),
+                transfer_length,
+                timer,
+            ),
         }
     }
 
     pub(super) fn vblank(self) -> Result<Self, Timeout> {
         self.packet
             .vblank()
-            .map(|packet| Self {
-                packet,
-                index: self.index,
-            })
+            .map(|packet| Self { packet })
             .map_err(Timeout::TransferData)
     }
 
@@ -45,39 +39,30 @@ impl TransferData {
         self.packet.timer();
     }
 
-    pub(super) fn serial(
+    pub(super) fn serial<Buffer>(
         self,
         timer: Timer,
         adapter: &mut Adapter,
-        sockets: &mut [Socket; 2],
-        phase: &mut Phase,
+        socket: &mut Socket<Buffer>,
     ) -> Result<Option<Self>, Error> {
         self.packet
             .serial(timer)
             .map(|response| match response {
-                Either::Left(packet) => Some(Self {
-                    packet,
-                    index: self.index,
-                }),
+                Either::Left(packet) => Some(Self { packet }),
                 Either::Right(response) => {
                     *adapter = response.adapter;
-                    let socket_state = if let Phase::LoggedIn { socket_states, .. } = phase {
-                        Some(&mut socket_states[usize::from(self.index)])
-                    } else {
-                        None
-                    };
-                    match response.payload.response {
-                        // TODO: Store the data.
-                        payload::transfer_data::Response::Data(data) => {
-                            sockets[usize::from(self.index)].reset_frame();
-                        }
-                        payload::transfer_data::Response::FinalData(data) => {
-                            sockets[usize::from(self.index)].reset_frame();
-                        }
-                        payload::transfer_data::Response::ConnectionFailed => {
-                            if let Some(socket_state) = socket_state {
-                                *socket_state =
-                                    socket::State::Failure(socket::Failure::ConnectionFailed);
+                    if matches!(socket.status, socket::Status::Connected) {
+                        match response.payload.response {
+                            // TODO: Store the data.
+                            payload::transfer_data::Response::Data(data) => {
+                                socket.frame = 0;
+                            }
+                            payload::transfer_data::Response::FinalData(data) => {
+                                socket.frame = 0;
+                                socket.status = socket::Status::ClosedRemotely;
+                            }
+                            payload::transfer_data::Response::ConnectionFailed => {
+                                socket.status = socket::Status::ConnectionLost;
                             }
                         }
                     }

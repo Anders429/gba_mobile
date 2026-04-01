@@ -5,12 +5,13 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::{
-    super::{Phase, Socket, socket},
+    super::Phase,
     request::{Packet, packet::payload},
 };
-use crate::{ArrayVec, Generation, Timer, driver::Adapter, mmio::serial::TransferLength};
+use crate::{
+    ArrayVec, Generation, Socket, Timer, driver::Adapter, mmio::serial::TransferLength, socket,
+};
 use core::net::SocketAddrV4;
-use deranged::RangedU8;
 use either::Either;
 
 #[derive(Debug)]
@@ -23,25 +24,22 @@ enum State {
 }
 
 #[derive(Debug)]
-pub(in super::super) struct OpenUdp {
-    socket_index: RangedU8<0, 1>,
+pub(in super::super) struct OpenUdp<const INDEX: usize> {
     connection_generation: Generation,
     socket_generation: Generation,
     state: State,
 }
 
-impl OpenUdp {
+impl<const INDEX: usize> OpenUdp<INDEX> {
     pub(super) fn with_dns(
         transfer_length: TransferLength,
         timer: Timer,
         domain: ArrayVec<u8, 255>,
         port: u16,
-        socket_index: RangedU8<0, 1>,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Self {
         Self {
-            socket_index,
             connection_generation,
             socket_generation,
             state: State::Dns {
@@ -55,12 +53,10 @@ impl OpenUdp {
         transfer_length: TransferLength,
         timer: Timer,
         addr: SocketAddrV4,
-        socket_index: RangedU8<0, 1>,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Self {
         Self {
-            socket_index,
             connection_generation,
             socket_generation,
             state: State::OpenUdp(Packet::new(
@@ -76,7 +72,6 @@ impl OpenUdp {
             State::Dns { packet, port } => packet
                 .vblank()
                 .map(|packet| Self {
-                    socket_index: self.socket_index,
                     connection_generation: self.connection_generation,
                     socket_generation: self.socket_generation,
                     state: State::Dns { packet, port },
@@ -85,7 +80,6 @@ impl OpenUdp {
             State::OpenUdp(packet) => packet
                 .vblank()
                 .map(|packet| Self {
-                    socket_index: self.socket_index,
                     connection_generation: self.connection_generation,
                     socket_generation: self.socket_generation,
                     state: State::OpenUdp(packet),
@@ -101,32 +95,27 @@ impl OpenUdp {
         }
     }
 
-    pub(super) fn serial(
+    pub(super) fn serial<Buffer>(
         self,
         timer: Timer,
         adapter: &mut Adapter,
         transfer_length: TransferLength,
         phase: &mut Phase,
-        sockets: &mut [Socket; 2],
+        socket: &mut Socket<Buffer>,
         connection_generation: Generation,
     ) -> Result<Option<Self>, Error> {
         // We only should update the socket state if we are actively logged in, on the correct
         // generations, and still in a connecting state for the specific socket.
-        let socket_state = if let Phase::LoggedIn {
-            socket_generations,
-            socket_states,
-            ..
+        let socket_status = if let Phase::LoggedIn {
+            socket_generations, ..
         } = phase
             && connection_generation == self.connection_generation
         {
-            let socket_generation =
-                unsafe { socket_generations.get_unchecked(self.socket_index.get() as usize) };
-            let socket_state =
-                unsafe { socket_states.get_unchecked_mut(self.socket_index.get() as usize) };
-            if matches!(socket_state, socket::State::Connecting(_, _))
+            let socket_generation = unsafe { socket_generations.get_unchecked(INDEX) };
+            if matches!(socket.status, socket::Status::Connecting)
                 && *socket_generation == self.socket_generation
             {
-                Some(socket_state)
+                Some(&mut socket.status)
             } else {
                 None
             }
@@ -139,7 +128,6 @@ impl OpenUdp {
                 .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self {
-                        socket_index: self.socket_index,
                         connection_generation: self.connection_generation,
                         socket_generation: self.socket_generation,
                         state: State::Dns { packet, port },
@@ -148,7 +136,6 @@ impl OpenUdp {
                         *adapter = response.adapter;
                         match response.payload {
                             payload::dns::ReceiveParsed::Success(ip) => Some(Self {
-                                socket_index: self.socket_index,
                                 connection_generation: self.connection_generation,
                                 socket_generation: self.socket_generation,
                                 state: State::OpenUdp(Packet::new(
@@ -158,8 +145,8 @@ impl OpenUdp {
                                 )),
                             }),
                             payload::dns::ReceiveParsed::NotFound => {
-                                if let Some(socket_state) = socket_state {
-                                    *socket_state = socket::State::Failure(socket::Failure::Dns);
+                                if let Some(socket_status) = socket_status {
+                                    *socket_status = socket::Status::ConnectionFailure;
                                 }
                                 None
                             }
@@ -171,19 +158,16 @@ impl OpenUdp {
                 .serial(timer)
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self {
-                        socket_index: self.socket_index,
                         connection_generation: self.connection_generation,
                         socket_generation: self.socket_generation,
                         state: State::OpenUdp(packet),
                     }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
-                        let socket =
-                            unsafe { sockets.get_unchecked_mut(self.socket_index.get() as usize) };
-                        socket.set_id(response.payload.id);
-                        socket.reset_frame();
-                        if let Some(socket_state) = socket_state {
-                            *socket_state = socket::State::Connected;
+                        socket.id = response.payload.id;
+                        socket.frame = 0;
+                        if let Some(socket_status) = socket_status {
+                            *socket_status = socket::Status::Connected;
                         }
 
                         None

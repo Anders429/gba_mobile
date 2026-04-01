@@ -6,16 +6,17 @@
 use core::net::Ipv4Addr;
 
 use gba::prelude::*;
-use gba_mobile::{Digit, Driver, Link, Timer, config::mobile_system_gb};
+use gba_mobile::{Digit, Driver, Link, Socket, Timer, config::mobile_system_gb};
 
 #[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver = Driver::new(Timer::_0);
+static mut DRIVER: Driver<Socket<()>, Socket<()>> =
+    Driver::new(Timer::_0, Socket::new(()), Socket::new(()));
 
 // TODO: This function should probably be unsafe.
 #[allow(static_mut_refs)]
 fn with_driver<T, F>(f: F) -> T
 where
-    F: FnOnce(&mut Driver) -> T,
+    F: FnOnce(&mut Driver<Socket<()>, Socket<()>>) -> T,
 {
     let previous_ime = IME.read();
     IME.write(false);
@@ -96,7 +97,7 @@ pub fn main() {
         with_driver(|driver| link.write_config(driver, write_config))
             .expect("couldn't write config");
 
-        let config = with_driver(|driver| link.config::<mobile_system_gb::Config>(driver));
+        let config: Result<mobile_system_gb::Config, _> = with_driver(|driver| link.config(driver));
         log::info!("attempted to parse Mobile System GB config: {config:?}");
 
         let pending_ppp = {
@@ -134,7 +135,7 @@ pub fn main() {
         log::info!("ppp connection status: {ppp_status:?}");
 
         if let Ok(Some(ppp)) = ppp_status {
-            let pending_tcp = with_driver(|driver| ppp.open_tcp(driver, "www.google.com:80"))
+            let pending_tcp = with_driver(|driver| ppp.socket_1_tcp(driver, "www.google.com:80"))
                 .expect("TCP connection attempt failed");
             let tcp_status = loop {
                 VBlankIntrWait();

@@ -5,10 +5,13 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::{
-    super::{ConnectionFailure, ConnectionRequest, Phase, Socket, socket},
+    super::{ConnectionFailure, ConnectionRequest, Phase},
     request::{Packet, packet::payload},
 };
-use crate::{ArrayVec, Digit, Generation, Timer, driver::Adapter, mmio::serial::TransferLength};
+use crate::{
+    ArrayVec, Digit, Generation, Socket, Timer, driver::Adapter, mmio::serial::TransferLength,
+    socket,
+};
 use either::Either;
 
 #[derive(Debug)]
@@ -49,12 +52,12 @@ impl Connect {
         self.packet.timer()
     }
 
-    pub(super) fn serial(
+    pub(super) fn serial<Buffer>(
         self,
         timer: Timer,
         adapter: &mut Adapter,
         phase: &mut Phase,
-        socket: &mut Socket,
+        socket: &mut Socket<Buffer>,
         connection_generation: Generation,
     ) -> Result<Option<Self>, Error> {
         self.packet
@@ -77,8 +80,8 @@ impl Connect {
                         match response.payload {
                             payload::connect::ReceiveParsed::Connected => {
                                 *phase = Phase::Connected(0);
-                                socket.set_id(socket::Id::P2P);
-                                socket.reset_frame();
+                                socket.id = socket::Id::P2P;
+                                socket.frame = 0;
                             }
                             payload::connect::ReceiveParsed::NotConnected => {
                                 *phase = Phase::Linked {

@@ -1,7 +1,7 @@
 use core::num::NonZeroU16;
 
 use super::error;
-use crate::{ArrayVec, driver::active::socket};
+use crate::{ArrayVec, socket};
 use deranged::RangedU8;
 use either::Either;
 

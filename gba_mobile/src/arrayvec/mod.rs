@@ -84,7 +84,17 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
     }
 }
 
-// TODO: Do we need to keep this implementation around?
+impl<T, const CAP: usize> ArrayVec<T, CAP>
+where
+    T: Clone,
+{
+    pub(crate) fn take(&mut self) -> Self {
+        let result = self.clone();
+        self.len = 0;
+        result
+    }
+}
+
 impl<T, const CAP: usize> Clone for ArrayVec<T, CAP>
 where
     T: Clone,

@@ -1,4 +1,7 @@
-use crate::driver::{Command, active::socket, command};
+use crate::{
+    driver::{Command, command},
+    socket,
+};
 use core::{
     fmt,
     fmt::{Display, Formatter},

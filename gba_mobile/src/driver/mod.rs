@@ -1,6 +1,6 @@
+pub(crate) mod active;
 pub(crate) mod error;
 
-mod active;
 mod adapter;
 mod command;
 mod frames;
@@ -11,7 +11,7 @@ use core::net::Ipv4Addr;
 pub use adapter::Adapter;
 
 use crate::{
-    ArrayVec, Config, Digit, Generation, Timer,
+    ArrayVec, Config, Digit, Generation, Socket, Timer,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -24,28 +24,46 @@ use either::Either;
 use error::Error;
 
 #[derive(Debug)]
-enum State {
+enum State<Socket1, Socket2>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
     /// Not currently linked with a Mobile Adapter device.
     Inactive,
     /// Currently linked with a Mobile Adapter device.
-    Active(Active),
+    Active(Active<Socket1, Socket2>),
     /// Communication encountered an error and the link must be reset.
     Error(Error),
 }
 
 #[derive(Debug)]
-pub struct Driver {
+pub struct Driver<Socket1, Socket2>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
     link_generation: Generation,
     timer: Timer,
 
-    state: State,
+    socket_1: Socket1,
+    socket_2: Socket2,
+
+    state: State<Socket1, Socket2>,
 }
 
-impl Driver {
-    pub const fn new(timer: Timer) -> Self {
+impl<Socket1, Socket2> Driver<Socket1, Socket2>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
+    pub const fn new(timer: Timer, socket_1: Socket1, socket_2: Socket2) -> Self {
         Self {
             link_generation: Generation::new(),
             timer,
+
+            socket_1,
+            socket_2,
 
             state: State::Inactive,
         }
@@ -141,37 +159,6 @@ impl Driver {
         }
     }
 
-    pub(crate) fn accept(
-        &mut self,
-        link_generation: Generation,
-    ) -> Result<Generation, error::link::Error> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => Ok(active.accept()),
-            State::Error(error) => Err(error.clone().into()),
-        }
-    }
-
-    pub(crate) fn connect(
-        &mut self,
-        link_generation: Generation,
-        phone_number: ArrayVec<Digit, 32>,
-    ) -> Result<Generation, error::link::Error> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => Ok(active.connect(phone_number)),
-            State::Error(error) => Err(error.clone().into()),
-        }
-    }
-
     pub(crate) fn login(
         &mut self,
         link_generation: Generation,
@@ -212,74 +199,6 @@ impl Driver {
 
     pub(crate) fn disconnect(&mut self) {
         todo!()
-    }
-
-    /// Returns `Ok(None)` if there are no available sockets.
-    pub(crate) fn open_tcp(
-        &mut self,
-        link_generation: Generation,
-        connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
-    ) -> Result<Option<(Generation, socket::Index)>, error::connection::Error> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_socket(
-                connection_generation,
-                host,
-                port,
-                active::socket::Protocol::Tcp,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    /// Returns `Ok(None)` if there are no available sockets.
-    pub(crate) fn open_udp(
-        &mut self,
-        link_generation: Generation,
-        connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
-    ) -> Result<Option<(Generation, socket::Index)>, error::connection::Error> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_socket(
-                connection_generation,
-                host,
-                port,
-                active::socket::Protocol::Udp,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn socket_status(
-        &mut self,
-        link_generation: Generation,
-        connection_generation: Generation,
-        socket_generation: Generation,
-        index: socket::Index,
-    ) -> Result<bool, error::socket::Error> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => {
-                active.socket_status(connection_generation, socket_generation, index)
-            }
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
     }
 
     pub(crate) fn adapter(
@@ -331,18 +250,6 @@ impl Driver {
         }
     }
 
-    pub fn vblank(&mut self) {
-        match &mut self.state {
-            State::Inactive => {}
-            State::Active(active) => {
-                if let Err(timeout) = active.vblank(self.timer) {
-                    self.state = State::Error(Error::Timeout(timeout));
-                }
-            }
-            State::Error(_) => {}
-        }
-    }
-
     pub fn timer(&mut self) {
         match &mut self.state {
             State::Inactive => {}
@@ -354,12 +261,213 @@ impl Driver {
     pub fn serial(&mut self) {
         match &mut self.state {
             State::Inactive => {}
-            State::Active(active) => match active.serial(self.timer) {
-                Ok(active::StateChange::StillActive) => {}
-                Ok(active::StateChange::Inactive) => self.state = State::Inactive,
-                Err(error) => self.state = State::Error(Error::Error(error)),
-            },
+            State::Active(active) => {
+                match active.serial(self.timer, &mut self.socket_1, &mut self.socket_2) {
+                    Ok(active::StateChange::StillActive) => {}
+                    Ok(active::StateChange::Inactive) => self.state = State::Inactive,
+                    Err(error) => self.state = State::Error(Error::Error(error)),
+                }
+            }
             State::Error(_) => {}
+        }
+    }
+}
+
+impl<'a, Socket1, Socket2> Driver<Socket1, Socket2>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
+    pub fn vblank(&mut self) {
+        match &mut self.state {
+            State::Inactive => {}
+            State::Active(active) => {
+                if let Err(timeout) =
+                    active.vblank(self.timer, &mut self.socket_1, &mut self.socket_2)
+                {
+                    self.state = State::Error(Error::Timeout(timeout));
+                }
+            }
+            State::Error(_) => {}
+        }
+    }
+}
+
+impl<SocketBuffer1, Socket2> Driver<Socket<SocketBuffer1>, Socket2>
+where
+    Socket2: socket::Slot,
+{
+    pub(crate) fn accept(
+        &mut self,
+        link_generation: Generation,
+    ) -> Result<Generation, error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => Ok(active.accept()),
+            State::Error(error) => Err(error.clone().into()),
+        }
+    }
+
+    pub(crate) fn connect(
+        &mut self,
+        link_generation: Generation,
+        phone_number: ArrayVec<Digit, 32>,
+    ) -> Result<Generation, error::link::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => Ok(active.connect(phone_number)),
+            State::Error(error) => Err(error.clone().into()),
+        }
+    }
+
+    pub(crate) fn open_tcp_1(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Generation, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.open_socket::<_, 0>(
+                connection_generation,
+                host,
+                port,
+                active::socket::Protocol::Tcp,
+                &mut self.socket_1,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn open_udp_1(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Generation, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.open_socket::<_, 0>(
+                connection_generation,
+                host,
+                port,
+                active::socket::Protocol::Udp,
+                &mut self.socket_1,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn socket_1_status(
+        &self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<bool, error::socket::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.socket_status::<_, 0>(
+                connection_generation,
+                socket_generation,
+                &self.socket_1,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+}
+
+impl<Socket1, SocketBuffer2> Driver<Socket1, Socket<SocketBuffer2>>
+where
+    Socket1: socket::Slot,
+{
+    pub(crate) fn open_tcp_2(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Generation, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.open_socket::<_, 1>(
+                connection_generation,
+                host,
+                port,
+                active::socket::Protocol::Tcp,
+                &mut self.socket_2,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn open_udp_2(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
+        port: u16,
+    ) -> Result<Generation, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.open_socket::<_, 1>(
+                connection_generation,
+                host,
+                port,
+                active::socket::Protocol::Udp,
+                &mut self.socket_2,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn socket_2_status(
+        &self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<bool, error::socket::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.socket_status::<_, 1>(
+                connection_generation,
+                socket_generation,
+                &self.socket_2,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }
 }
