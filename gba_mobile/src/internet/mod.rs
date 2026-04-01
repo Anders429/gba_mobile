@@ -24,16 +24,22 @@ where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
 {
-    pub fn ip(&self, driver: &mut Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
-        todo!()
+    pub fn ip(&self, driver: &Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
+        driver
+            .ip(self.link_generation, self.connection_generation)
+            .map_err(Into::into)
     }
 
-    pub fn primary_dns(&self, driver: &mut Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
-        todo!()
+    pub fn primary_dns(&self, driver: &Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
+        driver
+            .primary_dns(self.link_generation, self.connection_generation)
+            .map_err(Into::into)
     }
 
-    pub fn secondary_dns(&self, driver: &mut Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
-        todo!()
+    pub fn secondary_dns(&self, driver: &Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
+        driver
+            .secondary_dns(self.link_generation, self.connection_generation)
+            .map_err(Into::into)
     }
 }
 

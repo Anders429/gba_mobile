@@ -338,6 +338,60 @@ where
         self.state.adapter
     }
 
+    pub(crate) fn ip(
+        &self,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, super::error::connection::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn { ip, .. } => Ok(*ip),
+        }
+    }
+
+    pub(crate) fn primary_dns(
+        &self,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, super::error::connection::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn { primary_dns, .. } => Ok(*primary_dns),
+        }
+    }
+
+    pub(crate) fn secondary_dns(
+        &self,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, super::error::connection::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn { secondary_dns, .. } => Ok(*secondary_dns),
+        }
+    }
+
     pub(crate) fn config(&self) -> &[u8; 256] {
         &self.state.config
     }

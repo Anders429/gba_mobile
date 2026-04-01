@@ -216,6 +216,54 @@ where
         }
     }
 
+    pub(crate) fn ip(
+        &self,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.ip(connection_generation),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn primary_dns(
+        &self,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.primary_dns(connection_generation),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn secondary_dns(
+        &self,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.secondary_dns(connection_generation),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
     pub(crate) fn config(
         &self,
         link_generation: Generation,
