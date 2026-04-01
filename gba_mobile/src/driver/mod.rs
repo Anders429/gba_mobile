@@ -6,8 +6,6 @@ mod command;
 mod frames;
 mod timers;
 
-use core::net::Ipv4Addr;
-
 pub use adapter::Adapter;
 
 use crate::{
@@ -20,7 +18,9 @@ use crate::{
 };
 use active::Active;
 use command::Command;
+use core::net::Ipv4Addr;
 use either::Either;
+use embedded_io::{Read, Write};
 use error::Error;
 
 #[derive(Debug)]
@@ -341,8 +341,9 @@ where
     }
 }
 
-impl<SocketBuffer1, Socket2> Driver<Socket<SocketBuffer1>, Socket2>
+impl<Buffer, Socket2> Driver<Socket<Buffer>, Socket2>
 where
+    Buffer: Read + Write,
     Socket2: socket::Slot,
 {
     pub(crate) fn accept(
@@ -446,8 +447,9 @@ where
     }
 }
 
-impl<Socket1, SocketBuffer2> Driver<Socket1, Socket<SocketBuffer2>>
+impl<Buffer, Socket1> Driver<Socket1, Socket<Buffer>>
 where
+    Buffer: Read + Write,
     Socket1: socket::Slot,
 {
     pub(crate) fn open_tcp_2(

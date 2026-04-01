@@ -12,6 +12,7 @@ debug = true
 lto = true
 
 [dependencies]
+embedded-io = "0.7.1"
 gba = "0.15.0"
 gba_mobile = {path = "../../gba_mobile"}
 log = "0.4.29"

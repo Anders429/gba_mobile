@@ -6,6 +6,7 @@ use core::{
     fmt,
     fmt::{Debug, Formatter},
 };
+use embedded_io::{Read, Write};
 
 pub(crate) trait SocketSubItem<Socket1, Socket2, const INDEX: usize>: Debug
 where
@@ -98,6 +99,7 @@ pub(crate) enum Socket {
 
 impl<Buffer, Socket2> SocketSubItem<socket::Socket<Buffer>, Socket2, 0> for Socket
 where
+    Buffer: Read + Write,
     Socket2: socket::Slot,
 {
     fn open() -> Self {
@@ -188,6 +190,7 @@ where
 
 impl<Buffer, Socket1> SocketSubItem<Socket1, socket::Socket<Buffer>, 1> for Socket
 where
+    Buffer: Read + Write,
     Socket1: socket::Slot,
 {
     fn open() -> Self {
@@ -278,6 +281,7 @@ where
 
 impl<Buffer, Socket2> ConnectionSubItem<socket::Socket<Buffer>, Socket2> for Socket
 where
+    Buffer: Read + Write,
     Socket2: socket::Slot,
 {
     fn connect(

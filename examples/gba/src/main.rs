@@ -6,17 +6,40 @@
 use core::net::Ipv4Addr;
 
 use gba::prelude::*;
-use gba_mobile::{Digit, Driver, Link, Socket, Timer, config::mobile_system_gb};
+use gba_mobile::{Digit, Driver, Link, Socket, Timer, config::mobile_system_gb, socket::NoSocket};
+
+#[derive(Debug)]
+struct Buffer;
+
+impl embedded_io::ErrorType for Buffer {
+    type Error = core::convert::Infallible;
+}
+
+impl embedded_io::Read for Buffer {
+    fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
+        todo!()
+    }
+}
+
+impl embedded_io::Write for Buffer {
+    fn write(&mut self, _buf: &[u8]) -> Result<usize, Self::Error> {
+        todo!()
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        todo!()
+    }
+}
 
 #[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver<Socket<()>, Socket<()>> =
-    Driver::new(Timer::_0, Socket::new(()), Socket::new(()));
+static mut DRIVER: Driver<Socket<Buffer>, NoSocket> =
+    Driver::new(Timer::_0, Socket::new(Buffer), NoSocket);
 
 // TODO: This function should probably be unsafe.
 #[allow(static_mut_refs)]
 fn with_driver<T, F>(f: F) -> T
 where
-    F: FnOnce(&mut Driver<Socket<()>, Socket<()>>) -> T,
+    F: FnOnce(&mut Driver<Socket<Buffer>, NoSocket>) -> T,
 {
     let previous_ime = IME.read();
     IME.write(false);

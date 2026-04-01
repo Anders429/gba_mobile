@@ -7,12 +7,14 @@ use core::{
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum Error {
     TransferData(packet::Error<payload::TransferData>),
+    Buffer(embedded_io::ErrorKind),
 }
 
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::TransferData(_) => formatter.write_str("error while transferring data"),
+            Self::Buffer(_) => formatter.write_str("error while reading data to socket buffer"),
         }
     }
 }
@@ -21,6 +23,7 @@ impl core::error::Error for Error {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::TransferData(error) => Some(error),
+            Self::Buffer(error) => Some(error),
         }
     }
 }

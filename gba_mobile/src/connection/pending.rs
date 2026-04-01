@@ -1,6 +1,7 @@
 use super::{Connection, error};
 use crate::{Driver, Generation, Socket, socket};
 use core::marker::PhantomData;
+use embedded_io::{Read, Write};
 
 #[derive(Debug)]
 pub struct Pending<Driver, Socket> {
@@ -12,6 +13,7 @@ pub struct Pending<Driver, Socket> {
 
 impl<Buffer, Socket2> Pending<Driver<Socket<Buffer>, Socket2>, super::P2p>
 where
+    Buffer: Read + Write,
     Socket2: socket::Slot,
 {
     pub fn status(
@@ -34,6 +36,7 @@ where
 
 impl<Buffer, Socket2> Pending<Driver<Socket<Buffer>, Socket2>, super::Socket1>
 where
+    Buffer: Read + Write,
     Socket2: socket::Slot,
 {
     pub fn status(
@@ -61,6 +64,7 @@ where
 
 impl<Socket1, Buffer> Pending<Driver<Socket1, Socket<Buffer>>, super::Socket2>
 where
+    Buffer: Read + Write,
     Socket1: socket::Slot,
 {
     pub fn status(

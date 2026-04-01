@@ -66,7 +66,7 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
         self.data.as_mut_ptr() as _
     }
 
-    const fn as_slice(&self) -> &[T] {
+    pub(crate) const fn as_slice(&self) -> &[T] {
         unsafe { slice::from_raw_parts(self.as_ptr(), self.len() as usize) }
     }
 

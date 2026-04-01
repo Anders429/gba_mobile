@@ -7,6 +7,7 @@ pub(in crate::driver) use timeout::Timeout;
 use super::request::{Packet, packet::payload};
 use crate::{Socket, Timer, driver::Adapter, mmio::serial::TransferLength, socket};
 use either::Either;
+use embedded_io::{Error as _, Write};
 
 #[derive(Debug)]
 pub(in super::super) struct TransferData {
@@ -44,31 +45,38 @@ impl TransferData {
         timer: Timer,
         adapter: &mut Adapter,
         socket: &mut Socket<Buffer>,
-    ) -> Result<Option<Self>, Error> {
-        self.packet
-            .serial(timer)
-            .map(|response| match response {
-                Either::Left(packet) => Some(Self { packet }),
-                Either::Right(response) => {
-                    *adapter = response.adapter;
-                    if matches!(socket.status, socket::Status::Connected) {
-                        match response.payload.response {
-                            // TODO: Store the data.
-                            payload::transfer_data::Response::Data(data) => {
-                                socket.frame = 0;
-                            }
-                            payload::transfer_data::Response::FinalData(data) => {
-                                socket.frame = 0;
-                                socket.status = socket::Status::ClosedRemotely;
-                            }
-                            payload::transfer_data::Response::ConnectionFailed => {
-                                socket.status = socket::Status::ConnectionLost;
-                            }
+    ) -> Result<Option<Self>, Error>
+    where
+        Buffer: Write,
+    {
+        match self.packet.serial(timer).map_err(Error::TransferData)? {
+            Either::Left(packet) => Ok(Some(Self { packet })),
+            Either::Right(response) => {
+                *adapter = response.adapter;
+                if matches!(socket.status, socket::Status::Connected) {
+                    match response.payload.response {
+                        payload::transfer_data::Response::Data(data) => {
+                            socket.frame = 0;
+                            socket
+                                .read_buffer
+                                .write_all(data.as_slice())
+                                .map_err(|error| Error::Buffer(error.kind()))?;
+                        }
+                        payload::transfer_data::Response::FinalData(data) => {
+                            socket.frame = 0;
+                            socket.status = socket::Status::ClosedRemotely;
+                            socket
+                                .read_buffer
+                                .write_all(data.as_slice())
+                                .map_err(|error| Error::Buffer(error.kind()))?;
+                        }
+                        payload::transfer_data::Response::ConnectionFailed => {
+                            socket.status = socket::Status::ConnectionLost;
                         }
                     }
-                    None
                 }
-            })
-            .map_err(Error::TransferData)
+                Ok(None)
+            }
+        }
     }
 }

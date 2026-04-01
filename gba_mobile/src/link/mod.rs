@@ -10,6 +10,7 @@ use crate::{
     socket,
 };
 use core::{marker::PhantomData, net::Ipv4Addr};
+use embedded_io::{Read, Write};
 
 #[derive(Debug)]
 pub struct Link<Driver> {
@@ -109,6 +110,7 @@ where
 
 impl<Buffer, Socket2> Link<Driver<Socket<Buffer>, Socket2>>
 where
+    Buffer: Read + Write,
     Socket2: socket::Slot,
 {
     pub fn accept(

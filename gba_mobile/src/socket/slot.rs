@@ -3,6 +3,7 @@ use crate::driver::active::{
     flow::{self, SubFlowWithSocket},
     queue::item::{self, ConnectionSubItem, SocketSubItem},
 };
+use embedded_io::{Read, Write};
 
 pub(crate) trait Sealed: Sized {
     type ConnectionFlow: SubFlowWithSocket<Self>;
@@ -21,7 +22,10 @@ pub(crate) trait Sealed: Sized {
     fn vblank_info<'a>(&'a mut self) -> Option<(&'a mut u8, &'a Status)>;
 }
 
-impl<Buffer> Sealed for Socket<Buffer> {
+impl<Buffer> Sealed for Socket<Buffer>
+where
+    Buffer: Read + Write,
+{
     type ConnectionFlow = flow::ConnectionFlow;
     type SocketFlow<const INDEX: usize> = flow::SocketFlow<INDEX>;
 
@@ -68,6 +72,6 @@ impl Sealed for NoSocket {
 #[allow(private_bounds)]
 pub trait Slot: Sealed {}
 
-impl<Buffer> Slot for Socket<Buffer> {}
+impl<Buffer> Slot for Socket<Buffer> where Buffer: Read + Write {}
 
 impl Slot for NoSocket {}
