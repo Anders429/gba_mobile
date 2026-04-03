@@ -18,7 +18,7 @@ pub(crate) trait Sealed: Sized {
     where
         Socket1: Slot;
 
-    fn vblank_info<'a>(&'a mut self) -> Option<(&'a mut u8, &'a Status)>;
+    fn ready_for_transfer(&mut self, trigger_frame: u8) -> bool;
 }
 
 impl<Buffer> Sealed for Socket<Buffer>
@@ -41,8 +41,14 @@ where
     where
         Socket1: Slot;
 
-    fn vblank_info<'a>(&'a mut self) -> Option<(&'a mut u8, &'a Status)> {
-        Some((&mut self.frame, &self.status))
+    fn ready_for_transfer(&mut self, trigger_frame: u8) -> bool {
+        if matches!(self.status, Status::Connected) && self.read_buffer.is_empty() {
+            let result = self.frame == trigger_frame;
+            self.frame = self.frame.saturating_add(1);
+            result
+        } else {
+            false
+        }
     }
 }
 
@@ -63,8 +69,8 @@ impl Sealed for NoSocket {
     where
         Socket1: Slot;
 
-    fn vblank_info<'a>(&'a mut self) -> Option<(&'a mut u8, &'a Status)> {
-        None
+    fn ready_for_transfer(&mut self, _trigger_frame: u8) -> bool {
+        false
     }
 }
 

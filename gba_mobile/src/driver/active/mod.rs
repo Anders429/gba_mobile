@@ -513,18 +513,12 @@ where
                 }
                 *frame = frame.saturating_add(1);
 
-                // TODO: Require that the receive buffer is empty.
-                if let Some((frame, status)) = socket_1.vblank_info() {
-                    if matches!(status, crate::socket::Status::Connected) {
-                        if *frame == frames::ONE_SECOND {
-                            // Schedule a new data transfer once per second.
-                            //
-                            // This ensures any available data is received and available if the
-                            // user requests it.
-                            self.queue.set_socket_1_transfer();
-                        }
-                        *frame = frame.saturating_add(1);
-                    }
+                // Schedule a new data transfer once per second.
+                //
+                // This ensures any available data is received and available if the user requests
+                // it.
+                if socket_1.ready_for_transfer(frames::ONE_SECOND) {
+                    self.queue.set_socket_1_transfer();
                 }
             }
             Phase::LoggedIn { frame, .. } => {
@@ -537,38 +531,19 @@ where
                 }
                 *frame = frame.saturating_add(1);
 
-                if let Some((frame, status)) = socket_1.vblank_info() {
-                    if matches!(status, crate::socket::Status::Connected) {
-                        if *frame == frames::TWO_SECONDS {
-                            // Schedule a new data transfer once every two seconds.
-                            //
-                            // This ensures any available data is received and available if the
-                            // user requests it.
-                            //
-                            // We use two seconds to give space for other requests. Otherwise,
-                            // these high priority requests would not allow anything else to
-                            // execute when both sockets are open.
-                            self.queue.set_socket_1_transfer();
-                        }
-                        *frame = frame.saturating_add(1);
-                    }
+                // Schedule a new data transfer once every two seconds.
+                //
+                // This ensures any available data is received and available if the user requests
+                // it.
+                //
+                // We use two seconds to give space for other requests. Otherwise, these high
+                // priority requests would not allow anything else to execute when both sockets are
+                // open.
+                if socket_1.ready_for_transfer(frames::TWO_SECONDS) {
+                    self.queue.set_socket_1_transfer();
                 }
-
-                if let Some((frame, status)) = socket_2.vblank_info() {
-                    if matches!(status, crate::socket::Status::Connected) {
-                        if *frame == frames::TWO_SECONDS {
-                            // Schedule a new data transfer once every two seconds.
-                            //
-                            // This ensures any available data is received and available if the
-                            // user requests it.
-                            //
-                            // We use two seconds to give space for other requests. Otherwise,
-                            // these high priority requests would not allow anything else to
-                            // execute when both sockets are open.
-                            self.queue.set_socket_2_transfer();
-                        }
-                        *frame = frame.saturating_add(1);
-                    }
+                if socket_2.ready_for_transfer(frames::TWO_SECONDS) {
+                    self.queue.set_socket_2_transfer();
                 }
             }
             _ => {}

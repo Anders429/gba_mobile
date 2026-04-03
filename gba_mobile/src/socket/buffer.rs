@@ -8,22 +8,22 @@ pub trait Buffer {
 
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::WriteError>;
 
-    fn len(&self) -> usize;
+    fn is_empty(&self) -> bool;
 }
 
 impl<const N: usize> Buffer for [u8; N] {
     type ReadError = Infallible;
     type WriteError = Infallible;
 
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::ReadError> {
+    fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::ReadError> {
         Ok(0)
     }
 
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::WriteError> {
+    fn write(&mut self, _buf: &[u8]) -> Result<usize, Self::WriteError> {
         Ok(0)
     }
 
-    fn len(&self) -> usize {
-        0
+    fn is_empty(&self) -> bool {
+        true
     }
 }
