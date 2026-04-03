@@ -1,3 +1,5 @@
+pub mod io;
+
 use crate::driver;
 use core::{
     fmt,

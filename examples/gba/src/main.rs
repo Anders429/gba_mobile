@@ -17,7 +17,8 @@ impl embedded_io::ErrorType for Buffer {
 
 impl embedded_io::Read for Buffer {
     fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
-        todo!()
+        // TODO: Implement some actual ring buffer type here.
+        Ok(0)
     }
 }
 
@@ -171,6 +172,16 @@ pub fn main() {
                 break status;
             };
             log::info!("tcp connection status: {tcp_status:?}");
+
+            if let Ok(Some(mut tcp)) = tcp_status {
+                loop {
+                    VBlankIntrWait();
+                    let mut buffer = [0; 4];
+                    with_driver(|driver| tcp.read(driver, &mut buffer).expect("read failed"));
+
+                    log::debug!("read data: {buffer:?}");
+                }
+            }
 
             // In theory, UDP works. But libmobile is bugged to not return another packet on retry
             // in SIO32, and UDP not being implemented there means that this attempts to retry

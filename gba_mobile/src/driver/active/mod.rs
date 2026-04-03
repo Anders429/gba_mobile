@@ -9,7 +9,7 @@ pub(in crate::driver) use flow::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
-    ArrayVec, Config, Digit, Generation, Timer,
+    ArrayVec, Config, Digit, Generation, Socket, Timer,
     driver::{Adapter, frames},
     mmio::serial::TransferLength,
 };
@@ -18,6 +18,7 @@ use core::{
     net::{Ipv4Addr, SocketAddrV4},
 };
 use either::Either;
+use embedded_io::{Read, Write};
 use flow::Flow;
 use queue::Queue;
 
@@ -255,6 +256,31 @@ where
         }
     }
 
+    pub(super) fn connection_read<Buffer>(
+        &mut self,
+        connection_generation: Generation,
+        buf: &mut [u8],
+        socket: &mut Socket<Buffer>,
+    ) -> Result<usize, super::error::connection_io::Error<Buffer::Error>>
+    where
+        Buffer: Read,
+    {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::connection::Error::closed().into()),
+            Phase::Connected(_) => socket
+                .read(buf)
+                .map_err(super::error::connection_io::Error::io),
+        }
+    }
+
     pub(crate) fn open_socket<Buffer, const INDEX: usize>(
         &mut self,
         connection_generation: Generation,
@@ -326,6 +352,51 @@ where
                     }
                     crate::socket::Status::Connecting => Ok(false),
                     crate::socket::Status::Connected => Ok(true),
+                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::ConnectionLost => Err(todo!()),
+                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                }
+            }
+        }
+    }
+
+    pub(super) fn socket_read<Buffer, const INDEX: usize>(
+        &mut self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+        buf: &mut [u8],
+        socket: &mut Socket<Buffer>,
+    ) -> Result<usize, super::error::socket_io::Error<Buffer::Error>>
+    where
+        Buffer: Read,
+    {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::connection::Error::closed().into()),
+            Phase::LoggedIn {
+                socket_generations, ..
+            } => {
+                if socket_generations[INDEX] != socket_generation {
+                    return Err(super::error::socket::Error::superseded().into());
+                }
+
+                match socket.status {
+                    crate::socket::Status::NotConnected => {
+                        Err(super::error::socket::Error::superseded().into())
+                    }
+                    crate::socket::Status::Connecting => {
+                        Err(super::error::socket::Error::superseded().into())
+                    }
+                    crate::socket::Status::Connected => {
+                        socket.read(buf).map_err(super::error::socket_io::Error::io)
+                    }
                     crate::socket::Status::ConnectionFailure => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
                     crate::socket::Status::ClosedRemotely => Err(todo!()),

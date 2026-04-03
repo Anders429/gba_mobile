@@ -10,6 +10,7 @@ use core::{
     fmt,
     fmt::{Display, Formatter},
 };
+use embedded_io::Read;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(transparent)]
@@ -44,6 +45,7 @@ pub(crate) enum Status {
 #[derive(Debug)]
 pub struct Socket<Buffer> {
     pub(crate) read_buffer: Buffer,
+    pub(crate) read_buffer_len: usize,
     pub(crate) write_buffer: ArrayVec<u8, 254>,
     pub(crate) frame: u8,
     pub(crate) id: Id,
@@ -54,11 +56,23 @@ impl<Buffer> Socket<Buffer> {
     pub const fn new(buffer: Buffer) -> Self {
         Self {
             read_buffer: buffer,
+            read_buffer_len: 0,
             write_buffer: ArrayVec::new(),
             frame: 0,
             id: Id::P2P,
             status: Status::NotConnected,
         }
+    }
+}
+
+impl<Buffer> Socket<Buffer>
+where
+    Buffer: Read,
+{
+    pub(crate) fn read(&mut self, buf: &mut [u8]) -> Result<usize, Buffer::Error> {
+        let read_len = self.read_buffer.read(buf)?;
+        self.read_buffer_len = self.read_buffer_len.saturating_sub(read_len);
+        Ok(read_len)
     }
 }
 
