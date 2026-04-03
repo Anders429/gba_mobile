@@ -32,7 +32,6 @@ use crate::{
 use accept::Accept;
 use connect::Connect;
 use either::Either;
-use embedded_io::{Read, Write};
 use end::End;
 use idle::Idle;
 use login::Login;
@@ -138,7 +137,7 @@ pub(crate) enum SocketFlow<const INDEX: usize> {
 
 impl<Buffer, const INDEX: usize> SubFlowWithSocket<Socket<Buffer>> for SocketFlow<INDEX>
 where
-    Buffer: Write,
+    Buffer: socket::Buffer,
 {
     fn vblank(self) -> Result<Self, Timeout> {
         match self {
@@ -195,7 +194,7 @@ where
                 .map(|flow| flow.map(Self::OpenUdp))
                 .map_err(Error::OpenUdp),
             Self::TransferData(transfer_data) => transfer_data
-                .serial(timer, &mut state.adapter, socket)
+                .serial(timer, &mut state.adapter, state.transfer_length, socket)
                 .map(|flow| flow.map(Self::TransferData))
                 .map_err(Error::TransferData),
         }
@@ -445,7 +444,7 @@ where
 
 impl<Buffer, Socket2> Flow<Socket<Buffer>, Socket2>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket2: socket::Slot,
 {
     pub(super) fn accept(transfer_length: TransferLength, timer: Timer) -> Self {
@@ -551,7 +550,7 @@ where
 
 impl<Buffer, Socket1> Flow<Socket1, Socket<Buffer>>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket1: socket::Slot,
 {
     pub(super) fn open_tcp_2_with_dns(

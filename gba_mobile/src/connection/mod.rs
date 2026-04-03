@@ -6,7 +6,6 @@ pub use pending::Pending;
 
 use crate::{Driver, Generation, Socket, socket};
 use core::marker::PhantomData;
-use embedded_io::{Read, Write};
 
 #[derive(Clone, Copy, Debug)]
 pub struct P2p;
@@ -27,14 +26,14 @@ pub struct Connection<Driver, Socket> {
 
 impl<Buffer, Socket2> Connection<Driver<Socket<Buffer>, Socket2>, P2p>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket2: socket::Slot,
 {
     pub fn read(
         &mut self,
         driver: &mut Driver<Socket<Buffer>, Socket2>,
         buf: &mut [u8],
-    ) -> Result<usize, error::io::P2p<Buffer::Error>> {
+    ) -> Result<usize, error::io::P2p<Buffer::ReadError>> {
         driver
             .connection_read(self.link_generation, self.connection_generation, buf)
             .map_err(Into::into)
@@ -43,14 +42,14 @@ where
 
 impl<Buffer, Socket2> Connection<Driver<Socket<Buffer>, Socket2>, Socket1>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket2: socket::Slot,
 {
     pub fn read(
         &mut self,
         driver: &mut Driver<Socket<Buffer>, Socket2>,
         buf: &mut [u8],
-    ) -> Result<usize, error::io::Socket<Buffer::Error>> {
+    ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
         driver
             .socket_1_read(
                 self.link_generation,
@@ -64,14 +63,14 @@ where
 
 impl<Buffer, Socket1> Connection<Driver<Socket1, Socket<Buffer>>, Socket2>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket1: socket::Slot,
 {
     pub fn read(
         &mut self,
         driver: &mut Driver<Socket1, Socket<Buffer>>,
         buf: &mut [u8],
-    ) -> Result<usize, error::io::Socket<Buffer::Error>> {
+    ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
         driver
             .socket_2_read(
                 self.link_generation,

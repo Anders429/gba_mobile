@@ -18,7 +18,6 @@ use core::{
     net::{Ipv4Addr, SocketAddrV4},
 };
 use either::Either;
-use embedded_io::{Read, Write};
 use flow::Flow;
 use queue::Queue;
 
@@ -261,9 +260,9 @@ where
         connection_generation: Generation,
         buf: &mut [u8],
         socket: &mut Socket<Buffer>,
-    ) -> Result<usize, super::error::connection_io::Error<Buffer::Error>>
+    ) -> Result<usize, super::error::connection_io::Error<Buffer::ReadError>>
     where
-        Buffer: Read,
+        Buffer: crate::socket::Buffer,
     {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -366,9 +365,9 @@ where
         socket_generation: Generation,
         buf: &mut [u8],
         socket: &mut Socket<Buffer>,
-    ) -> Result<usize, super::error::socket_io::Error<Buffer::Error>>
+    ) -> Result<usize, super::error::socket_io::Error<Buffer::ReadError>>
     where
-        Buffer: Read,
+        Buffer: crate::socket::Buffer,
     {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());

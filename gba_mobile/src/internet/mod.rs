@@ -11,7 +11,6 @@ use crate::{
 };
 use core::{marker::PhantomData, net::Ipv4Addr};
 use either::Either;
-use embedded_io::{Read, Write};
 
 #[derive(Debug)]
 pub struct Internet<Driver> {
@@ -46,7 +45,7 @@ where
 
 impl<Buffer, Socket2> Internet<Driver<Socket<Buffer>, Socket2>>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket2: socket::Slot,
 {
     pub fn socket_1_tcp<ToSocket>(
@@ -122,7 +121,7 @@ where
 
 impl<Buffer, Socket1> Internet<Driver<Socket1, Socket<Buffer>>>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket1: socket::Slot,
 {
     pub fn socket_2_tcp<ToSocket>(

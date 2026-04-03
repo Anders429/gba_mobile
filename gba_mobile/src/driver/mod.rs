@@ -20,7 +20,6 @@ use active::Active;
 use command::Command;
 use core::net::Ipv4Addr;
 use either::Either;
-use embedded_io::{Read, Write};
 use error::Error;
 
 #[derive(Debug)]
@@ -343,7 +342,7 @@ where
 
 impl<Buffer, Socket2> Driver<Socket<Buffer>, Socket2>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket2: socket::Slot,
 {
     pub(crate) fn accept(
@@ -451,7 +450,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         buf: &mut [u8],
-    ) -> Result<usize, error::connection_io::Error<Buffer::Error>> {
+    ) -> Result<usize, error::connection_io::Error<Buffer::ReadError>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -471,7 +470,7 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &mut [u8],
-    ) -> Result<usize, error::socket_io::Error<Buffer::Error>> {
+    ) -> Result<usize, error::socket_io::Error<Buffer::ReadError>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -491,7 +490,7 @@ where
 
 impl<Buffer, Socket1> Driver<Socket1, Socket<Buffer>>
 where
-    Buffer: Read + Write,
+    Buffer: socket::Buffer,
     Socket1: socket::Slot,
 {
     pub(crate) fn open_tcp_2(
@@ -569,7 +568,7 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &mut [u8],
-    ) -> Result<usize, error::socket_io::Error<Buffer::Error>> {
+    ) -> Result<usize, error::socket_io::Error<Buffer::ReadError>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }

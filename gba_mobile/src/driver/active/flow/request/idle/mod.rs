@@ -13,7 +13,7 @@ use crate::{
 
 #[derive(Debug)]
 pub(in crate::driver::active) struct Idle {
-    transfer_length: TransferLength,
+    pub(super) transfer_length: TransferLength,
     frame: u8,
     communication_state: communication::State,
 }
