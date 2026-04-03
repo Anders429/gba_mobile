@@ -72,6 +72,10 @@ where
     pub(crate) fn read(&mut self, buf: &mut [u8]) -> Result<usize, Buffer::ReadError> {
         self.read_buffer.read(buf)
     }
+
+    pub(crate) fn write(&mut self, buf: &[u8]) -> usize {
+        self.write_buffer.write(buf)
+    }
 }
 
 #[derive(Debug)]

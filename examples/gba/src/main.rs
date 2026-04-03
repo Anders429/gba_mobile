@@ -3,20 +3,108 @@
 #![no_std]
 #![no_main]
 
-use core::net::Ipv4Addr;
+use core::{convert::Infallible, net::Ipv4Addr};
 
 use gba::prelude::*;
-use gba_mobile::{Digit, Driver, Link, Socket, Timer, config::mobile_system_gb, socket::NoSocket};
+use gba_mobile::{
+    Digit, Driver, Link, Socket, Timer,
+    config::mobile_system_gb,
+    socket::{self, NoSocket},
+};
+
+#[derive(Debug)]
+struct RingBuffer {
+    buffer: [u8; 512],
+    head: usize,
+    tail: usize,
+    full: bool,
+}
+
+impl RingBuffer {
+    const fn new() -> Self {
+        Self {
+            buffer: [0; 512],
+            head: 0,
+            tail: 0,
+            full: false,
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        !self.full && (self.head == self.tail)
+    }
+
+    fn push(&mut self, byte: u8) -> bool {
+        if self.full {
+            false
+        } else {
+            self.buffer[self.head] = byte;
+            self.head = (self.head + 1) % 512;
+
+            if self.head == self.tail {
+                self.full = true;
+            }
+
+            true
+        }
+    }
+
+    fn pop(&mut self) -> Option<u8> {
+        if self.is_empty() {
+            None
+        } else {
+            let byte = self.buffer[self.tail];
+            self.tail = (self.tail + 1) % 512;
+            self.full = false;
+
+            Some(byte)
+        }
+    }
+}
+
+impl socket::Buffer for RingBuffer {
+    type ReadError = Infallible;
+    type WriteError = Infallible;
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::ReadError> {
+        let mut read = 0;
+        for byte_slot in buf {
+            if let Some(byte) = self.pop() {
+                *byte_slot = byte;
+                read += 1;
+            } else {
+                break;
+            }
+        }
+        Ok(read)
+    }
+
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::WriteError> {
+        let mut written = 0;
+        for &byte in buf {
+            if self.push(byte) {
+                written += 1;
+            } else {
+                break;
+            }
+        }
+        Ok(written)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
 
 #[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver<Socket<[u8; 10]>, NoSocket> =
-    Driver::new(Timer::_0, Socket::new([0; 10]), NoSocket);
+static mut DRIVER: Driver<Socket<RingBuffer>, NoSocket> =
+    Driver::new(Timer::_0, Socket::new(RingBuffer::new()), NoSocket);
 
 // TODO: This function should probably be unsafe.
 #[allow(static_mut_refs)]
 fn with_driver<T, F>(f: F) -> T
 where
-    F: FnOnce(&mut Driver<Socket<[u8; 10]>, NoSocket>) -> T,
+    F: FnOnce(&mut Driver<Socket<RingBuffer>, NoSocket>) -> T,
 {
     let previous_ime = IME.read();
     IME.write(false);
@@ -150,12 +238,29 @@ pub fn main() {
             log::info!("tcp connection status: {tcp_status:?}");
 
             if let Ok(Some(mut tcp)) = tcp_status {
+                const REQUEST: &'static [u8] = b"GET / HTTP/1.1\r\nHost: google.com\r\n\r\n";
+                let mut request = REQUEST;
                 loop {
                     VBlankIntrWait();
-                    let mut buffer = [0; 4];
-                    with_driver(|driver| tcp.read(driver, &mut buffer).expect("read failed"));
+                    let amount_written =
+                        with_driver(|driver| tcp.write(driver, &request).expect("write failed"));
+                    request = &request[amount_written..];
+                    if request.is_empty() {
+                        log::info!("write finished");
+                        break;
+                    }
+                }
 
-                    log::debug!("read data: {buffer:?}");
+                loop {
+                    VBlankIntrWait();
+                    let mut buffer = [0; 256];
+                    let read_amount =
+                        with_driver(|driver| tcp.read(driver, &mut buffer).expect("read failed"));
+                    let s = str::from_utf8(&buffer[..read_amount]).expect("non-utf8 response");
+                    if !s.is_empty() {
+                        log::debug!("read amount: {read_amount}");
+                        log::info!("data read: {s}");
+                    }
                 }
             }
 

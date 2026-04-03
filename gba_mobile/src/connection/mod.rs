@@ -38,6 +38,16 @@ where
             .connection_read(self.link_generation, self.connection_generation, buf)
             .map_err(Into::into)
     }
+
+    pub fn write(
+        &mut self,
+        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        buf: &[u8],
+    ) -> Result<usize, error::P2p> {
+        driver
+            .connection_write(self.link_generation, self.connection_generation, buf)
+            .map_err(Into::into)
+    }
 }
 
 impl<Buffer, Socket2> Connection<Driver<Socket<Buffer>, Socket2>, Socket1>
@@ -59,6 +69,21 @@ where
             )
             .map_err(Into::into)
     }
+
+    pub fn write(
+        &mut self,
+        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        buf: &[u8],
+    ) -> Result<usize, error::Socket> {
+        driver
+            .socket_1_write(
+                self.link_generation,
+                self.connection_generation,
+                self.socket.0,
+                buf,
+            )
+            .map_err(Into::into)
+    }
 }
 
 impl<Buffer, Socket1> Connection<Driver<Socket1, Socket<Buffer>>, Socket2>
@@ -73,6 +98,21 @@ where
     ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
         driver
             .socket_2_read(
+                self.link_generation,
+                self.connection_generation,
+                self.socket.0,
+                buf,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn write(
+        &mut self,
+        driver: &mut Driver<Socket1, Socket<Buffer>>,
+        buf: &[u8],
+    ) -> Result<usize, error::Socket> {
+        driver
+            .socket_2_write(
                 self.link_generation,
                 self.connection_generation,
                 self.socket.0,

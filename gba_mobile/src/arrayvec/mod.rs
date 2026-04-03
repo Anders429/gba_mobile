@@ -8,7 +8,7 @@
 pub(crate) mod error;
 
 use core::{
-    fmt,
+    cmp, fmt,
     fmt::{Debug, Formatter},
     mem::MaybeUninit,
     ptr, slice,
@@ -92,6 +92,30 @@ where
         let result = self.clone();
         self.len = 0;
         result
+    }
+}
+
+impl<T, const CAP: usize> ArrayVec<T, CAP>
+where
+    T: Copy,
+{
+    /// Copies as many elements from `buf` into this `ArrayVec` as possible.
+    ///
+    /// Returns the number of elements copied.
+    pub(crate) fn write(&mut self, buf: &[T]) -> usize {
+        let remaining_capacity = CAP - (self.len() as usize);
+        let to_copy = cmp::min(remaining_capacity, buf.len());
+
+        unsafe {
+            ptr::copy_nonoverlapping(
+                buf.as_ptr(),
+                self.data.as_mut_ptr().add(self.len() as usize).cast(),
+                to_copy,
+            );
+        }
+        self.len += to_copy as u8;
+
+        to_copy
     }
 }
 

@@ -274,9 +274,42 @@ where
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::connection::Error::closed().into()),
-            Phase::Connected(_) => socket
-                .read(buf)
-                .map_err(super::error::connection_io::Error::io),
+            Phase::Connected(_) => {
+                let read_amount = socket
+                    .read(buf)
+                    .map_err(super::error::connection_io::Error::io)?;
+                if read_amount == 0 {
+                    // Schedule another transfer if we're trying to read and failing.
+                    self.queue.set_socket_1_transfer();
+                }
+                Ok(read_amount)
+            }
+        }
+    }
+
+    pub(super) fn connection_write<Buffer>(
+        &mut self,
+        connection_generation: Generation,
+        buf: &[u8],
+        socket: &mut Socket<Buffer>,
+    ) -> Result<usize, super::error::connection::Error>
+    where
+        Buffer: crate::socket::Buffer,
+    {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::connection::Error::closed()),
+            Phase::Connected(_) => {
+                self.queue.set_socket_1_transfer();
+                Ok(socket.write(buf))
+            }
         }
     }
 
@@ -378,7 +411,7 @@ where
             Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
-            Phase::Ending => Err(super::error::connection::Error::closed().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
             Phase::LoggedIn {
                 socket_generations, ..
             } => {
@@ -394,7 +427,68 @@ where
                         Err(super::error::socket::Error::superseded().into())
                     }
                     crate::socket::Status::Connected => {
-                        socket.read(buf).map_err(super::error::socket_io::Error::io)
+                        let read_amount = socket
+                            .read(buf)
+                            .map_err(super::error::socket_io::Error::io)?;
+                        if read_amount == 0 {
+                            // Schedule another transfer if we're trying to read and failing.
+                            if INDEX == 0 {
+                                self.queue.set_socket_1_transfer();
+                            } else {
+                                self.queue.set_socket_2_transfer();
+                            }
+                        }
+                        Ok(read_amount)
+                    }
+                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::ConnectionLost => Err(todo!()),
+                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                }
+            }
+        }
+    }
+
+    pub(super) fn socket_write<Buffer, const INDEX: usize>(
+        &mut self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+        buf: &[u8],
+        socket: &mut Socket<Buffer>,
+    ) -> Result<usize, super::error::socket::Error>
+    where
+        Buffer: crate::socket::Buffer,
+    {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn {
+                socket_generations, ..
+            } => {
+                if socket_generations[INDEX] != socket_generation {
+                    return Err(super::error::socket::Error::superseded().into());
+                }
+
+                match socket.status {
+                    crate::socket::Status::NotConnected => {
+                        Err(super::error::socket::Error::superseded().into())
+                    }
+                    crate::socket::Status::Connecting => {
+                        Err(super::error::socket::Error::superseded().into())
+                    }
+                    crate::socket::Status::Connected => {
+                        if INDEX == 0 {
+                            self.queue.set_socket_1_transfer();
+                        } else {
+                            self.queue.set_socket_2_transfer();
+                        }
+                        Ok(socket.write(buf))
                     }
                     crate::socket::Status::ConnectionFailure => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
