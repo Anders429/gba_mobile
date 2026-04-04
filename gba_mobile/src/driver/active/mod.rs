@@ -278,9 +278,11 @@ where
                 let read_amount = socket
                     .read(buf)
                     .map_err(super::error::connection_io::Error::io)?;
-                if read_amount == 0 {
-                    // Schedule another transfer if we're trying to read and failing.
+                if socket.read_buffer.is_empty() {
+                    // Schedule another transfer if the buffer is empty.
                     self.queue.set_socket_1_transfer();
+                    // Accelerate the next automatic transfer.
+                    socket.frame = u8::MAX;
                 }
                 Ok(read_amount)
             }
@@ -308,6 +310,8 @@ where
             Phase::Ending => Err(super::error::connection::Error::closed()),
             Phase::Connected(_) => {
                 self.queue.set_socket_1_transfer();
+                // Accelerate the next automatic transfer.
+                socket.frame = u8::MAX;
                 Ok(socket.write(buf))
             }
         }
@@ -430,13 +434,15 @@ where
                         let read_amount = socket
                             .read(buf)
                             .map_err(super::error::socket_io::Error::io)?;
-                        if read_amount == 0 {
-                            // Schedule another transfer if we're trying to read and failing.
+                        if socket.read_buffer.is_empty() {
+                            // Schedule another transfer if the buffer is empty.
                             if INDEX == 0 {
                                 self.queue.set_socket_1_transfer();
                             } else {
                                 self.queue.set_socket_2_transfer();
                             }
+                            // Accelerate the next automatic transfer.
+                            socket.frame = u8::MAX;
                         }
                         Ok(read_amount)
                     }
@@ -488,6 +494,8 @@ where
                         } else {
                             self.queue.set_socket_2_transfer();
                         }
+                        // Accelerate the next automatic transfer.
+                        socket.frame = u8::MAX;
                         Ok(socket.write(buf))
                     }
                     crate::socket::Status::ConnectionFailure => Err(todo!()),

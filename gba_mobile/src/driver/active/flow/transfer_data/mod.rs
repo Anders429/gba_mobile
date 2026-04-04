@@ -71,21 +71,33 @@ impl TransferData {
                         if matches!(socket.status, socket::Status::Connected) {
                             match response.payload.response {
                                 payload::transfer_data::Response::Data(data) => {
-                                    socket.frame = 0;
-                                    Ok(Some(Self::WriteToBuffer(
-                                        data,
-                                        0,
-                                        RepeatingIdle::new(transfer_length, timer),
-                                    )))
+                                    if data.len() == 0 {
+                                        if socket.read_buffer.is_empty() {
+                                            // If the read buffer is empty and we didn't read any
+                                            // data, reset the frame so we will schedule a future
+                                            // transfer and fill it as fast as possible.
+                                            socket.frame = 0;
+                                        }
+                                        Ok(None)
+                                    } else {
+                                        Ok(Some(Self::WriteToBuffer(
+                                            data,
+                                            0,
+                                            RepeatingIdle::new(transfer_length, timer),
+                                        )))
+                                    }
                                 }
                                 payload::transfer_data::Response::FinalData(data) => {
-                                    socket.frame = 0;
                                     socket.status = socket::Status::ClosedRemotely;
-                                    Ok(Some(Self::WriteToBuffer(
-                                        data,
-                                        0,
-                                        RepeatingIdle::new(transfer_length, timer),
-                                    )))
+                                    if data.len() == 0 {
+                                        Ok(None)
+                                    } else {
+                                        Ok(Some(Self::WriteToBuffer(
+                                            data,
+                                            0,
+                                            RepeatingIdle::new(transfer_length, timer),
+                                        )))
+                                    }
                                 }
                                 payload::transfer_data::Response::ConnectionFailed => {
                                     socket.status = socket::Status::ConnectionLost;
