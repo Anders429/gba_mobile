@@ -9,17 +9,17 @@ use core::{net::Ipv4Addr, num::NonZeroU16};
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver) struct Dns {
-    domain_name: ArrayVec<u8, 255>,
+pub(in crate::driver) struct Dns<const MAX_LEN: usize> {
+    domain_name: ArrayVec<u8, MAX_LEN>,
 }
 
-impl Dns {
-    pub(in crate::driver::active::flow) fn new(domain_name: ArrayVec<u8, 255>) -> Self {
+impl<const MAX_LEN: usize> Dns<MAX_LEN> {
+    pub(in crate::driver::active::flow) fn new(domain_name: ArrayVec<u8, MAX_LEN>) -> Self {
         Self { domain_name }
     }
 }
 
-impl Payload for Dns {
+impl<const MAX_LEN: usize> Payload for Dns<MAX_LEN> {
     type Send = Self;
 
     type ReceiveCommand = ReceiveCommand;
@@ -28,7 +28,7 @@ impl Payload for Dns {
     type ReceiveParsed = ReceiveParsed;
 }
 
-impl super::Send for Dns {
+impl<const MAX_LEN: usize> super::Send for Dns<MAX_LEN> {
     type ReceiveCommand = ReceiveCommand;
 
     fn command(&self) -> crate::driver::Command {

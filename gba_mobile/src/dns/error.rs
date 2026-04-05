@@ -1,6 +1,3 @@
-pub mod dns;
-pub mod socket;
-
 use crate::driver;
 use core::{
     fmt,
@@ -9,7 +6,7 @@ use core::{
 
 #[derive(Debug)]
 pub struct Error {
-    internal: driver::error::connection::Error,
+    internal: driver::error::dns::Error,
 }
 
 impl Display for Error {
@@ -24,8 +21,8 @@ impl core::error::Error for Error {
     }
 }
 
-impl From<driver::error::connection::Error> for Error {
-    fn from(error: driver::error::connection::Error) -> Self {
+impl From<driver::error::dns::Error> for Error {
+    fn from(error: driver::error::dns::Error) -> Self {
         Self { internal: error }
     }
 }

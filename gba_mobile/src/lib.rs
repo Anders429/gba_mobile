@@ -10,6 +10,7 @@ extern crate alloc;
 pub mod config;
 pub mod connection;
 pub mod digit;
+pub mod dns;
 pub mod internet;
 pub mod link;
 pub mod socket;
@@ -22,6 +23,7 @@ mod timer;
 
 pub use config::Config;
 pub use digit::Digit;
+pub use dns::Dns;
 pub use driver::{Adapter, Driver};
 pub use link::Link;
 pub use socket::Socket;

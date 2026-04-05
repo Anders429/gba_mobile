@@ -6,7 +6,7 @@ use core::{
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum Error {
-    Dns(packet::Error<payload::Dns>),
+    Dns(packet::Error<payload::Dns<255>>),
     OpenTcp(packet::Error<payload::OpenTcp>),
 }
 

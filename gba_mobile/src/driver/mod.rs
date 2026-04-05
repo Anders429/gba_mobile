@@ -9,7 +9,7 @@ mod timers;
 pub use adapter::Adapter;
 
 use crate::{
-    ArrayVec, Config, Digit, Generation, Socket, Timer,
+    ArrayVec, Config, Digit, Dns, Generation, Socket, Timer, dns,
     mmio::{
         interrupt,
         serial::{self, RCNT, SIOCNT, TransferLength},
@@ -23,46 +23,51 @@ use either::Either;
 use error::Error;
 
 #[derive(Debug)]
-enum State<Socket1, Socket2>
+enum State<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     /// Not currently linked with a Mobile Adapter device.
     Inactive,
     /// Currently linked with a Mobile Adapter device.
-    Active(Active<Socket1, Socket2>),
+    Active(Active<Socket1, Socket2, Dns>),
     /// Communication encountered an error and the link must be reset.
     Error(Error),
 }
 
 #[derive(Debug)]
-pub struct Driver<Socket1, Socket2>
+pub struct Driver<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     link_generation: Generation,
     timer: Timer,
 
     socket_1: Socket1,
     socket_2: Socket2,
+    dns: Dns,
 
-    state: State<Socket1, Socket2>,
+    state: State<Socket1, Socket2, Dns>,
 }
 
-impl<Socket1, Socket2> Driver<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Driver<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
-    pub const fn new(timer: Timer, socket_1: Socket1, socket_2: Socket2) -> Self {
+    pub const fn new(timer: Timer, socket_1: Socket1, socket_2: Socket2, dns: Dns) -> Self {
         Self {
             link_generation: Generation::new(),
             timer,
 
             socket_1,
             socket_2,
+            dns,
 
             state: State::Inactive,
         }
@@ -309,7 +314,12 @@ where
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => {
-                match active.serial(self.timer, &mut self.socket_1, &mut self.socket_2) {
+                match active.serial(
+                    self.timer,
+                    &mut self.socket_1,
+                    &mut self.socket_2,
+                    &mut self.dns,
+                ) {
                     Ok(active::StateChange::StillActive) => {}
                     Ok(active::StateChange::Inactive) => self.state = State::Inactive,
                     Err(error) => self.state = State::Error(Error::Error(error)),
@@ -320,18 +330,22 @@ where
     }
 }
 
-impl<'a, Socket1, Socket2> Driver<Socket1, Socket2>
+impl<'a, Socket1, Socket2, Dns> Driver<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn vblank(&mut self) {
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => {
-                if let Err(timeout) =
-                    active.vblank(self.timer, &mut self.socket_1, &mut self.socket_2)
-                {
+                if let Err(timeout) = active.vblank(
+                    self.timer,
+                    &mut self.socket_1,
+                    &mut self.socket_2,
+                    &self.dns,
+                ) {
                     self.state = State::Error(Error::Timeout(timeout));
                 }
             }
@@ -340,10 +354,11 @@ where
     }
 }
 
-impl<Buffer, Socket2> Driver<Socket<Buffer>, Socket2>
+impl<Buffer, Socket2, Dns> Driver<Socket<Buffer>, Socket2, Dns>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub(crate) fn accept(
         &mut self,
@@ -530,10 +545,11 @@ where
     }
 }
 
-impl<Buffer, Socket1> Driver<Socket1, Socket<Buffer>>
+impl<Buffer, Socket1, Dns> Driver<Socket1, Socket<Buffer>, Dns>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
+    Dns: dns::Mode,
 {
     pub(crate) fn open_tcp_2(
         &mut self,
@@ -646,6 +662,48 @@ where
                 buf,
                 &mut self.socket_2,
             ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+}
+
+impl<Socket1, Socket2, const MAX_LEN: usize> Driver<Socket1, Socket2, Dns<MAX_LEN>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
+    pub(crate) fn dns(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        name: ArrayVec<u8, MAX_LEN>,
+    ) -> Result<Generation, error::connection::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.dns(connection_generation, name, &mut self.dns),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn dns_status(
+        &self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        dns_generation: Generation,
+    ) -> Result<Option<Ipv4Addr>, error::dns::Error> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => {
+                active.dns_status(connection_generation, dns_generation, &self.dns)
+            }
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }

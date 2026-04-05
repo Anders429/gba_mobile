@@ -9,7 +9,7 @@ pub(in crate::driver) use flow::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use crate::{
-    ArrayVec, Config, Digit, Generation, Socket, Timer,
+    ArrayVec, Config, Digit, Generation, Socket, Timer, dns,
     driver::{Adapter, frames},
     mmio::serial::TransferLength,
 };
@@ -116,21 +116,23 @@ impl State {
 }
 
 #[derive(Debug)]
-pub(super) struct Active<Socket1, Socket2>
+pub(super) struct Active<Socket1, Socket2, Dns>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
+    Dns: dns::Mode,
 {
-    queue: Queue<Socket1, Socket2>,
-    flow: Option<Flow<Socket1, Socket2>>,
+    queue: Queue<Socket1, Socket2, Dns>,
+    flow: Option<Flow<Socket1, Socket2, Dns>>,
 
     state: State,
 }
 
-impl<Socket1, Socket2> Active<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Active<Socket1, Socket2, Dns>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
+    Dns: dns::Mode,
 {
     /// Define a new active communication state, attempting to immediately link with the Mobile
     /// Adapter.
@@ -506,6 +508,61 @@ where
         }
     }
 
+    pub(crate) fn dns<const MAX_LEN: usize>(
+        &mut self,
+        connection_generation: Generation,
+        name: ArrayVec<u8, MAX_LEN>,
+        dns: &mut crate::Dns<MAX_LEN>,
+    ) -> Result<Generation, super::error::connection::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &mut self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn { .. } => {
+                dns.state = dns::State::Request(name);
+                self.queue.set_dns();
+                dns.generation = dns.generation.increment();
+                Ok(dns.generation)
+            }
+        }
+    }
+
+    pub(crate) fn dns_status<const MAX_LEN: usize>(
+        &self,
+        connection_generation: Generation,
+        dns_generation: Generation,
+        dns: &crate::Dns<MAX_LEN>,
+    ) -> Result<Option<Ipv4Addr>, super::error::dns::Error> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn { .. } => {
+                if dns.generation != dns_generation {
+                    return Err(super::error::dns::Error::superseded());
+                }
+
+                match dns.state {
+                    dns::State::Request(_) => Ok(None),
+                    dns::State::Success(ip) => Ok(Some(ip)),
+                    dns::State::NotFound => Err(super::error::dns::Error::not_found()),
+                }
+            }
+        }
+    }
+
     pub(crate) fn adapter(&self) -> Adapter {
         self.state.adapter
     }
@@ -586,6 +643,7 @@ where
         timer: Timer,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
+        dns: &Dns,
     ) -> Result<(), Timeout> {
         match &mut self.state.phase {
             Phase::Linked { frame, .. } => {
@@ -656,7 +714,7 @@ where
             Ok(())
         } else if let Some(new_flow) =
             self.queue
-                .next_flow(&mut self.state, timer, socket_1, socket_2)
+                .next_flow(&mut self.state, timer, socket_1, socket_2, dns)
         {
             // Reset the frame count so we don't timeout.
             self.state.frame = 0;
@@ -686,9 +744,17 @@ where
         timer: Timer,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
+        dns: &mut Dns,
     ) -> Result<StateChange, Error> {
         if let Some(flow) = self.flow.take() {
-            match flow.serial(&mut self.state, &mut self.queue, timer, socket_1, socket_2)? {
+            match flow.serial(
+                &mut self.state,
+                &mut self.queue,
+                timer,
+                socket_1,
+                socket_2,
+                dns,
+            )? {
                 Either::Left(flow) => {
                     self.flow = Some(flow);
                     Ok(StateChange::StillActive)

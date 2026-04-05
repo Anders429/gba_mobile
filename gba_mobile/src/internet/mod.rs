@@ -6,8 +6,8 @@ pub use error::Error;
 pub use pending::Pending;
 
 use crate::{
-    ArrayVec, Driver, Generation, Socket, connection, socket,
-    socket::{ToSocket, to_socket::Host},
+    ArrayVec, Dns, Driver, Generation, Socket, connection, dns,
+    socket::{self, ToSocket, to_socket::Host},
 };
 use core::{marker::PhantomData, net::Ipv4Addr};
 use either::Either;
@@ -19,41 +19,43 @@ pub struct Internet<Driver> {
     driver: PhantomData<Driver>,
 }
 
-impl<Socket1, Socket2> Internet<Driver<Socket1, Socket2>>
+impl<Socket1, Socket2, Dns> Internet<Driver<Socket1, Socket2, Dns>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
-    pub fn ip(&self, driver: &Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
+    pub fn ip(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Ipv4Addr, Error> {
         driver
             .ip(self.link_generation, self.connection_generation)
             .map_err(Into::into)
     }
 
-    pub fn primary_dns(&self, driver: &Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
+    pub fn primary_dns(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Ipv4Addr, Error> {
         driver
             .primary_dns(self.link_generation, self.connection_generation)
             .map_err(Into::into)
     }
 
-    pub fn secondary_dns(&self, driver: &Driver<Socket1, Socket2>) -> Result<Ipv4Addr, Error> {
+    pub fn secondary_dns(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Ipv4Addr, Error> {
         driver
             .secondary_dns(self.link_generation, self.connection_generation)
             .map_err(Into::into)
     }
 }
 
-impl<Buffer, Socket2> Internet<Driver<Socket<Buffer>, Socket2>>
+impl<Buffer, Socket2, Dns> Internet<Driver<Socket<Buffer>, Socket2, Dns>>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn socket_1_tcp<ToSocket>(
         &self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         to_socket: ToSocket,
     ) -> Result<
-        connection::Pending<Driver<Socket<Buffer>, Socket2>, connection::Socket1>,
+        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>,
         error::socket::Error<ToSocket::Error>,
     >
     where
@@ -85,10 +87,10 @@ where
 
     pub fn socket_1_upd<ToSocket>(
         &self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         to_socket: ToSocket,
     ) -> Result<
-        connection::Pending<Driver<Socket<Buffer>, Socket2>, connection::Socket1>,
+        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>,
         error::socket::Error<ToSocket::Error>,
     >
     where
@@ -119,17 +121,18 @@ where
     }
 }
 
-impl<Buffer, Socket1> Internet<Driver<Socket1, Socket<Buffer>>>
+impl<Buffer, Socket1, Dns> Internet<Driver<Socket1, Socket<Buffer>, Dns>>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn socket_2_tcp<ToSocket>(
         &self,
-        driver: &mut Driver<Socket1, Socket<Buffer>>,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         to_socket: ToSocket,
     ) -> Result<
-        connection::Pending<Driver<Socket1, Socket<Buffer>>, connection::Socket2>,
+        connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>,
         error::socket::Error<ToSocket::Error>,
     >
     where
@@ -161,10 +164,10 @@ where
 
     pub fn socket_2_upd<ToSocket>(
         &self,
-        driver: &mut Driver<Socket1, Socket<Buffer>>,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         to_socket: ToSocket,
     ) -> Result<
-        connection::Pending<Driver<Socket1, Socket<Buffer>>, connection::Socket2>,
+        connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>,
         error::socket::Error<ToSocket::Error>,
     >
     where
@@ -189,6 +192,35 @@ where
                 link_generation: self.link_generation,
                 connection_generation: self.connection_generation,
                 socket: connection::Socket2(socket_generation),
+                driver: PhantomData,
+            })
+            .map_err(Into::into)
+    }
+}
+
+impl<Socket1, Socket2, const MAX_LEN: usize> Internet<Driver<Socket1, Socket2, Dns<MAX_LEN>>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
+    pub fn dns<Name>(
+        &self,
+        driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>>,
+        name: Name,
+    ) -> Result<dns::Pending<Driver<Socket1, Socket2, Dns<MAX_LEN>>>, error::dns::Error<MAX_LEN>>
+    where
+        Name: dns::ToName,
+    {
+        driver
+            .dns(
+                self.link_generation,
+                self.connection_generation,
+                ArrayVec::try_from_iter(name.to_name().into_iter().copied())?,
+            )
+            .map(|dns_generation| dns::Pending {
+                link_generation: self.link_generation,
+                connection_generation: self.connection_generation,
+                dns_generation,
                 driver: PhantomData,
             })
             .map_err(Into::into)

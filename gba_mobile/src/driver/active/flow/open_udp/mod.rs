@@ -17,7 +17,7 @@ use either::Either;
 #[derive(Debug)]
 enum State {
     Dns {
-        packet: Packet<payload::Dns>,
+        packet: Packet<payload::Dns<255>>,
         port: u16,
     },
     OpenUdp(Packet<payload::OpenUdp>),

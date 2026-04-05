@@ -1,23 +1,25 @@
 pub(crate) mod item;
 
 use super::{ConnectionRequest, Flow, Phase, State};
-use crate::{Timer, socket};
+use crate::{Timer, dns, socket};
 use core::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
     ops::BitOr,
 };
-use item::{ConnectionSubItem, Item, SocketSubItem};
+use item::{ConnectionSubItem, DnsSubItem, Item, SocketSubItem};
 
-pub(super) struct Queue<Socket1, Socket2> {
+pub(super) struct Queue<Socket1, Socket2, Dns> {
     bits: u16,
     sockets: PhantomData<(Socket1, Socket2)>,
+    dns: PhantomData<Dns>,
 }
 
-impl<Socket1, Socket2> Queue<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Queue<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     const NONE: Self = Self::bits(0b0000_0000_0000_0000);
 
@@ -50,6 +52,8 @@ where
     /// progress made on the communication over both as well.
     const SOCKET_2_PRIORITY: Self = Self::bits(0b0000_0100_0000_0000);
 
+    const DNS: Self = Self::bits(0b0001_0000_0000_0000);
+
     const WRITE_CONFIG: Self = Self::bits(0b0010_0000_0000_0000);
 
     const STATUS: Self = Self::bits(0b0100_0000_0000_0000);
@@ -59,6 +63,7 @@ where
         Self {
             bits,
             sockets: PhantomData,
+            dns: PhantomData,
         }
     }
 
@@ -124,6 +129,10 @@ where
         self.set(Self::SOCKET_2_TRANSFER);
     }
 
+    pub(super) fn set_dns(&mut self) {
+        self.set(Self::DNS);
+    }
+
     pub(super) fn set_write_config(&mut self) {
         self.set(Self::WRITE_CONFIG);
     }
@@ -142,7 +151,8 @@ where
         timer: Timer,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
-    ) -> Option<Flow<Socket1, Socket2>> {
+        dns: &Dns,
+    ) -> Option<Flow<Socket1, Socket2, Dns>> {
         self.next().and_then(|item| {
             match item {
                 Item::Start => Some(Flow::start(state.transfer_length)),
@@ -180,7 +190,7 @@ where
                 },
                 Item::Socket1(item) => item.next_flow(state, timer, socket_1, socket_2),
                 Item::Socket2(item) => item.next_flow(state, timer, socket_1, socket_2),
-
+                Item::Dns(item) => item.flow(dns, state, timer),
                 Item::WriteConfig => Some(Flow::write_config(
                     state.transfer_length,
                     timer,
@@ -237,10 +247,11 @@ where
     }
 }
 
-impl<Socket1, Socket2> BitOr for Queue<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> BitOr for Queue<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     type Output = Self;
 
@@ -249,31 +260,34 @@ where
     }
 }
 
-impl<Socket1, Socket2> Clone for Queue<Socket1, Socket2> {
+impl<Socket1, Socket2, Dns> Clone for Queue<Socket1, Socket2, Dns> {
     fn clone(&self) -> Self {
         Self {
             bits: self.bits,
             sockets: self.sockets,
+            dns: self.dns,
         }
     }
 }
 
-impl<Socket1, Socket2> Debug for Queue<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Debug for Queue<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         formatter.debug_list().entries(self.clone()).finish()
     }
 }
 
-impl<Socket1, Socket2> Iterator for Queue<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Iterator for Queue<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
-    type Item = Item<Socket1, Socket2>;
+    type Item = Item<Socket1, Socket2, Dns>;
 
     /// Iterates over the items set on the queue, returning highest priority items first.
     ///
@@ -292,6 +306,9 @@ where
         } else if self.has(Queue::WRITE_CONFIG) {
             self.clear(Queue::WRITE_CONFIG);
             Some(Item::WriteConfig)
+        } else if self.has(Queue::DNS) {
+            self.clear(Queue::DNS);
+            Some(Item::Dns(Dns::Item::dns()))
         } else if self.has(Queue::START | Queue::END) {
             // When both start and end are set, we combine them into a single reset flow.
             self.clear_session();

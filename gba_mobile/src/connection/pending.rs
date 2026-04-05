@@ -1,5 +1,5 @@
 use super::{Connection, error};
-use crate::{Driver, Generation, Socket, socket};
+use crate::{Driver, Generation, Socket, dns, socket};
 use core::marker::PhantomData;
 
 #[derive(Debug)]
@@ -10,15 +10,17 @@ pub struct Pending<Driver, Socket> {
     pub(crate) driver: PhantomData<Driver>,
 }
 
-impl<Buffer, Socket2> Pending<Driver<Socket<Buffer>, Socket2>, super::P2p>
+impl<Buffer, Socket2, Dns> Pending<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn status(
         &self,
-        driver: &Driver<Socket<Buffer>, Socket2>,
-    ) -> Result<Option<Connection<Driver<Socket<Buffer>, Socket2>, super::P2p>>, error::P2p> {
+        driver: &Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<Option<Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>>, error::P2p>
+    {
         driver
             .connection_status(self.link_generation, self.connection_generation)
             .map(|finished| {
@@ -33,16 +35,19 @@ where
     }
 }
 
-impl<Buffer, Socket2> Pending<Driver<Socket<Buffer>, Socket2>, super::Socket1>
+impl<Buffer, Socket2, Dns> Pending<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn status(
         &self,
-        driver: &Driver<Socket<Buffer>, Socket2>,
-    ) -> Result<Option<Connection<Driver<Socket<Buffer>, Socket2>, super::Socket1>>, error::Socket>
-    {
+        driver: &Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<
+        Option<Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>>,
+        error::Socket,
+    > {
         driver
             .socket_1_status(
                 self.link_generation,
@@ -61,16 +66,19 @@ where
     }
 }
 
-impl<Socket1, Buffer> Pending<Driver<Socket1, Socket<Buffer>>, super::Socket2>
+impl<Socket1, Buffer, Dns> Pending<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn status(
         &self,
-        driver: &Driver<Socket1, Socket<Buffer>>,
-    ) -> Result<Option<Connection<Driver<Socket1, Socket<Buffer>>, super::Socket2>>, error::Socket>
-    {
+        driver: &Driver<Socket1, Socket<Buffer>, Dns>,
+    ) -> Result<
+        Option<Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>>,
+        error::Socket,
+    > {
         driver
             .socket_2_status(
                 self.link_generation,

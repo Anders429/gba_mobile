@@ -4,7 +4,7 @@ mod pending;
 
 pub use pending::Pending;
 
-use crate::{Driver, Generation, Socket, socket};
+use crate::{Driver, Generation, Socket, dns, socket};
 use core::marker::PhantomData;
 
 #[derive(Clone, Copy, Debug)]
@@ -24,14 +24,15 @@ pub struct Connection<Driver, Socket> {
     driver: PhantomData<Driver>,
 }
 
-impl<Buffer, Socket2> Connection<Driver<Socket<Buffer>, Socket2>, P2p>
+impl<Buffer, Socket2, Dns> Connection<Driver<Socket<Buffer>, Socket2, Dns>, P2p>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn read(
         &mut self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &mut [u8],
     ) -> Result<usize, error::io::P2p<Buffer::ReadError>> {
         driver
@@ -41,7 +42,7 @@ where
 
     pub fn write(
         &mut self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &[u8],
     ) -> Result<usize, error::P2p> {
         driver
@@ -50,14 +51,15 @@ where
     }
 }
 
-impl<Buffer, Socket2> Connection<Driver<Socket<Buffer>, Socket2>, Socket1>
+impl<Buffer, Socket2, Dns> Connection<Driver<Socket<Buffer>, Socket2, Dns>, Socket1>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn read(
         &mut self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &mut [u8],
     ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
         driver
@@ -72,7 +74,7 @@ where
 
     pub fn write(
         &mut self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &[u8],
     ) -> Result<usize, error::Socket> {
         driver
@@ -86,14 +88,15 @@ where
     }
 }
 
-impl<Buffer, Socket1> Connection<Driver<Socket1, Socket<Buffer>>, Socket2>
+impl<Buffer, Socket1, Dns> Connection<Driver<Socket1, Socket<Buffer>, Dns>, Socket2>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn read(
         &mut self,
-        driver: &mut Driver<Socket1, Socket<Buffer>>,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         buf: &mut [u8],
     ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
         driver
@@ -108,7 +111,7 @@ where
 
     pub fn write(
         &mut self,
-        driver: &mut Driver<Socket1, Socket<Buffer>>,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         buf: &[u8],
     ) -> Result<usize, error::Socket> {
         driver

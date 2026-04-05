@@ -1,5 +1,5 @@
 use super::{Error, Internet};
-use crate::{Driver, Generation, socket};
+use crate::{Driver, Generation, dns, socket};
 use core::marker::PhantomData;
 
 #[derive(Debug)]
@@ -9,15 +9,16 @@ pub struct Pending<Driver> {
     pub(crate) driver: PhantomData<Driver>,
 }
 
-impl<Socket1, Socket2> Pending<Driver<Socket1, Socket2>>
+impl<Socket1, Socket2, Dns> Pending<Driver<Socket1, Socket2, Dns>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn status(
         &self,
-        driver: &mut Driver<Socket1, Socket2>,
-    ) -> Result<Option<Internet<Driver<Socket1, Socket2>>>, Error> {
+        driver: &mut Driver<Socket1, Socket2, Dns>,
+    ) -> Result<Option<Internet<Driver<Socket1, Socket2, Dns>>>, Error> {
         driver
             .connection_status(self.link_generation, self.connection_generation)
             .map(|finished| {

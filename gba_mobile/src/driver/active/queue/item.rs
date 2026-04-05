@@ -1,16 +1,21 @@
 #![allow(private_interfaces)]
 
 use super::super::{Flow, Phase, State};
-use crate::{ArrayVec, Digit, Timer, socket};
+use crate::{
+    ArrayVec, Digit, Timer,
+    dns::{self, NoDns},
+    socket,
+};
 use core::{
     fmt,
     fmt::{Debug, Formatter},
 };
 
-pub(crate) trait SocketSubItem<Socket1, Socket2, const INDEX: usize>: Debug
+pub(crate) trait SocketSubItem<Socket1, Socket2, Dns, const INDEX: usize>: Debug
 where
     Socket1: socket::slot::Sealed,
     Socket2: socket::slot::Sealed,
+    Dns: dns::Sealed,
 {
     fn open() -> Self;
     fn close() -> Self;
@@ -22,31 +27,45 @@ where
         timer: Timer,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
-    ) -> Option<Flow<Socket1, Socket2>>;
+    ) -> Option<Flow<Socket1, Socket2, Dns>>;
 }
 
-pub(crate) trait ConnectionSubItem<Socket1, Socket2>
+pub(crate) trait ConnectionSubItem<Socket1, Socket2, Dns>
 where
     Socket1: socket::slot::Sealed,
     Socket2: socket::slot::Sealed,
+    Dns: dns::Sealed,
 {
     fn connect(
         phone_number: &ArrayVec<Digit, 32>,
         state: &State,
         timer: Timer,
-    ) -> Option<Flow<Socket1, Socket2>>;
+    ) -> Option<Flow<Socket1, Socket2, Dns>>;
 
-    fn accept(state: &State, timer: Timer) -> Option<Flow<Socket1, Socket2>>;
+    fn accept(state: &State, timer: Timer) -> Option<Flow<Socket1, Socket2, Dns>>;
+}
+
+pub(crate) trait DnsSubItem<Socket1, Socket2, Dns>: Debug
+where
+    Socket1: socket::slot::Sealed,
+    Socket2: socket::slot::Sealed,
+    Dns: dns::Sealed,
+{
+    fn dns() -> Self;
+
+    fn flow(self, dns: &Dns, state: &State, timer: Timer) -> Option<Flow<Socket1, Socket2, Dns>>;
 }
 
 /// An empty item set.
 #[derive(Debug)]
 pub(crate) enum Empty {}
 
-impl<Socket1, Socket2, const INDEX: usize> SocketSubItem<Socket1, Socket2, INDEX> for Empty
+impl<Socket1, Socket2, Dns, const INDEX: usize> SocketSubItem<Socket1, Socket2, Dns, INDEX>
+    for Empty
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Sealed,
 {
     fn open() -> Self {
         unreachable!()
@@ -66,25 +85,45 @@ where
         _timer: Timer,
         _socket_1: &mut Socket1,
         _socket_2: &mut Socket2,
-    ) -> Option<Flow<Socket1, Socket2>> {
+    ) -> Option<Flow<Socket1, Socket2, Dns>> {
         unreachable!()
     }
 }
 
-impl<Socket1, Socket2> ConnectionSubItem<Socket1, Socket2> for Empty
+impl<Socket1, Socket2, Dns> ConnectionSubItem<Socket1, Socket2, Dns> for Empty
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Sealed,
 {
     fn connect(
         _phone_number: &ArrayVec<Digit, 32>,
         _state: &State,
         _timer: Timer,
-    ) -> Option<Flow<Socket1, Socket2>> {
+    ) -> Option<Flow<Socket1, Socket2, Dns>> {
         None
     }
 
-    fn accept(_state: &State, _timer: Timer) -> Option<Flow<Socket1, Socket2>> {
+    fn accept(_state: &State, _timer: Timer) -> Option<Flow<Socket1, Socket2, Dns>> {
+        None
+    }
+}
+
+impl<Socket1, Socket2> DnsSubItem<Socket1, Socket2, NoDns> for Empty
+where
+    Socket1: socket::slot::Sealed,
+    Socket2: socket::slot::Sealed,
+{
+    fn dns() -> Self {
+        unreachable!()
+    }
+
+    fn flow(
+        self,
+        _dns: &NoDns,
+        _state: &State,
+        _timer: Timer,
+    ) -> Option<Flow<Socket1, Socket2, NoDns>> {
         None
     }
 }
@@ -96,10 +135,11 @@ pub(crate) enum Socket {
     Transfer,
 }
 
-impl<Buffer, Socket2> SocketSubItem<socket::Socket<Buffer>, Socket2, 0> for Socket
+impl<Buffer, Socket2, Dns> SocketSubItem<socket::Socket<Buffer>, Socket2, Dns, 0> for Socket
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Sealed,
 {
     fn open() -> Self {
         Self::Open
@@ -119,7 +159,7 @@ where
         timer: Timer,
         socket_1: &mut socket::Socket<Buffer>,
         _socket_2: &mut Socket2,
-    ) -> Option<Flow<socket::Socket<Buffer>, Socket2>> {
+    ) -> Option<Flow<socket::Socket<Buffer>, Socket2, Dns>> {
         match self {
             Self::Open => {
                 if let Phase::LoggedIn {
@@ -187,10 +227,11 @@ where
     }
 }
 
-impl<Buffer, Socket1> SocketSubItem<Socket1, socket::Socket<Buffer>, 1> for Socket
+impl<Buffer, Socket1, Dns> SocketSubItem<Socket1, socket::Socket<Buffer>, Dns, 1> for Socket
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
+    Dns: dns::Sealed,
 {
     fn open() -> Self {
         Self::Open
@@ -210,7 +251,7 @@ where
         timer: Timer,
         _socket_1: &mut Socket1,
         socket_2: &mut socket::Socket<Buffer>,
-    ) -> Option<Flow<Socket1, socket::Socket<Buffer>>> {
+    ) -> Option<Flow<Socket1, socket::Socket<Buffer>, Dns>> {
         match self {
             Self::Open => {
                 if let Phase::LoggedIn {
@@ -278,16 +319,17 @@ where
     }
 }
 
-impl<Buffer, Socket2> ConnectionSubItem<socket::Socket<Buffer>, Socket2> for Socket
+impl<Buffer, Socket2, Dns> ConnectionSubItem<socket::Socket<Buffer>, Socket2, Dns> for Socket
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Sealed,
 {
     fn connect(
         phone_number: &ArrayVec<Digit, 32>,
         state: &State,
         timer: Timer,
-    ) -> Option<Flow<socket::Socket<Buffer>, Socket2>> {
+    ) -> Option<Flow<socket::Socket<Buffer>, Socket2, Dns>> {
         Some(Flow::connect(
             state.transfer_length,
             timer,
@@ -297,15 +339,48 @@ where
         ))
     }
 
-    fn accept(state: &State, timer: Timer) -> Option<Flow<socket::Socket<Buffer>, Socket2>> {
+    fn accept(state: &State, timer: Timer) -> Option<Flow<socket::Socket<Buffer>, Socket2, Dns>> {
         Some(Flow::accept(state.transfer_length, timer))
     }
 }
 
-pub(in super::super) enum Item<Socket1, Socket2>
+#[derive(Debug)]
+pub(crate) struct Dns;
+
+impl<Socket1, Socket2, const MAX_LEN: usize> DnsSubItem<Socket1, Socket2, dns::Dns<MAX_LEN>> for Dns
+where
+    Socket1: socket::slot::Sealed,
+    Socket2: socket::slot::Sealed,
+{
+    fn dns() -> Self {
+        Self
+    }
+
+    fn flow(
+        self,
+        dns: &dns::Dns<MAX_LEN>,
+        state: &State,
+        timer: Timer,
+    ) -> Option<Flow<Socket1, Socket2, dns::Dns<MAX_LEN>>> {
+        if let dns::State::Request(name) = &dns.state {
+            Some(Flow::dns(
+                state.transfer_length,
+                timer,
+                name.clone(),
+                dns.generation,
+            ))
+        } else {
+            // There is no request in the actual DNS object, so there's nothing to send.
+            None
+        }
+    }
+}
+
+pub(in super::super) enum Item<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     Start,
     End,
@@ -314,8 +389,9 @@ where
     Connect,
     Disconnect,
 
-    Socket1(Socket1::Socket1Item<Socket2>),
-    Socket2(Socket2::Socket2Item<Socket1>),
+    Socket1(Socket1::Socket1Item<Socket2, Dns>),
+    Socket2(Socket2::Socket2Item<Socket1, Dns>),
+    Dns(Dns::Item<Socket1, Socket2>),
 
     WriteConfig,
 
@@ -323,10 +399,11 @@ where
     Idle,
 }
 
-impl<Socket1, Socket2> Debug for Item<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Debug for Item<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -339,6 +416,7 @@ where
 
             Self::Socket1(item) => formatter.debug_tuple("Socket1").field(item).finish(),
             Self::Socket2(item) => formatter.debug_tuple("Socket2").field(item).finish(),
+            Self::Dns(item) => formatter.debug_tuple("Dns").field(item).finish(),
 
             Self::WriteConfig => formatter.write_str("WriteConfig"),
 

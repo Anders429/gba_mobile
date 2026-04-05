@@ -2,6 +2,7 @@
 
 mod accept;
 mod connect;
+mod dns;
 mod end;
 mod error;
 mod idle;
@@ -26,11 +27,15 @@ pub(in crate::driver) use timeout::Timeout;
 
 use super::{Phase, Queue, State, StateChange};
 use crate::{
-    ArrayVec, Digit, Generation, Socket, Timer, driver::Adapter, mmio::serial::TransferLength,
-    socket, socket::NoSocket,
+    ArrayVec, Digit, Generation, Socket, Timer,
+    dns::NoDns,
+    driver::Adapter,
+    mmio::serial::TransferLength,
+    socket::{self, NoSocket},
 };
 use accept::Accept;
 use connect::Connect;
+use dns::Dns;
 use either::Either;
 use end::End;
 use idle::Idle;
@@ -54,6 +59,12 @@ pub(crate) trait SubFlowWithSocket<Socket>: Sized + Debug {
     ) -> Result<Option<Self>, Error>;
 }
 
+pub(crate) trait DnsSubFlow<Dns>: Sized + Debug {
+    fn vblank(self) -> Result<Self, Timeout>;
+    fn timer(&mut self);
+    fn serial(self, state: &mut State, timer: Timer, dns: &mut Dns) -> Result<Option<Self>, Error>;
+}
+
 /// An empty flow.
 ///
 /// Used when certain flows are not available due to the configuration of the driver.
@@ -74,6 +85,25 @@ impl SubFlowWithSocket<NoSocket> for Empty {
         _state: &mut State,
         _timer: Timer,
         _socket: &mut NoSocket,
+    ) -> Result<Option<Self>, Error> {
+        unreachable!()
+    }
+}
+
+impl DnsSubFlow<NoDns> for Empty {
+    fn vblank(self) -> Result<Self, Timeout> {
+        unreachable!()
+    }
+
+    fn timer(&mut self) {
+        unreachable!()
+    }
+
+    fn serial(
+        self,
+        _state: &mut State,
+        _timer: Timer,
+        _dns: &mut NoDns,
     ) -> Result<Option<Self>, Error> {
         unreachable!()
     }
@@ -125,6 +155,31 @@ impl<Buffer> SubFlowWithSocket<Socket<Buffer>> for ConnectionFlow {
                 .map(|flow| flow.map(Self::Connect))
                 .map_err(Error::Connect),
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DnsFlow<const MAX_LEN: usize>(Dns<MAX_LEN>);
+
+impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> {
+    fn vblank(self) -> Result<Self, Timeout> {
+        self.0.vblank().map(DnsFlow).map_err(Timeout::Dns)
+    }
+
+    fn timer(&mut self) {
+        self.0.timer();
+    }
+
+    fn serial(
+        self,
+        state: &mut State,
+        timer: Timer,
+        dns: &mut crate::Dns<MAX_LEN>,
+    ) -> Result<Option<Self>, Error> {
+        self.0
+            .serial(timer, &mut state.adapter, dns)
+            .map(|flow| flow.map(Self))
+            .map_err(|_| todo!())
     }
 }
 
@@ -202,10 +257,11 @@ where
 }
 
 #[derive(Debug)]
-pub(super) enum Flow<Socket1, Socket2>
+pub(super) enum Flow<Socket1, Socket2, Dns>
 where
     Socket1: socket::slot::Sealed,
     Socket2: socket::slot::Sealed,
+    Dns: crate::dns::Sealed,
 {
     Start(Start),
     End(End),
@@ -217,6 +273,7 @@ where
 
     Socket1(Socket1::SocketFlow<0>),
     Socket2(Socket2::SocketFlow<1>),
+    Dns(Dns::Flow),
 
     WriteConfig(WriteConfig),
 
@@ -224,10 +281,11 @@ where
     Idle(Idle),
 }
 
-impl<Socket1, Socket2> Flow<Socket1, Socket2>
+impl<Socket1, Socket2, Dns> Flow<Socket1, Socket2, Dns>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: crate::dns::Mode,
 {
     pub(super) fn start(transfer_length: TransferLength) -> Self {
         Self::Start(Start::new(transfer_length))
@@ -290,6 +348,7 @@ where
             Self::Connection(connection) => connection.vblank().map(Self::Connection),
             Self::Socket1(socket_1) => socket_1.vblank().map(Self::Socket1),
             Self::Socket2(socket_2) => socket_2.vblank().map(Self::Socket2),
+            Self::Dns(dns) => dns.vblank().map(Self::Dns),
             Self::WriteConfig(write_config) => write_config
                 .vblank()
                 .map(Self::WriteConfig)
@@ -308,6 +367,7 @@ where
             Self::Connection(connection) => connection.timer(),
             Self::Socket1(socket_1) => socket_1.timer(),
             Self::Socket2(socket_2) => socket_2.timer(),
+            Self::Dns(dns) => dns.timer(),
             Self::WriteConfig(write_config) => write_config.timer(),
             Self::Status(status) => status.timer(),
             Self::Idle(idle) => idle.timer(),
@@ -317,10 +377,11 @@ where
     pub(super) fn serial(
         self,
         state: &mut State,
-        queue: &mut Queue<Socket1, Socket2>,
+        queue: &mut Queue<Socket1, Socket2, Dns>,
         timer: Timer,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
+        dns: &mut Dns,
     ) -> Result<Either<Self, StateChange>, Error> {
         match self {
             Self::Start(start) => start
@@ -411,6 +472,13 @@ where
                     Either::Right(StateChange::StillActive)
                 }
             }),
+            Self::Dns(flow) => flow.serial(state, timer, dns).map(|flow| {
+                if let Some(flow) = flow {
+                    Either::Left(Self::Dns(flow))
+                } else {
+                    Either::Right(StateChange::StillActive)
+                }
+            }),
             Self::WriteConfig(write_config) => write_config
                 .serial(timer, &mut state.adapter, state.transfer_length)
                 .map(|flow| {
@@ -442,10 +510,11 @@ where
     }
 }
 
-impl<Buffer, Socket2> Flow<Socket<Buffer>, Socket2>
+impl<Buffer, Socket2, Dns> Flow<Socket<Buffer>, Socket2, Dns>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: crate::dns::Sealed,
 {
     pub(super) fn accept(transfer_length: TransferLength, timer: Timer) -> Self {
         Self::Connection(ConnectionFlow::Accept(Accept::new(transfer_length, timer)))
@@ -548,10 +617,11 @@ where
     }
 }
 
-impl<Buffer, Socket1> Flow<Socket1, Socket<Buffer>>
+impl<Buffer, Socket1, Dns> Flow<Socket1, Socket<Buffer>, Dns>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
+    Dns: crate::dns::Sealed,
 {
     pub(super) fn open_tcp_2_with_dns(
         transfer_length: TransferLength,
@@ -630,6 +700,26 @@ where
             transfer_length,
             timer,
             socket,
+        )))
+    }
+}
+
+impl<Socket1, Socket2, const MAX_LEN: usize> Flow<Socket1, Socket2, crate::Dns<MAX_LEN>>
+where
+    Socket1: socket::slot::Sealed,
+    Socket2: socket::slot::Sealed,
+{
+    pub(super) fn dns(
+        transfer_length: TransferLength,
+        timer: Timer,
+        name: ArrayVec<u8, MAX_LEN>,
+        dns_generation: Generation,
+    ) -> Self {
+        Self::Dns(DnsFlow(Dns::new(
+            transfer_length,
+            timer,
+            name,
+            dns_generation,
         )))
     }
 }

@@ -6,6 +6,7 @@ impl Generation {
         Self(0)
     }
 
+    #[must_use]
     pub(crate) fn increment(self) -> Self {
         Self(self.0.wrapping_add(1))
     }

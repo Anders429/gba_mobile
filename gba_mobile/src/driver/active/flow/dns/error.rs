@@ -5,25 +5,22 @@ use core::{
 };
 
 #[derive(Clone, Debug)]
-pub(in crate::driver) enum Error {
-    Dns(packet::Error<payload::Dns<255>>),
-    OpenUdp(packet::Error<payload::OpenUdp>),
+pub(in crate::driver) enum Error<const MAX_LEN: usize> {
+    Dns(packet::Error<payload::Dns<MAX_LEN>>),
 }
 
-impl Display for Error {
+impl<const MAX_LEN: usize> Display for Error<MAX_LEN> {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::Dns(_) => formatter.write_str("error while querying DNS"),
-            Self::OpenUdp(_) => formatter.write_str("error while opening UDP connection"),
         }
     }
 }
 
-impl core::error::Error for Error {
+impl<const MAX_LEN: usize> core::error::Error for Error<MAX_LEN> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Dns(error) => Some(error),
-            Self::OpenUdp(error) => Some(error),
         }
     }
 }

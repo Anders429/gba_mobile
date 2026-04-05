@@ -7,7 +7,7 @@ use core::{convert::Infallible, net::Ipv4Addr};
 
 use gba::prelude::*;
 use gba_mobile::{
-    Digit, Driver, Link, Socket, Timer,
+    Digit, Dns, Driver, Link, Socket, Timer,
     config::mobile_system_gb,
     socket::{self, NoSocket},
 };
@@ -97,14 +97,18 @@ impl socket::Buffer for RingBuffer {
 }
 
 #[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver<Socket<RingBuffer>, NoSocket> =
-    Driver::new(Timer::_0, Socket::new(RingBuffer::new()), NoSocket);
+static mut DRIVER: Driver<Socket<RingBuffer>, NoSocket, Dns<14>> = Driver::new(
+    Timer::_0,
+    Socket::new(RingBuffer::new()),
+    NoSocket,
+    Dns::new(),
+);
 
 // TODO: This function should probably be unsafe.
 #[allow(static_mut_refs)]
 fn with_driver<T, F>(f: F) -> T
 where
-    F: FnOnce(&mut Driver<Socket<RingBuffer>, NoSocket>) -> T,
+    F: FnOnce(&mut Driver<Socket<RingBuffer>, NoSocket, Dns<14>>) -> T,
 {
     let previous_ime = IME.read();
     IME.write(false);
@@ -223,7 +227,19 @@ pub fn main() {
         log::info!("ppp connection status: {ppp_status:?}");
 
         if let Ok(Some(ppp)) = ppp_status {
-            let pending_tcp = with_driver(|driver| ppp.socket_1_tcp(driver, "www.google.com:80"))
+            let pending_dns = with_driver(|driver| ppp.dns(driver, "www.google.com"))
+                .expect("DNS request failed");
+            let dns_result = loop {
+                VBlankIntrWait();
+
+                let status = with_driver(|driver| pending_dns.status(driver)).expect("DNS failure");
+
+                if let Some(result) = status {
+                    break result;
+                }
+            };
+
+            let pending_tcp = with_driver(|driver| ppp.socket_1_tcp(driver, (dns_result, 80)))
                 .expect("TCP connection attempt failed");
             let tcp_status = loop {
                 VBlankIntrWait();

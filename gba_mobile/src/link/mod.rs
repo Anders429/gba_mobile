@@ -6,8 +6,8 @@ pub use error::Error;
 pub use pending::Pending;
 
 use crate::{
-    Adapter, ArrayVec, Config, Driver, Generation, Socket, connection, digit::IntoDigits, internet,
-    socket,
+    Adapter, ArrayVec, Config, Driver, Generation, Socket, connection, digit::IntoDigits, dns,
+    internet, socket,
 };
 use core::{marker::PhantomData, net::Ipv4Addr};
 
@@ -17,12 +17,15 @@ pub struct Link<Driver> {
     driver: PhantomData<Driver>,
 }
 
-impl<Socket1, Socket2> Link<Driver<Socket1, Socket2>>
+impl<Socket1, Socket2, Dns> Link<Driver<Socket1, Socket2, Dns>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
-    pub fn new(driver: &mut Driver<Socket1, Socket2>) -> Pending<Driver<Socket1, Socket2>> {
+    pub fn new(
+        driver: &mut Driver<Socket1, Socket2, Dns>,
+    ) -> Pending<Driver<Socket1, Socket2, Dns>> {
         Pending {
             link_generation: driver.link(),
             driver: PhantomData,
@@ -35,13 +38,13 @@ where
 
     pub fn login<PhoneNumber, Id, Password>(
         &self,
-        driver: &mut Driver<Socket1, Socket2>,
+        driver: &mut Driver<Socket1, Socket2, Dns>,
         phone_number: PhoneNumber,
         id: Id,
         password: Password,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
-    ) -> Result<internet::Pending<Driver<Socket1, Socket2>>, error::login::Error>
+    ) -> Result<internet::Pending<Driver<Socket1, Socket2, Dns>>, error::login::Error>
     where
         PhoneNumber: IntoDigits,
         Id: IntoIterator<Item = u8>,
@@ -76,13 +79,13 @@ where
             })
     }
 
-    pub fn adapter(&self, driver: &Driver<Socket1, Socket2>) -> Result<Adapter, Error> {
+    pub fn adapter(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Adapter, Error> {
         driver.adapter(self.link_generation).map_err(Into::into)
     }
 
     pub fn config<Config>(
         &self,
-        driver: &Driver<Socket1, Socket2>,
+        driver: &Driver<Socket1, Socket2, Dns>,
     ) -> Result<Config, error::config::Error<Config::Error>>
     where
         Config: self::Config,
@@ -95,7 +98,7 @@ where
 
     pub fn write_config<Config>(
         &self,
-        driver: &mut Driver<Socket1, Socket2>,
+        driver: &mut Driver<Socket1, Socket2, Dns>,
         config: Config,
     ) -> Result<(), Error>
     where
@@ -107,15 +110,17 @@ where
     }
 }
 
-impl<Buffer, Socket2> Link<Driver<Socket<Buffer>, Socket2>>
+impl<Buffer, Socket2, Dns> Link<Driver<Socket<Buffer>, Socket2, Dns>>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
+    Dns: dns::Mode,
 {
     pub fn accept(
         &self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
-    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2>, connection::P2p>, Error> {
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>, Error>
+    {
         driver
             .accept(self.link_generation)
             .map(|connection_generation| connection::Pending {
@@ -129,10 +134,10 @@ where
 
     pub fn connect<PhoneNumber>(
         &self,
-        driver: &mut Driver<Socket<Buffer>, Socket2>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         phone_number: PhoneNumber,
     ) -> Result<
-        connection::Pending<Driver<Socket<Buffer>, Socket2>, connection::P2p>,
+        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>,
         error::connect::Error,
     >
     where
