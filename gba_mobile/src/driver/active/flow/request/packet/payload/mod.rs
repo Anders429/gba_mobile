@@ -2,6 +2,7 @@ pub(in crate::driver::active::flow) mod accept_connection;
 pub(in crate::driver::active::flow) mod begin_session;
 pub(in crate::driver::active::flow) mod connect;
 pub(in crate::driver::active::flow) mod connection_status;
+pub(in crate::driver::active::flow) mod disconnect;
 pub(in crate::driver::active::flow) mod dns;
 pub(in crate::driver::active::flow) mod enable_sio32;
 pub(in crate::driver::active::flow) mod end_session;
@@ -23,6 +24,7 @@ pub(in crate::driver::active::flow) use accept_connection::AcceptConnection;
 pub(in crate::driver::active::flow) use begin_session::BeginSession;
 pub(in crate::driver::active::flow) use connect::Connect;
 pub(in crate::driver::active::flow) use connection_status::ConnectionStatus;
+pub(in crate::driver::active::flow) use disconnect::Disconnect;
 pub(in crate::driver::active::flow) use dns::Dns;
 pub(in crate::driver::active::flow) use enable_sio32::EnableSio32;
 pub(in crate::driver::active::flow) use end_session::EndSession;
@@ -89,7 +91,7 @@ pub(in crate::driver) trait ReceiveData: Sized + Debug {
 
     fn receive_data(
         self,
-        data: u8,
+        byte: u8,
     ) -> Result<
         Either<Self, Self::ReceiveParsed>,
         (Self::Error, Self::ReceiveCommand, Option<(NonZeroU16, u16)>),

@@ -1,6 +1,6 @@
 use super::{
-    SocketSubFlow, accept, connect, dns, end, idle, login, open_tcp, open_udp, reset, start,
-    status, transfer_data, write_config,
+    SocketSubFlow, accept, connect, disconnect, dns, end, idle, login, open_tcp, open_udp, reset,
+    start, status, transfer_data, write_config,
 };
 use crate::{driver::active::flow::DnsSubFlow, socket};
 use core::{
@@ -94,6 +94,7 @@ where
     Reset(reset::Error),
     Login(login::Error),
     Connection(<Socket1::ConnectionFlow as SocketSubFlow<Socket1>>::Error),
+    Disconnect(disconnect::Error),
     Socket1(<Socket1::SocketFlow<0> as SocketSubFlow<Socket1>>::Error),
     Socket2(<Socket2::SocketFlow<1> as SocketSubFlow<Socket2>>::Error),
     Dns(<Dns::Flow as DnsSubFlow<Dns>>::Error),
@@ -115,6 +116,7 @@ where
             Self::Reset(error) => Self::Reset(error.clone()),
             Self::Login(error) => Self::Login(error.clone()),
             Self::Connection(error) => Self::Connection(error.clone()),
+            Self::Disconnect(error) => Self::Disconnect(error.clone()),
             Self::Socket1(error) => Self::Socket1(error.clone()),
             Self::Socket2(error) => Self::Socket2(error.clone()),
             Self::Dns(error) => Self::Dns(error.clone()),
@@ -138,6 +140,7 @@ where
             Self::Reset(error) => formatter.debug_tuple("Reset").field(error).finish(),
             Self::Login(error) => formatter.debug_tuple("Login").field(error).finish(),
             Self::Connection(error) => formatter.debug_tuple("Connection").field(error).finish(),
+            Self::Disconnect(error) => formatter.debug_tuple("Disconnect").field(error).finish(),
             Self::Socket1(error) => formatter.debug_tuple("Socket1").field(error).finish(),
             Self::Socket2(error) => formatter.debug_tuple("Socket2").field(error).finish(),
             Self::Dns(error) => formatter.debug_tuple("Dns").field(error).finish(),
@@ -161,6 +164,7 @@ where
             Self::Reset(_) => formatter.write_str("error during reset"),
             Self::Login(_) => formatter.write_str("error during login"),
             Self::Connection(_) => formatter.write_str("error during connection flow"),
+            Self::Disconnect(_) => formatter.write_str("error during disconnect"),
             Self::Socket1(_) => formatter.write_str("error during socket 1 flow"),
             Self::Socket2(_) => formatter.write_str("error during socket 2 flow"),
             Self::Dns(_) => formatter.write_str("error during dns flow"),
@@ -184,6 +188,7 @@ where
             Self::Reset(error) => Some(error),
             Self::Login(error) => Some(error),
             Self::Connection(error) => Some(error),
+            Self::Disconnect(error) => Some(error),
             Self::Socket1(error) => Some(error),
             Self::Socket2(error) => Some(error),
             Self::Dns(error) => Some(error),

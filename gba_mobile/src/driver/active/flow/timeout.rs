@@ -1,5 +1,5 @@
 use super::{
-    accept, connect, dns, end, idle, login, open_tcp, open_udp, reset, start, status,
+    accept, connect, disconnect, dns, end, idle, login, open_tcp, open_udp, reset, start, status,
     transfer_data, write_config,
 };
 use core::{
@@ -15,6 +15,7 @@ pub(in crate::driver) enum Timeout {
     Accept(accept::Timeout),
     Connect(connect::Timeout),
     Login(login::Timeout),
+    Disconnect(disconnect::Timeout),
     OpenTcp(open_tcp::Timeout),
     OpenUdp(open_udp::Timeout),
     TransferData(transfer_data::Timeout),
@@ -33,6 +34,7 @@ impl Display for Timeout {
             Self::Accept(_) => formatter.write_str("timeout during accept"),
             Self::Connect(_) => formatter.write_str("timeout during connect"),
             Self::Login(_) => formatter.write_str("timeout during login"),
+            Self::Disconnect(_) => formatter.write_str("timeout during disconnect"),
             Self::OpenTcp(_) => formatter.write_str("timeout during open tcp"),
             Self::OpenUdp(_) => formatter.write_str("timeout during open udp"),
             Self::TransferData(_) => formatter.write_str("timeout during transfer data"),
@@ -53,6 +55,7 @@ impl core::error::Error for Timeout {
             Self::Accept(timeout) => Some(timeout),
             Self::Connect(timeout) => Some(timeout),
             Self::Login(timeout) => Some(timeout),
+            Self::Disconnect(timeout) => Some(timeout),
             Self::OpenTcp(timeout) => Some(timeout),
             Self::OpenUdp(timeout) => Some(timeout),
             Self::TransferData(timeout) => Some(timeout),

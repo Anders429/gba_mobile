@@ -207,6 +207,32 @@ where
         self.state.connection_generation
     }
 
+    pub(super) fn disconnect(
+        &mut self,
+        connection_generation: Generation,
+    ) -> Result<(), super::error::connection::Error<Socket1, Socket2, Dns>> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded());
+        }
+
+        match self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked { .. } => {
+                // Not connected, so no need to disconnect.
+                Ok(())
+            }
+            Phase::Connecting(_) | Phase::Connected(_) | Phase::LoggedIn { .. } => {
+                self.state.phase = Phase::Linked {
+                    frame: 0,
+                    connection_failure: None,
+                };
+                self.queue.set_disconnect();
+                Ok(())
+            }
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+        }
+    }
+
     /// Connect via PPP protocol.
     pub(super) fn login(
         &mut self,
@@ -252,10 +278,10 @@ where
             Phase::Linked {
                 connection_failure: None,
                 ..
-            } => Err(super::error::connection::Error::superseded()),
+            } => Err(super::error::connection::Error::closed()),
             Phase::Connecting(_) => Ok(false),
+            Phase::Connected(_) | Phase::LoggedIn { .. } => Ok(true),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
-            _ => Ok(true),
         }
     }
 
@@ -274,7 +300,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded().into()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::connection::Error::closed().into()),
@@ -308,7 +341,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
             Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::connection::Error::closed()),
@@ -334,7 +374,14 @@ where
 
         match &mut self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -370,7 +417,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded().into()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -411,7 +465,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded().into()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -469,7 +530,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded().into()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -517,7 +585,14 @@ where
 
         match &mut self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -542,7 +617,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded().into()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -574,7 +656,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -592,7 +681,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),
@@ -610,7 +706,14 @@ where
 
         match &self.state.phase {
             Phase::Linking => Err(super::error::connection::Error::superseded()),
-            Phase::Linked { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
             Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
             Phase::Connected(_) => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::link::Error::closed().into()),

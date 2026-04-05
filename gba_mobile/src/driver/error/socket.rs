@@ -1,5 +1,5 @@
 use super::{connection, link};
-use crate::driver::active::socket;
+use crate::driver::active::{ConnectionFailure, socket};
 use core::{
     fmt,
     fmt::{Debug, Display, Formatter},
@@ -87,6 +87,19 @@ where
     fn from(error: connection::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Connection(error),
+        }
+    }
+}
+
+impl<Socket1, Socket2, Dns> From<ConnectionFailure> for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: ConnectionFailure) -> Self {
+        Self {
+            kind: Kind::Connection(error.into()),
         }
     }
 }

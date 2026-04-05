@@ -49,6 +49,15 @@ where
             .connection_write(self.link_generation, self.connection_generation, buf)
             .map_err(Into::into)
     }
+
+    pub fn close(
+        &self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<(), error::P2p<Socket<Buffer>, Socket2, Dns>> {
+        driver
+            .disconnect(self.link_generation, self.connection_generation)
+            .map_err(Into::into)
+    }
 }
 
 impl<Buffer, Socket2, Dns> Connection<Driver<Socket<Buffer>, Socket2, Dns>, Socket1>
@@ -86,6 +95,13 @@ where
             )
             .map_err(Into::into)
     }
+
+    pub fn close(
+        &self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<(), error::Socket<Socket<Buffer>, Socket2, Dns>> {
+        todo!()
+    }
 }
 
 impl<Buffer, Socket1, Dns> Connection<Driver<Socket1, Socket<Buffer>, Dns>, Socket2>
@@ -122,5 +138,12 @@ where
                 buf,
             )
             .map_err(Into::into)
+    }
+
+    pub fn close(
+        &self,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
+    ) -> Result<(), error::Socket<Socket1, Socket<Buffer>, Dns>> {
+        todo!()
     }
 }

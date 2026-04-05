@@ -200,8 +200,20 @@ where
         }
     }
 
-    pub(crate) fn disconnect(&mut self) {
-        todo!()
+    pub(crate) fn disconnect(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<(), error::connection::Error<Socket1, Socket2, Dns>> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.disconnect(connection_generation),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
     }
 
     pub(crate) fn adapter(

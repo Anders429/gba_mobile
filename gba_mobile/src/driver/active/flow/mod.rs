@@ -2,6 +2,7 @@
 
 mod accept;
 mod connect;
+mod disconnect;
 mod dns;
 mod end;
 mod error;
@@ -36,6 +37,7 @@ use crate::{
 };
 use accept::Accept;
 use connect::Connect;
+use disconnect::Disconnect;
 use dns::Dns;
 use either::Either;
 use end::End;
@@ -288,6 +290,7 @@ where
     Login(Login),
 
     Connection(Socket1::ConnectionFlow),
+    Disconnect(Disconnect),
 
     Socket1(Socket1::SocketFlow<0>),
     Socket2(Socket2::SocketFlow<1>),
@@ -341,6 +344,10 @@ where
         ))
     }
 
+    pub(super) fn disconnect(transfer_length: TransferLength, timer: Timer) -> Self {
+        Self::Disconnect(Disconnect::new(transfer_length, timer))
+    }
+
     pub(super) fn write_config(
         transfer_length: TransferLength,
         timer: Timer,
@@ -364,6 +371,10 @@ where
             Self::Reset(reset) => reset.vblank().map(Self::Reset).map_err(Timeout::Reset),
             Self::Login(login) => login.vblank().map(Self::Login).map_err(Timeout::Login),
             Self::Connection(connection) => connection.vblank().map(Self::Connection),
+            Self::Disconnect(disconnect) => disconnect
+                .vblank()
+                .map(Self::Disconnect)
+                .map_err(Timeout::Disconnect),
             Self::Socket1(socket_1) => socket_1.vblank().map(Self::Socket1),
             Self::Socket2(socket_2) => socket_2.vblank().map(Self::Socket2),
             Self::Dns(dns) => dns.vblank().map(Self::Dns),
@@ -383,6 +394,7 @@ where
             Self::Reset(reset) => reset.timer(),
             Self::Login(login) => login.timer(),
             Self::Connection(connection) => connection.timer(),
+            Self::Disconnect(disconnect) => disconnect.timer(),
             Self::Socket1(socket_1) => socket_1.timer(),
             Self::Socket2(socket_2) => socket_2.timer(),
             Self::Dns(dns) => dns.timer(),
@@ -479,6 +491,15 @@ where
                     }
                 })
                 .map_err(Error::Connection),
+            Self::Disconnect(disconnect) => disconnect
+                .serial(timer, &mut state.adapter)
+                .map(|flow| {
+                    flow.map_or_else(
+                        || Either::Right(StateChange::StillActive),
+                        |flow| Either::Left(Self::Disconnect(flow)),
+                    )
+                })
+                .map_err(Error::Disconnect),
             Self::Socket1(socket) => socket
                 .serial(state, timer, socket_1)
                 .map(|flow| {

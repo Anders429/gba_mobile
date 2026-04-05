@@ -158,6 +158,7 @@ where
                 Item::Start => Some(Flow::start(state.transfer_length)),
                 Item::End => Some(Flow::end(state.transfer_length, timer)),
                 Item::Reset => Some(Flow::reset(state.transfer_length, timer)),
+                Item::Disconnect => Some(Flow::disconnect(state.transfer_length, timer)),
                 Item::Connect => match &state.phase {
                     Phase::Connecting(ConnectionRequest::Accept { .. }) => {
                         Socket1::ConnectionItem::accept(state, timer)

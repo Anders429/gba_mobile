@@ -50,6 +50,15 @@ where
             .secondary_dns(self.link_generation, self.connection_generation)
             .map_err(Into::into)
     }
+
+    pub fn disconnect(
+        &self,
+        driver: &mut Driver<Socket1, Socket2, Dns>,
+    ) -> Result<(), Error<Socket1, Socket2, Dns>> {
+        driver
+            .disconnect(self.link_generation, self.connection_generation)
+            .map_err(Into::into)
+    }
 }
 
 impl<Buffer, Socket2, Dns> Internet<Driver<Socket<Buffer>, Socket2, Dns>>
