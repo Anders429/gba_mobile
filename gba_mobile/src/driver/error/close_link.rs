@@ -1,14 +1,23 @@
 use core::{
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
 };
 
-#[derive(Debug)]
-pub(crate) struct Error {
-    kind: Kind,
+pub(crate) struct Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    kind: Kind<Socket1, Socket2, Dns>,
 }
 
-impl Error {
+impl<Socket1, Socket2, Dns> Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     pub(in crate::driver) fn superseded() -> Self {
         Self {
             kind: Kind::Superseded,
@@ -16,33 +25,83 @@ impl Error {
     }
 }
 
-impl Display for Error {
+impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.kind.fmt(formatter)
+        Debug::fmt(&self.kind, formatter)
     }
 }
 
-impl core::error::Error for Error {
+impl<Socket1, Socket2, Dns> Display for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.kind, formatter)
+    }
+}
+
+impl<Socket1, Socket2, Dns> core::error::Error for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.kind.source()
     }
 }
 
-impl From<super::Error> for Error {
-    fn from(error: super::Error) -> Self {
+impl<Socket1, Socket2, Dns> From<super::Error<Socket1, Socket2, Dns>>
+    for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: super::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Driver(error),
         }
     }
 }
 
-#[derive(Debug)]
-enum Kind {
-    Driver(super::Error),
+enum Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    Driver(super::Error<Socket1, Socket2, Dns>),
     Superseded,
 }
 
-impl Display for Kind {
+impl<Socket1, Socket2, Dns> Debug for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Driver(error) => formatter.debug_tuple("Driver").field(error).finish(),
+            Self::Superseded => formatter.write_str("Superseded"),
+        }
+    }
+}
+
+impl<Socket1, Socket2, Dns> Display for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Driver(_) => formatter.write_str("the driver is in an error state"),
@@ -51,7 +110,12 @@ impl Display for Kind {
     }
 }
 
-impl core::error::Error for Kind {
+impl<Socket1, Socket2, Dns> core::error::Error for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Driver(error) => Some(error),

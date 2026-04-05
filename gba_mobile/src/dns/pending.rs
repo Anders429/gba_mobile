@@ -18,7 +18,7 @@ where
     pub fn status(
         &self,
         driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>>,
-    ) -> Result<Option<Ipv4Addr>, Error> {
+    ) -> Result<Option<Ipv4Addr>, Error<Socket1, Socket2, Dns<MAX_LEN>>> {
         driver
             .dns_status(
                 self.link_generation,

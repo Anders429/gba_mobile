@@ -1,15 +1,24 @@
 use super::{connection, link};
 use core::{
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
 };
 
-#[derive(Debug)]
-pub(crate) struct Error<IoError> {
-    kind: Kind<IoError>,
+pub(crate) struct Error<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    kind: Kind<IoError, Socket1, Socket2, Dns>,
 }
 
-impl<IoError> Error<IoError> {
+impl<IoError, Socket1, Socket2, Dns> Error<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     pub(in crate::driver) fn io(error: IoError) -> Self {
         Self {
             kind: Kind::Io(error),
@@ -17,51 +26,103 @@ impl<IoError> Error<IoError> {
     }
 }
 
-impl<IoError> Display for Error<IoError>
+impl<IoError, Socket1, Socket2, Dns> Debug for Error<IoError, Socket1, Socket2, Dns>
 where
-    IoError: Display,
+    IoError: Debug,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.kind.fmt(formatter)
+        Debug::fmt(&self.kind, formatter)
     }
 }
 
-impl<IoError> core::error::Error for Error<IoError>
+impl<IoError, Socket1, Socket2, Dns> Display for Error<IoError, Socket1, Socket2, Dns>
+where
+    IoError: Display,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.kind, formatter)
+    }
+}
+
+impl<IoError, Socket1, Socket2, Dns> core::error::Error for Error<IoError, Socket1, Socket2, Dns>
 where
     IoError: core::error::Error + 'static,
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.kind.source()
     }
 }
 
-impl<IoError> From<connection::Error> for Error<IoError> {
-    fn from(error: connection::Error) -> Self {
+impl<IoError, Socket1, Socket2, Dns> From<connection::Error<Socket1, Socket2, Dns>>
+    for Error<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: connection::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Connection(error),
         }
     }
 }
 
-impl<IoError> From<link::Error> for Error<IoError> {
-    fn from(error: link::Error) -> Self {
+impl<IoError, Socket1, Socket2, Dns> From<link::Error<Socket1, Socket2, Dns>>
+    for Error<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: link::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Connection(error.into()),
         }
     }
 }
 
-#[derive(Debug)]
-enum Kind<IoError> {
+enum Kind<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     Io(IoError),
-    Connection(connection::Error),
+    Connection(connection::Error<Socket1, Socket2, Dns>),
 }
 
-impl<IoError> Display for Kind<IoError>
+impl<IoError, Socket1, Socket2, Dns> Debug for Kind<IoError, Socket1, Socket2, Dns>
+where
+    IoError: Debug,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Io(error) => formatter.debug_tuple("Io").field(error).finish(),
+            Self::Connection(error) => formatter.debug_tuple("Connection").field(error).finish(),
+        }
+    }
+}
+
+impl<IoError, Socket1, Socket2, Dns> Display for Kind<IoError, Socket1, Socket2, Dns>
 where
     IoError: Display,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::Io(_) => formatter.write_str("io error"),
             Self::Connection(_) => formatter.write_str("connection error"),
@@ -69,9 +130,12 @@ where
     }
 }
 
-impl<IoError> core::error::Error for Kind<IoError>
+impl<IoError, Socket1, Socket2, Dns> core::error::Error for Kind<IoError, Socket1, Socket2, Dns>
 where
     IoError: core::error::Error + 'static,
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {

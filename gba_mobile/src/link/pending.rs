@@ -21,7 +21,7 @@ where
     pub fn status(
         &self,
         driver: &Driver<Socket1, Socket2, Dns>,
-    ) -> Result<Option<Link<Driver<Socket1, Socket2, Dns>>>, Error> {
+    ) -> Result<Option<Link<Driver<Socket1, Socket2, Dns>>>, Error<Socket1, Socket2, Dns>> {
         driver
             .link_status(self.link_generation)
             .map(|finished| {

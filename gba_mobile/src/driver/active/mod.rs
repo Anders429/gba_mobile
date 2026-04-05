@@ -161,7 +161,9 @@ where
         self.state.phase = Phase::Linking;
     }
 
-    pub(super) fn link_status(&self) -> Result<bool, super::error::link::Error> {
+    pub(super) fn link_status(
+        &self,
+    ) -> Result<bool, super::error::link::Error<Socket1, Socket2, Dns>> {
         match self.state.phase {
             Phase::Linking => Ok(false),
             Phase::Ending => Err(super::error::link::Error::closed()),
@@ -236,7 +238,7 @@ where
     pub(crate) fn connection_status(
         &self,
         connection_generation: Generation,
-    ) -> Result<bool, super::error::connection::Error> {
+    ) -> Result<bool, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded());
         }
@@ -262,7 +264,7 @@ where
         connection_generation: Generation,
         buf: &mut [u8],
         socket: &mut Socket<Buffer>,
-    ) -> Result<usize, super::error::connection_io::Error<Buffer::ReadError>>
+    ) -> Result<usize, super::error::connection_io::Error<Buffer::ReadError, Socket1, Socket2, Dns>>
     where
         Buffer: crate::socket::Buffer,
     {
@@ -296,7 +298,7 @@ where
         connection_generation: Generation,
         buf: &[u8],
         socket: &mut Socket<Buffer>,
-    ) -> Result<usize, super::error::connection::Error>
+    ) -> Result<usize, super::error::connection::Error<Socket1, Socket2, Dns>>
     where
         Buffer: crate::socket::Buffer,
     {
@@ -325,7 +327,7 @@ where
         socket_addr: SocketAddrV4,
         protocol: socket::Protocol,
         socket: &mut crate::Socket<Buffer>,
-    ) -> Result<Generation, super::error::connection::Error> {
+    ) -> Result<Generation, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
         }
@@ -361,7 +363,7 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         socket: &crate::Socket<Buffer>,
-    ) -> Result<bool, super::error::socket::Error> {
+    ) -> Result<bool, super::error::socket::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
         }
@@ -399,7 +401,7 @@ where
         socket_generation: Generation,
         buf: &mut [u8],
         socket: &mut Socket<Buffer>,
-    ) -> Result<usize, super::error::socket_io::Error<Buffer::ReadError>>
+    ) -> Result<usize, super::error::socket_io::Error<Buffer::ReadError, Socket1, Socket2, Dns>>
     where
         Buffer: crate::socket::Buffer,
     {
@@ -457,7 +459,7 @@ where
         socket_generation: Generation,
         buf: &[u8],
         socket: &mut Socket<Buffer>,
-    ) -> Result<usize, super::error::socket::Error>
+    ) -> Result<usize, super::error::socket::Error<Socket1, Socket2, Dns>>
     where
         Buffer: crate::socket::Buffer,
     {
@@ -508,7 +510,7 @@ where
         connection_generation: Generation,
         name: ArrayVec<u8, MAX_LEN>,
         dns: &mut crate::Dns<MAX_LEN>,
-    ) -> Result<Generation, super::error::connection::Error> {
+    ) -> Result<Generation, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
         }
@@ -533,7 +535,7 @@ where
         connection_generation: Generation,
         dns_generation: Generation,
         dns: &crate::Dns<MAX_LEN>,
-    ) -> Result<Option<Ipv4Addr>, super::error::dns::Error> {
+    ) -> Result<Option<Ipv4Addr>, super::error::dns::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
         }
@@ -565,7 +567,7 @@ where
     pub(crate) fn ip(
         &self,
         connection_generation: Generation,
-    ) -> Result<Ipv4Addr, super::error::connection::Error> {
+    ) -> Result<Ipv4Addr, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded());
         }
@@ -583,7 +585,7 @@ where
     pub(crate) fn primary_dns(
         &self,
         connection_generation: Generation,
-    ) -> Result<Ipv4Addr, super::error::connection::Error> {
+    ) -> Result<Ipv4Addr, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded());
         }
@@ -601,7 +603,7 @@ where
     pub(crate) fn secondary_dns(
         &self,
         connection_generation: Generation,
-    ) -> Result<Ipv4Addr, super::error::connection::Error> {
+    ) -> Result<Ipv4Addr, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded());
         }
@@ -740,7 +742,7 @@ where
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &mut Dns,
-    ) -> Result<StateChange, Error> {
+    ) -> Result<StateChange, Error<Socket1, Socket2, Dns>> {
         if let Some(flow) = self.flow.take() {
             match flow.serial(
                 &mut self.state,

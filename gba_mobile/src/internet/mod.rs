@@ -24,19 +24,28 @@ where
     Socket2: socket::Slot,
     Dns: dns::Mode,
 {
-    pub fn ip(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Ipv4Addr, Error> {
+    pub fn ip(
+        &self,
+        driver: &Driver<Socket1, Socket2, Dns>,
+    ) -> Result<Ipv4Addr, Error<Socket1, Socket2, Dns>> {
         driver
             .ip(self.link_generation, self.connection_generation)
             .map_err(Into::into)
     }
 
-    pub fn primary_dns(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Ipv4Addr, Error> {
+    pub fn primary_dns(
+        &self,
+        driver: &Driver<Socket1, Socket2, Dns>,
+    ) -> Result<Ipv4Addr, Error<Socket1, Socket2, Dns>> {
         driver
             .primary_dns(self.link_generation, self.connection_generation)
             .map_err(Into::into)
     }
 
-    pub fn secondary_dns(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Ipv4Addr, Error> {
+    pub fn secondary_dns(
+        &self,
+        driver: &Driver<Socket1, Socket2, Dns>,
+    ) -> Result<Ipv4Addr, Error<Socket1, Socket2, Dns>> {
         driver
             .secondary_dns(self.link_generation, self.connection_generation)
             .map_err(Into::into)
@@ -53,8 +62,10 @@ where
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         socket_addr: SocketAddrV4,
-    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>, Error>
-    {
+    ) -> Result<
+        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>,
+        Error<Socket<Buffer>, Socket2, Dns>,
+    > {
         driver
             .open_tcp_1(
                 self.link_generation,
@@ -74,8 +85,10 @@ where
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         socket_addr: SocketAddrV4,
-    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>, Error>
-    {
+    ) -> Result<
+        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>,
+        Error<Socket<Buffer>, Socket2, Dns>,
+    > {
         driver
             .open_udp_1(
                 self.link_generation,
@@ -102,8 +115,10 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         socket_addr: SocketAddrV4,
-    ) -> Result<connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>, Error>
-    {
+    ) -> Result<
+        connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>,
+        Error<Socket1, Socket<Buffer>, Dns>,
+    > {
         driver
             .open_tcp_2(
                 self.link_generation,
@@ -123,8 +138,10 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         socket_addr: SocketAddrV4,
-    ) -> Result<connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>, Error>
-    {
+    ) -> Result<
+        connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>,
+        Error<Socket1, Socket<Buffer>, Dns>,
+    > {
         driver
             .open_udp_2(
                 self.link_generation,
@@ -150,7 +167,10 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>>,
         name: Name,
-    ) -> Result<dns::Pending<Driver<Socket1, Socket2, Dns<MAX_LEN>>>, error::dns::Error<MAX_LEN>>
+    ) -> Result<
+        dns::Pending<Driver<Socket1, Socket2, Dns<MAX_LEN>>>,
+        error::dns::Error<Socket1, Socket2, Dns<MAX_LEN>, MAX_LEN>,
+    >
     where
         Name: dns::ToName,
     {

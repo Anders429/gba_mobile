@@ -1,53 +1,115 @@
 pub mod io;
 
-use crate::driver;
+use crate::{dns, driver, socket};
 use core::{
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
 };
 
-#[derive(Debug)]
-pub struct P2p {
-    internal: driver::error::connection::Error,
+pub struct P2p<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    internal: driver::error::connection::Error<Socket1, Socket2, Dns>,
 }
 
-impl Display for P2p {
+impl<Socket1, Socket2, Dns> Debug for P2p<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.internal.fmt(formatter)
+        Debug::fmt(&self.internal, formatter)
     }
 }
 
-impl core::error::Error for P2p {
+impl<Socket1, Socket2, Dns> Display for P2p<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.internal, formatter)
+    }
+}
+
+impl<Socket1, Socket2, Dns> core::error::Error for P2p<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot + 'static,
+    Socket2: socket::Slot + 'static,
+    Dns: dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.internal.source()
     }
 }
 
-impl From<driver::error::connection::Error> for P2p {
-    fn from(error: driver::error::connection::Error) -> Self {
+impl<Socket1, Socket2, Dns> From<driver::error::connection::Error<Socket1, Socket2, Dns>>
+    for P2p<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn from(error: driver::error::connection::Error<Socket1, Socket2, Dns>) -> Self {
         Self { internal: error }
     }
 }
 
-#[derive(Debug)]
-pub struct Socket {
-    internal: driver::error::socket::Error,
+pub struct Socket<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    internal: driver::error::socket::Error<Socket1, Socket2, Dns>,
 }
 
-impl Display for Socket {
+impl<Socket1, Socket2, Dns> Debug for Socket<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.internal.fmt(formatter)
+        Display::fmt(&self.internal, formatter)
     }
 }
 
-impl core::error::Error for Socket {
+impl<Socket1, Socket2, Dns> Display for Socket<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.internal, formatter)
+    }
+}
+
+impl<Socket1, Socket2, Dns> core::error::Error for Socket<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot + 'static,
+    Socket2: socket::Slot + 'static,
+    Dns: dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.internal.source()
     }
 }
 
-impl From<driver::error::socket::Error> for Socket {
-    fn from(error: driver::error::socket::Error) -> Self {
+impl<Socket1, Socket2, Dns> From<driver::error::socket::Error<Socket1, Socket2, Dns>>
+    for Socket<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn from(error: driver::error::socket::Error<Socket1, Socket2, Dns>) -> Self {
         Self { internal: error }
     }
 }

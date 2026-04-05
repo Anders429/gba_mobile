@@ -19,7 +19,6 @@ use crate::{
 use active::Active;
 use command::Command;
 use core::net::{Ipv4Addr, SocketAddrV4};
-use either::Either;
 use error::Error;
 
 #[derive(Debug)]
@@ -34,7 +33,7 @@ where
     /// Currently linked with a Mobile Adapter device.
     Active(Active<Socket1, Socket2, Dns>),
     /// Communication encountered an error and the link must be reset.
-    Error(Error),
+    Error(Error<Socket1, Socket2, Dns>),
 }
 
 #[derive(Debug)]
@@ -119,7 +118,7 @@ where
     pub(crate) fn link_status(
         &self,
         link_generation: Generation,
-    ) -> Result<bool, error::link::Error> {
+    ) -> Result<bool, error::link::Error<Socket1, Socket2, Dns>> {
         if link_generation != self.link_generation {
             return Err(error::link::Error::superseded());
         }
@@ -151,7 +150,7 @@ where
     pub(crate) fn close_link_status(
         &self,
         link_generation: Generation,
-    ) -> Result<bool, error::close_link::Error> {
+    ) -> Result<bool, error::close_link::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::close_link::Error::superseded());
         }
@@ -171,7 +170,7 @@ where
         password: ArrayVec<u8, 32>,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
-    ) -> Result<Generation, error::link::Error> {
+    ) -> Result<Generation, error::link::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded());
         }
@@ -189,7 +188,7 @@ where
         &self,
         link_generation: Generation,
         connection_generation: Generation,
-    ) -> Result<bool, error::connection::Error> {
+    ) -> Result<bool, error::connection::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -208,7 +207,7 @@ where
     pub(crate) fn adapter(
         &self,
         link_generation: Generation,
-    ) -> Result<Adapter, error::link::Error> {
+    ) -> Result<Adapter, error::link::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -224,7 +223,7 @@ where
         &self,
         link_generation: Generation,
         connection_generation: Generation,
-    ) -> Result<Ipv4Addr, error::connection::Error> {
+    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -240,7 +239,7 @@ where
         &self,
         link_generation: Generation,
         connection_generation: Generation,
-    ) -> Result<Ipv4Addr, error::connection::Error> {
+    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -256,7 +255,7 @@ where
         &self,
         link_generation: Generation,
         connection_generation: Generation,
-    ) -> Result<Ipv4Addr, error::connection::Error> {
+    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -271,7 +270,7 @@ where
     pub(crate) fn config(
         &self,
         link_generation: Generation,
-    ) -> Result<&[u8; 256], error::link::Error> {
+    ) -> Result<&[u8; 256], error::link::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -287,7 +286,7 @@ where
         &mut self,
         link_generation: Generation,
         config: Config,
-    ) -> Result<(), error::link::Error>
+    ) -> Result<(), error::link::Error<Socket1, Socket2, Dns>>
     where
         Config: self::Config,
     {
@@ -363,7 +362,7 @@ where
     pub(crate) fn accept(
         &mut self,
         link_generation: Generation,
-    ) -> Result<Generation, error::link::Error> {
+    ) -> Result<Generation, error::link::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded());
         }
@@ -379,7 +378,7 @@ where
         &mut self,
         link_generation: Generation,
         phone_number: ArrayVec<Digit, 32>,
-    ) -> Result<Generation, error::link::Error> {
+    ) -> Result<Generation, error::link::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded());
         }
@@ -396,7 +395,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
-    ) -> Result<Generation, error::connection::Error> {
+    ) -> Result<Generation, error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -418,7 +417,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
-    ) -> Result<Generation, error::connection::Error> {
+    ) -> Result<Generation, error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -440,7 +439,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         socket_generation: Generation,
-    ) -> Result<bool, error::socket::Error> {
+    ) -> Result<bool, error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -461,7 +460,8 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         buf: &mut [u8],
-    ) -> Result<usize, error::connection_io::Error<Buffer::ReadError>> {
+    ) -> Result<usize, error::connection_io::Error<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>>
+    {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -480,7 +480,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         buf: &[u8],
-    ) -> Result<usize, error::connection::Error> {
+    ) -> Result<usize, error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -500,7 +500,8 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &mut [u8],
-    ) -> Result<usize, error::socket_io::Error<Buffer::ReadError>> {
+    ) -> Result<usize, error::socket_io::Error<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>>
+    {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -523,7 +524,7 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &[u8],
-    ) -> Result<usize, error::socket::Error> {
+    ) -> Result<usize, error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -552,7 +553,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
-    ) -> Result<Generation, error::connection::Error> {
+    ) -> Result<Generation, error::connection::Error<Socket1, Socket<Buffer>, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -574,7 +575,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
-    ) -> Result<Generation, error::connection::Error> {
+    ) -> Result<Generation, error::connection::Error<Socket1, Socket<Buffer>, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -596,7 +597,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         socket_generation: Generation,
-    ) -> Result<bool, error::socket::Error> {
+    ) -> Result<bool, error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -618,7 +619,8 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &mut [u8],
-    ) -> Result<usize, error::socket_io::Error<Buffer::ReadError>> {
+    ) -> Result<usize, error::socket_io::Error<Buffer::ReadError, Socket1, Socket<Buffer>, Dns>>
+    {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -641,7 +643,7 @@ where
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &[u8],
-    ) -> Result<usize, error::socket::Error> {
+    ) -> Result<usize, error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -669,7 +671,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         name: ArrayVec<u8, MAX_LEN>,
-    ) -> Result<Generation, error::connection::Error> {
+    ) -> Result<Generation, error::connection::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }
@@ -686,7 +688,7 @@ where
         link_generation: Generation,
         connection_generation: Generation,
         dns_generation: Generation,
-    ) -> Result<Option<Ipv4Addr>, error::dns::Error> {
+    ) -> Result<Option<Ipv4Addr>, error::dns::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
         }

@@ -1,35 +1,71 @@
-use crate::{arrayvec, driver, link};
+use crate::{arrayvec, dns, driver, link, socket};
 use core::{
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
 };
 
-#[derive(Debug)]
-pub struct Error {
-    kind: Kind,
+pub struct Error<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    kind: Kind<Socket1, Socket2, Dns>,
 }
 
-impl Display for Error {
+impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.kind.fmt(formatter)
+        Debug::fmt(&self.kind, formatter)
     }
 }
 
-impl core::error::Error for Error {
+impl<Socket1, Socket2, Dns> Display for Error<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.kind, formatter)
+    }
+}
+
+impl<Socket1, Socket2, Dns> core::error::Error for Error<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot + 'static,
+    Socket2: socket::Slot + 'static,
+    Dns: dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.kind.source()
     }
 }
 
-impl From<driver::error::link::Error> for Error {
-    fn from(error: driver::error::link::Error) -> Self {
+impl<Socket1, Socket2, Dns> From<driver::error::link::Error<Socket1, Socket2, Dns>>
+    for Error<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Link(error.into()),
         }
     }
 }
 
-impl From<arrayvec::error::Capacity<32>> for Error {
+impl<Socket1, Socket2, Dns> From<arrayvec::error::Capacity<32>> for Error<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
     fn from(error: arrayvec::error::Capacity<32>) -> Self {
         Self {
             kind: Kind::PhoneNumber(error),
@@ -37,13 +73,36 @@ impl From<arrayvec::error::Capacity<32>> for Error {
     }
 }
 
-#[derive(Debug)]
-enum Kind {
-    Link(link::Error),
+enum Kind<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    Link(link::Error<Socket1, Socket2, Dns>),
     PhoneNumber(arrayvec::error::Capacity<32>),
 }
 
-impl Display for Kind {
+impl<Socket1, Socket2, Dns> Debug for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Link(error) => formatter.debug_tuple("Link").field(error).finish(),
+            Self::PhoneNumber(error) => formatter.debug_tuple("PhoneNumber").field(error).finish(),
+        }
+    }
+}
+
+impl<Socket1, Socket2, Dns> Display for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::Link(_) => formatter.write_str("Mobile Adapter link connection error"),
@@ -52,7 +111,12 @@ impl Display for Kind {
     }
 }
 
-impl core::error::Error for Kind {
+impl<Socket1, Socket2, Dns> core::error::Error for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot + 'static,
+    Socket2: socket::Slot + 'static,
+    Dns: dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Link(error) => Some(error),

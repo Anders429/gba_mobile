@@ -34,7 +34,7 @@ where
         &mut self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &mut [u8],
-    ) -> Result<usize, error::io::P2p<Buffer::ReadError>> {
+    ) -> Result<usize, error::io::P2p<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>> {
         driver
             .connection_read(self.link_generation, self.connection_generation, buf)
             .map_err(Into::into)
@@ -44,7 +44,7 @@ where
         &mut self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &[u8],
-    ) -> Result<usize, error::P2p> {
+    ) -> Result<usize, error::P2p<Socket<Buffer>, Socket2, Dns>> {
         driver
             .connection_write(self.link_generation, self.connection_generation, buf)
             .map_err(Into::into)
@@ -61,7 +61,7 @@ where
         &mut self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &mut [u8],
-    ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
+    ) -> Result<usize, error::io::Socket<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>> {
         driver
             .socket_1_read(
                 self.link_generation,
@@ -76,7 +76,7 @@ where
         &mut self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
         buf: &[u8],
-    ) -> Result<usize, error::Socket> {
+    ) -> Result<usize, error::Socket<Socket<Buffer>, Socket2, Dns>> {
         driver
             .socket_1_write(
                 self.link_generation,
@@ -98,7 +98,7 @@ where
         &mut self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         buf: &mut [u8],
-    ) -> Result<usize, error::io::Socket<Buffer::ReadError>> {
+    ) -> Result<usize, error::io::Socket<Buffer::ReadError, Socket1, Socket<Buffer>, Dns>> {
         driver
             .socket_2_read(
                 self.link_generation,
@@ -113,7 +113,7 @@ where
         &mut self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
         buf: &[u8],
-    ) -> Result<usize, error::Socket> {
+    ) -> Result<usize, error::Socket<Socket1, Socket<Buffer>, Dns>> {
         driver
             .socket_2_write(
                 self.link_generation,

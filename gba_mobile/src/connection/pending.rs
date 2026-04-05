@@ -19,8 +19,10 @@ where
     pub fn status(
         &self,
         driver: &Driver<Socket<Buffer>, Socket2, Dns>,
-    ) -> Result<Option<Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>>, error::P2p>
-    {
+    ) -> Result<
+        Option<Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>>,
+        error::P2p<Socket<Buffer>, Socket2, Dns>,
+    > {
         driver
             .connection_status(self.link_generation, self.connection_generation)
             .map(|finished| {
@@ -46,7 +48,7 @@ where
         driver: &Driver<Socket<Buffer>, Socket2, Dns>,
     ) -> Result<
         Option<Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>>,
-        error::Socket,
+        error::Socket<Socket<Buffer>, Socket2, Dns>,
     > {
         driver
             .socket_1_status(
@@ -77,7 +79,7 @@ where
         driver: &Driver<Socket1, Socket<Buffer>, Dns>,
     ) -> Result<
         Option<Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>>,
-        error::Socket,
+        error::Socket<Socket1, Socket<Buffer>, Dns>,
     > {
         driver
             .socket_2_status(

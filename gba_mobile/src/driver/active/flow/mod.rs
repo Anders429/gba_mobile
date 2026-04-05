@@ -18,6 +18,7 @@ mod transfer_data;
 mod write_config;
 
 use core::{
+    convert::Infallible,
     fmt::Debug,
     net::{Ipv4Addr, SocketAddrV4},
 };
@@ -48,7 +49,9 @@ use status::Status;
 use transfer_data::TransferData;
 use write_config::WriteConfig;
 
-pub(crate) trait SubFlowWithSocket<Socket>: Sized + Debug {
+pub(crate) trait SocketSubFlow<Socket>: Sized + Debug {
+    type Error: Clone + core::error::Error + 'static;
+
     fn vblank(self) -> Result<Self, Timeout>;
     fn timer(&mut self);
     fn serial(
@@ -56,13 +59,20 @@ pub(crate) trait SubFlowWithSocket<Socket>: Sized + Debug {
         state: &mut State,
         timer: Timer,
         socket: &mut Socket,
-    ) -> Result<Option<Self>, Error>;
+    ) -> Result<Option<Self>, Self::Error>;
 }
 
 pub(crate) trait DnsSubFlow<Dns>: Sized + Debug {
+    type Error: Clone + core::error::Error + 'static;
+
     fn vblank(self) -> Result<Self, Timeout>;
     fn timer(&mut self);
-    fn serial(self, state: &mut State, timer: Timer, dns: &mut Dns) -> Result<Option<Self>, Error>;
+    fn serial(
+        self,
+        state: &mut State,
+        timer: Timer,
+        dns: &mut Dns,
+    ) -> Result<Option<Self>, Self::Error>;
 }
 
 /// An empty flow.
@@ -71,7 +81,9 @@ pub(crate) trait DnsSubFlow<Dns>: Sized + Debug {
 #[derive(Debug)]
 pub(crate) enum Empty {}
 
-impl SubFlowWithSocket<NoSocket> for Empty {
+impl SocketSubFlow<NoSocket> for Empty {
+    type Error = Infallible;
+
     fn vblank(self) -> Result<Self, Timeout> {
         unreachable!()
     }
@@ -85,12 +97,14 @@ impl SubFlowWithSocket<NoSocket> for Empty {
         _state: &mut State,
         _timer: Timer,
         _socket: &mut NoSocket,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Option<Self>, Self::Error> {
         unreachable!()
     }
 }
 
 impl DnsSubFlow<NoDns> for Empty {
+    type Error = Infallible;
+
     fn vblank(self) -> Result<Self, Timeout> {
         unreachable!()
     }
@@ -104,7 +118,7 @@ impl DnsSubFlow<NoDns> for Empty {
         _state: &mut State,
         _timer: Timer,
         _dns: &mut NoDns,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Option<Self>, Self::Error> {
         unreachable!()
     }
 }
@@ -115,7 +129,9 @@ pub(crate) enum ConnectionFlow {
     Connect(Connect),
 }
 
-impl<Buffer> SubFlowWithSocket<Socket<Buffer>> for ConnectionFlow {
+impl<Buffer> SocketSubFlow<Socket<Buffer>> for ConnectionFlow {
+    type Error = error::Connection;
+
     fn vblank(self) -> Result<Self, Timeout> {
         match self {
             Self::Accept(accept) => accept.vblank().map(Self::Accept).map_err(Timeout::Accept),
@@ -138,12 +154,12 @@ impl<Buffer> SubFlowWithSocket<Socket<Buffer>> for ConnectionFlow {
         state: &mut State,
         timer: Timer,
         socket: &mut Socket<Buffer>,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Option<Self>, Self::Error> {
         match self {
             Self::Accept(accept) => accept
                 .serial(timer, &mut state.adapter, &mut state.phase, socket)
                 .map(|flow| flow.map(Self::Accept))
-                .map_err(Error::Accept),
+                .map_err(error::Connection::Accept),
             Self::Connect(connect) => connect
                 .serial(
                     timer,
@@ -153,33 +169,8 @@ impl<Buffer> SubFlowWithSocket<Socket<Buffer>> for ConnectionFlow {
                     state.connection_generation,
                 )
                 .map(|flow| flow.map(Self::Connect))
-                .map_err(Error::Connect),
+                .map_err(error::Connection::Connect),
         }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) struct DnsFlow<const MAX_LEN: usize>(Dns<MAX_LEN>);
-
-impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> {
-    fn vblank(self) -> Result<Self, Timeout> {
-        self.0.vblank().map(DnsFlow).map_err(Timeout::Dns)
-    }
-
-    fn timer(&mut self) {
-        self.0.timer();
-    }
-
-    fn serial(
-        self,
-        state: &mut State,
-        timer: Timer,
-        dns: &mut crate::Dns<MAX_LEN>,
-    ) -> Result<Option<Self>, Error> {
-        self.0
-            .serial(timer, &mut state.adapter, dns)
-            .map(|flow| flow.map(Self))
-            .map_err(|_| todo!())
     }
 }
 
@@ -190,10 +181,12 @@ pub(crate) enum SocketFlow<const INDEX: usize> {
     TransferData(TransferData),
 }
 
-impl<Buffer, const INDEX: usize> SubFlowWithSocket<Socket<Buffer>> for SocketFlow<INDEX>
+impl<Buffer, const INDEX: usize> SocketSubFlow<Socket<Buffer>> for SocketFlow<INDEX>
 where
     Buffer: socket::Buffer,
 {
+    type Error = error::Socket;
+
     fn vblank(self) -> Result<Self, Timeout> {
         match self {
             Self::OpenTcp(open_tcp) => open_tcp
@@ -224,7 +217,7 @@ where
         state: &mut State,
         timer: Timer,
         socket: &mut Socket<Buffer>,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Option<Self>, Self::Error> {
         match self {
             Self::OpenTcp(open_tcp) => open_tcp
                 .serial(
@@ -235,7 +228,7 @@ where
                     state.connection_generation,
                 )
                 .map(|flow| flow.map(Self::OpenTcp))
-                .map_err(Error::OpenTcp),
+                .map_err(error::Socket::OpenTcp),
             Self::OpenUdp(open_udp) => open_udp
                 .serial(
                     timer,
@@ -245,12 +238,39 @@ where
                     state.connection_generation,
                 )
                 .map(|flow| flow.map(Self::OpenUdp))
-                .map_err(Error::OpenUdp),
+                .map_err(error::Socket::OpenUdp),
             Self::TransferData(transfer_data) => transfer_data
                 .serial(timer, &mut state.adapter, state.transfer_length, socket)
                 .map(|flow| flow.map(Self::TransferData))
-                .map_err(Error::TransferData),
+                .map_err(error::Socket::TransferData),
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct DnsFlow<const MAX_LEN: usize>(Dns<MAX_LEN>);
+
+impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> {
+    type Error = error::Dns<MAX_LEN>;
+
+    fn vblank(self) -> Result<Self, Timeout> {
+        self.0.vblank().map(DnsFlow).map_err(Timeout::Dns)
+    }
+
+    fn timer(&mut self) {
+        self.0.timer();
+    }
+
+    fn serial(
+        self,
+        state: &mut State,
+        timer: Timer,
+        dns: &mut crate::Dns<MAX_LEN>,
+    ) -> Result<Option<Self>, Self::Error> {
+        self.0
+            .serial(timer, &mut state.adapter, dns)
+            .map(|flow| flow.map(Self))
+            .map_err(error::Dns::Dns)
     }
 }
 
@@ -380,7 +400,7 @@ where
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &mut Dns,
-    ) -> Result<Either<Self, StateChange>, Error> {
+    ) -> Result<Either<Self, StateChange>, Error<Socket1, Socket2, Dns>> {
         match self {
             Self::Start(start) => start
                 .serial(
@@ -449,34 +469,46 @@ where
                     )
                 })
                 .map_err(Error::Login),
-            Self::Connection(connection) => connection.serial(state, timer, socket_1).map(|flow| {
-                if let Some(flow) = flow {
-                    Either::Left(Self::Connection(flow))
-                } else {
-                    Either::Right(StateChange::StillActive)
-                }
-            }),
-            Self::Socket1(socket) => socket.serial(state, timer, socket_1).map(|flow| {
-                if let Some(flow) = flow {
-                    Either::Left(Self::Socket1(flow))
-                } else {
-                    Either::Right(StateChange::StillActive)
-                }
-            }),
-            Self::Socket2(socket) => socket.serial(state, timer, socket_2).map(|flow| {
-                if let Some(flow) = flow {
-                    Either::Left(Self::Socket2(flow))
-                } else {
-                    Either::Right(StateChange::StillActive)
-                }
-            }),
-            Self::Dns(flow) => flow.serial(state, timer, dns).map(|flow| {
-                if let Some(flow) = flow {
-                    Either::Left(Self::Dns(flow))
-                } else {
-                    Either::Right(StateChange::StillActive)
-                }
-            }),
+            Self::Connection(connection) => connection
+                .serial(state, timer, socket_1)
+                .map(|flow| {
+                    if let Some(flow) = flow {
+                        Either::Left(Self::Connection(flow))
+                    } else {
+                        Either::Right(StateChange::StillActive)
+                    }
+                })
+                .map_err(Error::Connection),
+            Self::Socket1(socket) => socket
+                .serial(state, timer, socket_1)
+                .map(|flow| {
+                    if let Some(flow) = flow {
+                        Either::Left(Self::Socket1(flow))
+                    } else {
+                        Either::Right(StateChange::StillActive)
+                    }
+                })
+                .map_err(Error::Socket1),
+            Self::Socket2(socket) => socket
+                .serial(state, timer, socket_2)
+                .map(|flow| {
+                    if let Some(flow) = flow {
+                        Either::Left(Self::Socket2(flow))
+                    } else {
+                        Either::Right(StateChange::StillActive)
+                    }
+                })
+                .map_err(Error::Socket2),
+            Self::Dns(flow) => flow
+                .serial(state, timer, dns)
+                .map(|flow| {
+                    if let Some(flow) = flow {
+                        Either::Left(Self::Dns(flow))
+                    } else {
+                        Either::Right(StateChange::StillActive)
+                    }
+                })
+                .map_err(Error::Dns),
             Self::WriteConfig(write_config) => write_config
                 .serial(timer, &mut state.adapter, state.transfer_length)
                 .map(|flow| {

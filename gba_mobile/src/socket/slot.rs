@@ -2,14 +2,14 @@ use super::{Buffer, NoSocket, Socket, Status};
 use crate::{
     dns,
     driver::active::{
-        flow::{self, SubFlowWithSocket},
+        flow::{self, SocketSubFlow},
         queue::item::{self, ConnectionSubItem, SocketSubItem},
     },
 };
 
 pub(crate) trait Sealed: Sized {
-    type ConnectionFlow: SubFlowWithSocket<Self>;
-    type SocketFlow<const INDEX: usize>: SubFlowWithSocket<Self>;
+    type ConnectionFlow: SocketSubFlow<Self>;
+    type SocketFlow<const INDEX: usize>: SocketSubFlow<Self>;
 
     type ConnectionItem<Socket2, Dns>: ConnectionSubItem<Self, Socket2, Dns>
     where

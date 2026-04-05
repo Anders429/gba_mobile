@@ -1,63 +1,121 @@
 use crate::driver;
 use core::{
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
 };
 
-#[derive(Debug)]
-pub struct P2p<IoError> {
-    internal: driver::error::connection_io::Error<IoError>,
+pub struct P2p<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    internal: driver::error::connection_io::Error<IoError, Socket1, Socket2, Dns>,
 }
 
-impl<IoError> Display for P2p<IoError>
+impl<IoError, Socket1, Socket2, Dns> Debug for P2p<IoError, Socket1, Socket2, Dns>
 where
-    IoError: Display,
+    IoError: Debug,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.internal.fmt(formatter)
+        Debug::fmt(&self.internal, formatter)
     }
 }
 
-impl<IoError> core::error::Error for P2p<IoError>
+impl<IoError, Socket1, Socket2, Dns> Display for P2p<IoError, Socket1, Socket2, Dns>
+where
+    IoError: Display,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.internal, formatter)
+    }
+}
+
+impl<IoError, Socket1, Socket2, Dns> core::error::Error for P2p<IoError, Socket1, Socket2, Dns>
 where
     IoError: core::error::Error + 'static,
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.internal.source()
     }
 }
 
-impl<IoError> From<driver::error::connection_io::Error<IoError>> for P2p<IoError> {
-    fn from(error: driver::error::connection_io::Error<IoError>) -> Self {
+impl<IoError, Socket1, Socket2, Dns>
+    From<driver::error::connection_io::Error<IoError, Socket1, Socket2, Dns>>
+    for P2p<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: driver::error::connection_io::Error<IoError, Socket1, Socket2, Dns>) -> Self {
         Self { internal: error }
     }
 }
 
-#[derive(Debug)]
-pub struct Socket<IoError> {
-    internal: driver::error::socket_io::Error<IoError>,
+pub struct Socket<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    internal: driver::error::socket_io::Error<IoError, Socket1, Socket2, Dns>,
 }
 
-impl<IoError> Display for Socket<IoError>
+impl<IoError, Socket1, Socket2, Dns> Debug for Socket<IoError, Socket1, Socket2, Dns>
 where
-    IoError: Display,
+    IoError: Debug,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.internal.fmt(formatter)
+        Debug::fmt(&self.internal, formatter)
     }
 }
 
-impl<IoError> core::error::Error for Socket<IoError>
+impl<IoError, Socket1, Socket2, Dns> Display for Socket<IoError, Socket1, Socket2, Dns>
+where
+    IoError: Display,
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.internal, formatter)
+    }
+}
+
+impl<IoError, Socket1, Socket2, Dns> core::error::Error for Socket<IoError, Socket1, Socket2, Dns>
 where
     IoError: core::error::Error + 'static,
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.internal.source()
     }
 }
 
-impl<IoError> From<driver::error::socket_io::Error<IoError>> for Socket<IoError> {
-    fn from(error: driver::error::socket_io::Error<IoError>) -> Self {
+impl<IoError, Socket1, Socket2, Dns>
+    From<driver::error::socket_io::Error<IoError, Socket1, Socket2, Dns>>
+    for Socket<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: driver::error::socket_io::Error<IoError, Socket1, Socket2, Dns>) -> Self {
         Self { internal: error }
     }
 }

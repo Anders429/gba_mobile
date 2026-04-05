@@ -44,7 +44,10 @@ where
         password: Password,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
-    ) -> Result<internet::Pending<Driver<Socket1, Socket2, Dns>>, error::login::Error>
+    ) -> Result<
+        internet::Pending<Driver<Socket1, Socket2, Dns>>,
+        error::login::Error<Socket1, Socket2, Dns>,
+    >
     where
         PhoneNumber: IntoDigits,
         Id: IntoIterator<Item = u8>,
@@ -79,14 +82,17 @@ where
             })
     }
 
-    pub fn adapter(&self, driver: &Driver<Socket1, Socket2, Dns>) -> Result<Adapter, Error> {
+    pub fn adapter(
+        &self,
+        driver: &Driver<Socket1, Socket2, Dns>,
+    ) -> Result<Adapter, Error<Socket1, Socket2, Dns>> {
         driver.adapter(self.link_generation).map_err(Into::into)
     }
 
     pub fn config<Config>(
         &self,
         driver: &Driver<Socket1, Socket2, Dns>,
-    ) -> Result<Config, error::config::Error<Config::Error>>
+    ) -> Result<Config, error::config::Error<Config::Error, Socket1, Socket2, Dns>>
     where
         Config: self::Config,
     {
@@ -100,7 +106,7 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket2, Dns>,
         config: Config,
-    ) -> Result<(), Error>
+    ) -> Result<(), Error<Socket1, Socket2, Dns>>
     where
         Config: self::Config,
     {
@@ -119,8 +125,10 @@ where
     pub fn accept(
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
-    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>, Error>
-    {
+    ) -> Result<
+        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>,
+        Error<Socket<Buffer>, Socket2, Dns>,
+    > {
         driver
             .accept(self.link_generation)
             .map(|connection_generation| connection::Pending {
@@ -138,7 +146,7 @@ where
         phone_number: PhoneNumber,
     ) -> Result<
         connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>,
-        error::connect::Error,
+        error::connect::Error<Socket<Buffer>, Socket2, Dns>,
     >
     where
         PhoneNumber: IntoDigits,

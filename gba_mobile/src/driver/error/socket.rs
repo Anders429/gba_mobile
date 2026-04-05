@@ -2,15 +2,24 @@ use super::{connection, link};
 use crate::driver::active::socket;
 use core::{
     fmt,
-    fmt::{Display, Formatter},
+    fmt::{Debug, Display, Formatter},
 };
 
-#[derive(Debug)]
-pub(crate) struct Error {
-    kind: Kind,
+pub(crate) struct Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    kind: Kind<Socket1, Socket2, Dns>,
 }
 
-impl Error {
+impl<Socket1, Socket2, Dns> Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     pub(in crate::driver) fn closed() -> Self {
         Self { kind: Kind::Closed }
     }
@@ -22,19 +31,45 @@ impl Error {
     }
 }
 
-impl Display for Error {
+impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
-        self.kind.fmt(formatter)
+        Debug::fmt(&self.kind, formatter)
     }
 }
 
-impl core::error::Error for Error {
+impl<Socket1, Socket2, Dns> Display for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        Display::fmt(&self.kind, formatter)
+    }
+}
+
+impl<Socket1, Socket2, Dns> core::error::Error for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.kind.source()
     }
 }
 
-impl From<socket::Failure> for Error {
+impl<Socket1, Socket2, Dns> From<socket::Failure> for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     fn from(error: socket::Failure) -> Self {
         Self {
             kind: Kind::Failure(error),
@@ -42,31 +77,68 @@ impl From<socket::Failure> for Error {
     }
 }
 
-impl From<connection::Error> for Error {
-    fn from(error: connection::Error) -> Self {
+impl<Socket1, Socket2, Dns> From<connection::Error<Socket1, Socket2, Dns>>
+    for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: connection::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Connection(error),
         }
     }
 }
 
-impl From<link::Error> for Error {
-    fn from(error: link::Error) -> Self {
+impl<Socket1, Socket2, Dns> From<link::Error<Socket1, Socket2, Dns>>
+    for Error<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: link::Error<Socket1, Socket2, Dns>) -> Self {
         Self {
             kind: Kind::Connection(error.into()),
         }
     }
 }
 
-#[derive(Debug)]
-enum Kind {
+enum Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     Closed,
     Superseded,
     Failure(socket::Failure),
-    Connection(connection::Error),
+    Connection(connection::Error<Socket1, Socket2, Dns>),
 }
 
-impl Display for Kind {
+impl<Socket1, Socket2, Dns> Debug for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Closed => formatter.write_str("Closed"),
+            Self::Superseded => formatter.write_str("Superseded"),
+            Self::Failure(error) => formatter.debug_tuple("Failure").field(error).finish(),
+            Self::Connection(error) => formatter.debug_tuple("Connection").field(error).finish(),
+        }
+    }
+}
+
+impl<Socket1, Socket2, Dns> Display for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Closed => formatter.write_str("the socket was closed"),
@@ -77,7 +149,12 @@ impl Display for Kind {
     }
 }
 
-impl core::error::Error for Kind {
+impl<Socket1, Socket2, Dns> core::error::Error for Kind<Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot + 'static,
+    Socket2: crate::socket::Slot + 'static,
+    Dns: crate::dns::Mode + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::Closed => None,
