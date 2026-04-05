@@ -78,7 +78,7 @@ enum Phase {
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
         socket_generations: [Generation; 2],
-        socket_requests: [Option<(socket::Request, socket::Protocol)>; 2],
+        socket_requests: [Option<(SocketAddrV4, socket::Protocol)>; 2],
     },
 
     /// This link is being closed.
@@ -322,8 +322,7 @@ where
     pub(crate) fn open_socket<Buffer, const INDEX: usize>(
         &mut self,
         connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
+        socket_addr: SocketAddrV4,
         protocol: socket::Protocol,
         socket: &mut crate::Socket<Buffer>,
     ) -> Result<Generation, super::error::connection::Error> {
@@ -343,11 +342,7 @@ where
                 ..
             } => {
                 socket.status = crate::socket::Status::Connecting;
-                let request = match host {
-                    Either::Left(ip) => socket::Request::SocketAddr(SocketAddrV4::new(ip, port)),
-                    Either::Right(domain) => socket::Request::Dns { domain, port },
-                };
-                socket_requests[INDEX] = Some((request, protocol));
+                socket_requests[INDEX] = Some((socket_addr, protocol));
 
                 if INDEX == 0 {
                     self.queue.set_socket_1_open();

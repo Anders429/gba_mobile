@@ -230,7 +230,6 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
-                    state.transfer_length,
                     &mut state.phase,
                     socket,
                     state.connection_generation,
@@ -241,7 +240,6 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
-                    state.transfer_length,
                     &mut state.phase,
                     socket,
                     state.connection_generation,
@@ -536,32 +534,14 @@ where
         )))
     }
 
-    pub(super) fn open_tcp_1_with_dns(
-        transfer_length: TransferLength,
-        timer: Timer,
-        domain: ArrayVec<u8, 255>,
-        port: u16,
-        connection_generation: Generation,
-        socket_generation: Generation,
-    ) -> Self {
-        Self::Socket1(SocketFlow::OpenTcp(OpenTcp::with_dns(
-            transfer_length,
-            timer,
-            domain,
-            port,
-            connection_generation,
-            socket_generation,
-        )))
-    }
-
-    pub(super) fn open_tcp_1_with_socket_addr(
+    pub(super) fn open_tcp_1(
         transfer_length: TransferLength,
         timer: Timer,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Self {
-        Self::Socket1(SocketFlow::OpenTcp(OpenTcp::with_socket_addr(
+        Self::Socket1(SocketFlow::OpenTcp(OpenTcp::new(
             transfer_length,
             timer,
             addr,
@@ -570,32 +550,14 @@ where
         )))
     }
 
-    pub(super) fn open_udp_1_with_dns(
-        transfer_length: TransferLength,
-        timer: Timer,
-        domain: ArrayVec<u8, 255>,
-        port: u16,
-        connection_generation: Generation,
-        socket_generation: Generation,
-    ) -> Self {
-        Self::Socket1(SocketFlow::OpenUdp(OpenUdp::with_dns(
-            transfer_length,
-            timer,
-            domain,
-            port,
-            connection_generation,
-            socket_generation,
-        )))
-    }
-
-    pub(super) fn open_udp_1_with_socket_addr(
+    pub(super) fn open_udp_1(
         transfer_length: TransferLength,
         timer: Timer,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Self {
-        Self::Socket1(SocketFlow::OpenUdp(OpenUdp::with_socket_addr(
+        Self::Socket1(SocketFlow::OpenUdp(OpenUdp::new(
             transfer_length,
             timer,
             addr,
@@ -623,32 +585,14 @@ where
     Socket1: socket::Slot,
     Dns: crate::dns::Sealed,
 {
-    pub(super) fn open_tcp_2_with_dns(
-        transfer_length: TransferLength,
-        timer: Timer,
-        domain: ArrayVec<u8, 255>,
-        port: u16,
-        connection_generation: Generation,
-        socket_generation: Generation,
-    ) -> Self {
-        Self::Socket2(SocketFlow::OpenTcp(OpenTcp::with_dns(
-            transfer_length,
-            timer,
-            domain,
-            port,
-            connection_generation,
-            socket_generation,
-        )))
-    }
-
-    pub(super) fn open_tcp_2_with_socket_addr(
+    pub(super) fn open_tcp_2(
         transfer_length: TransferLength,
         timer: Timer,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Self {
-        Self::Socket2(SocketFlow::OpenTcp(OpenTcp::with_socket_addr(
+        Self::Socket2(SocketFlow::OpenTcp(OpenTcp::new(
             transfer_length,
             timer,
             addr,
@@ -657,32 +601,14 @@ where
         )))
     }
 
-    pub(super) fn open_udp_2_with_dns(
-        transfer_length: TransferLength,
-        timer: Timer,
-        domain: ArrayVec<u8, 255>,
-        port: u16,
-        connection_generation: Generation,
-        socket_generation: Generation,
-    ) -> Self {
-        Self::Socket2(SocketFlow::OpenUdp(OpenUdp::with_dns(
-            transfer_length,
-            timer,
-            domain,
-            port,
-            connection_generation,
-            socket_generation,
-        )))
-    }
-
-    pub(super) fn open_udp_2_with_socket_addr(
+    pub(super) fn open_udp_2(
         transfer_length: TransferLength,
         timer: Timer,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Self {
-        Self::Socket2(SocketFlow::OpenUdp(OpenUdp::with_socket_addr(
+        Self::Socket2(SocketFlow::OpenUdp(OpenUdp::new(
             transfer_length,
             timer,
             addr,

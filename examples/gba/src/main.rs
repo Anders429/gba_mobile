@@ -3,7 +3,7 @@
 #![no_std]
 #![no_main]
 
-use core::{convert::Infallible, net::Ipv4Addr};
+use core::{convert::Infallible, net::{Ipv4Addr, SocketAddrV4}};
 
 use gba::prelude::*;
 use gba_mobile::{
@@ -239,7 +239,7 @@ pub fn main() {
                 }
             };
 
-            let pending_tcp = with_driver(|driver| ppp.socket_1_tcp(driver, (dns_result, 80)))
+            let pending_tcp = with_driver(|driver| ppp.socket_1_tcp(driver, SocketAddrV4::new(dns_result, 80)))
                 .expect("TCP connection attempt failed");
             let tcp_status = loop {
                 VBlankIntrWait();

@@ -1,12 +1,9 @@
-pub mod to_socket;
-
 pub(crate) mod slot;
 
 mod buffer;
 
 pub use buffer::Buffer;
 pub use slot::Slot;
-pub use to_socket::ToSocket;
 
 use crate::ArrayVec;
 use core::{

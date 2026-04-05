@@ -1,22 +1,9 @@
-use crate::ArrayVec;
-use core::{
-    fmt::{self, Display, Formatter},
-    net::SocketAddrV4,
-};
+use core::fmt::{self, Display, Formatter};
 
 #[derive(Debug)]
 pub(in crate::driver) enum Protocol {
     Tcp,
     Udp,
-}
-
-#[derive(Debug)]
-pub(super) enum Request {
-    Dns {
-        domain: ArrayVec<u8, 255>,
-        port: u16,
-    },
-    SocketAddr(SocketAddrV4),
 }
 
 #[derive(Clone, Debug)]

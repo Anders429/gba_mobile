@@ -5,12 +5,11 @@ mod pending;
 pub use error::Error;
 pub use pending::Pending;
 
-use crate::{
-    ArrayVec, Dns, Driver, Generation, Socket, connection, dns,
-    socket::{self, ToSocket, to_socket::Host},
+use crate::{ArrayVec, Dns, Driver, Generation, Socket, connection, dns, socket};
+use core::{
+    marker::PhantomData,
+    net::{Ipv4Addr, SocketAddrV4},
 };
-use core::{marker::PhantomData, net::Ipv4Addr};
-use either::Either;
 
 #[derive(Debug)]
 pub struct Internet<Driver> {
@@ -50,31 +49,17 @@ where
     Socket2: socket::Slot,
     Dns: dns::Mode,
 {
-    pub fn socket_1_tcp<ToSocket>(
+    pub fn socket_1_tcp(
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
-        to_socket: ToSocket,
-    ) -> Result<
-        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>,
-        error::socket::Error<ToSocket::Error>,
-    >
-    where
-        ToSocket: self::ToSocket,
+        socket_addr: SocketAddrV4,
+    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>, Error>
     {
-        let (host, port) = to_socket
-            .to_socket()
-            .map_err(error::socket::Error::socket)?;
-        let internal_host = match host {
-            Host::Ip(ip) => Either::Left(ip),
-            Host::Name(name) => Either::Right(ArrayVec::try_from_iter(name.into_iter().copied())?),
-        };
-
         driver
             .open_tcp_1(
                 self.link_generation,
                 self.connection_generation,
-                internal_host,
-                port,
+                socket_addr,
             )
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
@@ -85,31 +70,17 @@ where
             .map_err(Into::into)
     }
 
-    pub fn socket_1_upd<ToSocket>(
+    pub fn socket_1_upd(
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
-        to_socket: ToSocket,
-    ) -> Result<
-        connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>,
-        error::socket::Error<ToSocket::Error>,
-    >
-    where
-        ToSocket: self::ToSocket,
+        socket_addr: SocketAddrV4,
+    ) -> Result<connection::Pending<Driver<Socket<Buffer>, Socket2, Dns>, connection::Socket1>, Error>
     {
-        let (host, port) = to_socket
-            .to_socket()
-            .map_err(error::socket::Error::socket)?;
-        let internal_host = match host {
-            Host::Ip(ip) => Either::Left(ip),
-            Host::Name(name) => Either::Right(ArrayVec::try_from_iter(name.into_iter().copied())?),
-        };
-
         driver
             .open_udp_1(
                 self.link_generation,
                 self.connection_generation,
-                internal_host,
-                port,
+                socket_addr,
             )
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
@@ -127,31 +98,17 @@ where
     Socket1: socket::Slot,
     Dns: dns::Mode,
 {
-    pub fn socket_2_tcp<ToSocket>(
+    pub fn socket_2_tcp(
         &self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
-        to_socket: ToSocket,
-    ) -> Result<
-        connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>,
-        error::socket::Error<ToSocket::Error>,
-    >
-    where
-        ToSocket: self::ToSocket,
+        socket_addr: SocketAddrV4,
+    ) -> Result<connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>, Error>
     {
-        let (host, port) = to_socket
-            .to_socket()
-            .map_err(error::socket::Error::socket)?;
-        let internal_host = match host {
-            Host::Ip(ip) => Either::Left(ip),
-            Host::Name(name) => Either::Right(ArrayVec::try_from_iter(name.into_iter().copied())?),
-        };
-
         driver
             .open_tcp_2(
                 self.link_generation,
                 self.connection_generation,
-                internal_host,
-                port,
+                socket_addr,
             )
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
@@ -162,31 +119,17 @@ where
             .map_err(Into::into)
     }
 
-    pub fn socket_2_upd<ToSocket>(
+    pub fn socket_2_upd(
         &self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
-        to_socket: ToSocket,
-    ) -> Result<
-        connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>,
-        error::socket::Error<ToSocket::Error>,
-    >
-    where
-        ToSocket: self::ToSocket,
+        socket_addr: SocketAddrV4,
+    ) -> Result<connection::Pending<Driver<Socket1, Socket<Buffer>, Dns>, connection::Socket2>, Error>
     {
-        let (host, port) = to_socket
-            .to_socket()
-            .map_err(error::socket::Error::socket)?;
-        let internal_host = match host {
-            Host::Ip(ip) => Either::Left(ip),
-            Host::Name(name) => Either::Right(ArrayVec::try_from_iter(name.into_iter().copied())?),
-        };
-
         driver
             .open_udp_2(
                 self.link_generation,
                 self.connection_generation,
-                internal_host,
-                port,
+                socket_addr,
             )
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,

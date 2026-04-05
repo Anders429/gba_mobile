@@ -18,7 +18,7 @@ use crate::{
 };
 use active::Active;
 use command::Command;
-use core::net::Ipv4Addr;
+use core::net::{Ipv4Addr, SocketAddrV4};
 use either::Either;
 use error::Error;
 
@@ -395,8 +395,7 @@ where
         &mut self,
         link_generation: Generation,
         connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
+        socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
@@ -406,8 +405,7 @@ where
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => active.open_socket::<_, 0>(
                 connection_generation,
-                host,
-                port,
+                socket_addr,
                 active::socket::Protocol::Tcp,
                 &mut self.socket_1,
             ),
@@ -419,8 +417,7 @@ where
         &mut self,
         link_generation: Generation,
         connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
+        socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
@@ -430,8 +427,7 @@ where
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => active.open_socket::<_, 0>(
                 connection_generation,
-                host,
-                port,
+                socket_addr,
                 active::socket::Protocol::Udp,
                 &mut self.socket_1,
             ),
@@ -555,8 +551,7 @@ where
         &mut self,
         link_generation: Generation,
         connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
+        socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
@@ -566,8 +561,7 @@ where
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => active.open_socket::<_, 1>(
                 connection_generation,
-                host,
-                port,
+                socket_addr,
                 active::socket::Protocol::Tcp,
                 &mut self.socket_2,
             ),
@@ -579,8 +573,7 @@ where
         &mut self,
         link_generation: Generation,
         connection_generation: Generation,
-        host: Either<Ipv4Addr, ArrayVec<u8, 255>>,
-        port: u16,
+        socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error> {
         if self.link_generation != link_generation {
             return Err(error::link::Error::superseded().into());
@@ -590,8 +583,7 @@ where
             State::Inactive => Err(error::link::Error::closed().into()),
             State::Active(active) => active.open_socket::<_, 1>(
                 connection_generation,
-                host,
-                port,
+                socket_addr,
                 active::socket::Protocol::Udp,
                 &mut self.socket_2,
             ),

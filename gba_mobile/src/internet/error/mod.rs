@@ -1,5 +1,4 @@
 pub mod dns;
-pub mod socket;
 
 use crate::driver;
 use core::{

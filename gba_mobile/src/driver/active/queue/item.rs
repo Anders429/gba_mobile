@@ -168,50 +168,24 @@ where
                     ..
                 } = &mut state.phase
                 {
-                    socket_requests[0].take().map(|request| match request {
-                        (
-                            super::super::socket::Request::Dns { domain, port },
-                            super::super::socket::Protocol::Tcp,
-                        ) => Flow::open_tcp_1_with_dns(
-                            state.transfer_length,
-                            timer,
-                            domain,
-                            port,
-                            state.connection_generation,
-                            socket_generations[0],
-                        ),
-                        (
-                            super::super::socket::Request::Dns { domain, port },
-                            super::super::socket::Protocol::Udp,
-                        ) => Flow::open_udp_1_with_dns(
-                            state.transfer_length,
-                            timer,
-                            domain,
-                            port,
-                            state.connection_generation,
-                            socket_generations[0],
-                        ),
-                        (
-                            super::super::socket::Request::SocketAddr(addr),
-                            super::super::socket::Protocol::Tcp,
-                        ) => Flow::open_tcp_1_with_socket_addr(
-                            state.transfer_length,
-                            timer,
-                            addr,
-                            state.connection_generation,
-                            socket_generations[0],
-                        ),
-                        (
-                            super::super::socket::Request::SocketAddr(addr),
-                            super::super::socket::Protocol::Udp,
-                        ) => Flow::open_udp_1_with_socket_addr(
-                            state.transfer_length,
-                            timer,
-                            addr,
-                            state.connection_generation,
-                            socket_generations[0],
-                        ),
-                    })
+                    socket_requests[0]
+                        .take()
+                        .map(|(socket_addr, protocol)| match protocol {
+                            super::super::socket::Protocol::Tcp => Flow::open_tcp_1(
+                                state.transfer_length,
+                                timer,
+                                socket_addr,
+                                state.connection_generation,
+                                socket_generations[0],
+                            ),
+                            super::super::socket::Protocol::Udp => Flow::open_udp_1(
+                                state.transfer_length,
+                                timer,
+                                socket_addr,
+                                state.connection_generation,
+                                socket_generations[0],
+                            ),
+                        })
                 } else {
                     // We are not in the correct phase to open a socket, so we do nothing.
                     None
@@ -260,50 +234,24 @@ where
                     ..
                 } = &mut state.phase
                 {
-                    socket_requests[1].take().map(|request| match request {
-                        (
-                            super::super::socket::Request::Dns { domain, port },
-                            super::super::socket::Protocol::Tcp,
-                        ) => Flow::open_tcp_2_with_dns(
-                            state.transfer_length,
-                            timer,
-                            domain,
-                            port,
-                            state.connection_generation,
-                            socket_generations[1],
-                        ),
-                        (
-                            super::super::socket::Request::Dns { domain, port },
-                            super::super::socket::Protocol::Udp,
-                        ) => Flow::open_udp_2_with_dns(
-                            state.transfer_length,
-                            timer,
-                            domain,
-                            port,
-                            state.connection_generation,
-                            socket_generations[1],
-                        ),
-                        (
-                            super::super::socket::Request::SocketAddr(addr),
-                            super::super::socket::Protocol::Tcp,
-                        ) => Flow::open_tcp_2_with_socket_addr(
-                            state.transfer_length,
-                            timer,
-                            addr,
-                            state.connection_generation,
-                            socket_generations[1],
-                        ),
-                        (
-                            super::super::socket::Request::SocketAddr(addr),
-                            super::super::socket::Protocol::Udp,
-                        ) => Flow::open_udp_2_with_socket_addr(
-                            state.transfer_length,
-                            timer,
-                            addr,
-                            state.connection_generation,
-                            socket_generations[1],
-                        ),
-                    })
+                    socket_requests[1]
+                        .take()
+                        .map(|(socket_addr, protocol)| match protocol {
+                            super::super::socket::Protocol::Tcp => Flow::open_tcp_2(
+                                state.transfer_length,
+                                timer,
+                                socket_addr,
+                                state.connection_generation,
+                                socket_generations[1],
+                            ),
+                            super::super::socket::Protocol::Udp => Flow::open_udp_2(
+                                state.transfer_length,
+                                timer,
+                                socket_addr,
+                                state.connection_generation,
+                                socket_generations[1],
+                            ),
+                        })
                 } else {
                     // We are not in the correct phase to open a socket, so we do nothing.
                     None
