@@ -130,34 +130,17 @@ where
         }
     }
 
-    pub(crate) fn close_link(&mut self, link_generation: Generation) {
+    pub(crate) fn close_link(
+        &mut self,
+        link_generation: Generation,
+    ) -> Result<(), error::link::Error<Socket1, Socket2, Dns>> {
         if self.link_generation != link_generation {
-            // This request came from an old link. We should not honor it, as that link is already
-            // closed.
-            return;
+            return Err(error::link::Error::superseded());
         }
 
         match &mut self.state {
-            State::Inactive | State::Error(_) => {
-                self.state = State::Inactive;
-            }
-            State::Active(active) => {
-                active.close_link();
-            }
-        }
-    }
-
-    pub(crate) fn close_link_status(
-        &self,
-        link_generation: Generation,
-    ) -> Result<bool, error::close_link::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::close_link::Error::superseded());
-        }
-
-        match &self.state {
-            State::Inactive => Ok(true),
-            State::Active(_) => Ok(false),
+            State::Inactive => Err(error::link::Error::closed()),
+            State::Active(active) => active.close_link(),
             State::Error(error) => Err(error.clone().into()),
         }
     }
@@ -178,7 +161,7 @@ where
         match &mut self.state {
             State::Inactive => Err(error::link::Error::closed()),
             State::Active(active) => {
-                Ok(active.login(phone_number, id, password, primary_dns, secondary_dns))
+                active.login(phone_number, id, password, primary_dns, secondary_dns)
             }
             State::Error(error) => Err(error.clone().into()),
         }
@@ -226,7 +209,7 @@ where
 
         match &self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => Ok(active.adapter()),
+            State::Active(active) => active.adapter(),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }
@@ -289,7 +272,7 @@ where
 
         match &self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => Ok(active.config()),
+            State::Active(active) => active.config(),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }
@@ -308,7 +291,7 @@ where
 
         match &mut self.state {
             State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => Ok(active.write_config(config)),
+            State::Active(active) => active.write_config(config),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
     }
@@ -374,7 +357,7 @@ where
 
         match &mut self.state {
             State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => Ok(active.accept()),
+            State::Active(active) => active.accept(),
             State::Error(error) => Err(error.clone().into()),
         }
     }
@@ -390,7 +373,7 @@ where
 
         match &mut self.state {
             State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => Ok(active.connect(phone_number)),
+            State::Active(active) => active.connect(phone_number),
             State::Error(error) => Err(error.clone().into()),
         }
     }

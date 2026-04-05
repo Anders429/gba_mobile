@@ -32,8 +32,11 @@ where
         }
     }
 
-    pub fn close(self) {
-        // TODO
+    pub fn close(
+        &self,
+        driver: &mut Driver<Socket1, Socket2, Dns>,
+    ) -> Result<(), Error<Socket1, Socket2, Dns>> {
+        driver.close_link(self.link_generation).map_err(Into::into)
     }
 
     pub fn login<PhoneNumber, Id, Password>(

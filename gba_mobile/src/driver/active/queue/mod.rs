@@ -199,7 +199,6 @@ where
                 )),
                 Item::Status => Some(Flow::status(state.transfer_length, timer)),
                 Item::Idle => Some(Flow::idle(state.transfer_length, timer)),
-                _ => todo!(),
             }
         })
     }

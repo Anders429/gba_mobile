@@ -1,4 +1,3 @@
-pub(crate) mod close_link;
 pub(crate) mod connection;
 pub(crate) mod connection_io;
 pub(crate) mod dns;

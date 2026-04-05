@@ -172,13 +172,26 @@ where
     }
 
     /// End the existing session.
-    pub(super) fn close_link(&mut self) {
-        self.queue.set_end();
-        self.state.phase = Phase::Ending;
+    pub(super) fn close_link(
+        &mut self,
+    ) -> Result<(), super::error::link::Error<Socket1, Socket2, Dns>> {
+        if matches!(self.state.phase, Phase::Ending) {
+            Err(super::error::link::Error::closed())
+        } else {
+            self.queue.set_end();
+            self.state.phase = Phase::Ending;
+            Ok(())
+        }
     }
 
     /// Listen for an incoming p2p connection.
-    pub(super) fn accept(&mut self) -> Generation {
+    pub(super) fn accept(
+        &mut self,
+    ) -> Result<Generation, super::error::link::Error<Socket1, Socket2, Dns>> {
+        if matches!(self.state.phase, Phase::Ending) {
+            return Err(super::error::link::Error::closed());
+        }
+
         self.state.connection_generation = self.state.connection_generation.increment();
         if matches!(
             self.state.phase,
@@ -189,11 +202,18 @@ where
         }
         self.state.phase = Phase::Connecting(ConnectionRequest::Accept { frame: 255 });
         self.queue.set_connect();
-        self.state.connection_generation
+        Ok(self.state.connection_generation)
     }
 
     /// Connect to a p2p peer.
-    pub(super) fn connect(&mut self, phone_number: ArrayVec<Digit, 32>) -> Generation {
+    pub(super) fn connect(
+        &mut self,
+        phone_number: ArrayVec<Digit, 32>,
+    ) -> Result<Generation, super::error::link::Error<Socket1, Socket2, Dns>> {
+        if matches!(self.state.phase, Phase::Ending) {
+            return Err(super::error::link::Error::closed());
+        }
+
         self.state.connection_generation = self.state.connection_generation.increment();
         if matches!(
             self.state.phase,
@@ -204,7 +224,7 @@ where
         }
         self.state.phase = Phase::Connecting(ConnectionRequest::Connect { phone_number });
         self.queue.set_connect();
-        self.state.connection_generation
+        Ok(self.state.connection_generation)
     }
 
     pub(super) fn disconnect(
@@ -241,7 +261,11 @@ where
         password: ArrayVec<u8, 32>,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
-    ) -> Generation {
+    ) -> Result<Generation, super::error::link::Error<Socket1, Socket2, Dns>> {
+        if matches!(self.state.phase, Phase::Ending) {
+            return Err(super::error::link::Error::closed());
+        }
+
         self.state.connection_generation = self.state.connection_generation.increment();
         if matches!(
             self.state.phase,
@@ -258,7 +282,7 @@ where
             secondary_dns,
         });
         self.queue.set_connect();
-        self.state.connection_generation
+        Ok(self.state.connection_generation)
     }
 
     pub(crate) fn connection_status(
@@ -642,8 +666,14 @@ where
         }
     }
 
-    pub(crate) fn adapter(&self) -> Adapter {
-        self.state.adapter
+    pub(crate) fn adapter(
+        &self,
+    ) -> Result<Adapter, super::error::link::Error<Socket1, Socket2, Dns>> {
+        if matches!(self.state.phase, Phase::Ending) {
+            Err(super::error::link::Error::closed())
+        } else {
+            Ok(self.state.adapter)
+        }
     }
 
     pub(crate) fn ip(
@@ -721,21 +751,36 @@ where
         }
     }
 
-    pub(crate) fn config(&self) -> &[u8; 256] {
-        &self.state.config
+    pub(crate) fn config(
+        &self,
+    ) -> Result<&[u8; 256], super::error::link::Error<Socket1, Socket2, Dns>> {
+        if matches!(self.state.phase, Phase::Ending) {
+            Err(super::error::link::Error::closed())
+        } else {
+            Ok(&self.state.config)
+        }
     }
 
-    pub(crate) fn write_config<Config>(&mut self, config: Config)
+    pub(crate) fn write_config<Config>(
+        &mut self,
+        config: Config,
+    ) -> Result<(), super::error::link::Error<Socket1, Socket2, Dns>>
     where
         Config: self::Config,
     {
-        // Clear config before writing to it.
-        //
-        // We don't require config formats to guarantee that they overwrite every byte.
-        self.state.config.fill(0);
+        if matches!(self.state.phase, Phase::Ending) {
+            Err(super::error::link::Error::closed())
+        } else {
+            // Clear config before writing to it.
+            //
+            // We don't require config formats to guarantee that they overwrite every byte.
+            self.state.config.fill(0);
 
-        config.write(&mut self.state.config);
-        self.queue.set_write_config();
+            config.write(&mut self.state.config);
+            self.queue.set_write_config();
+
+            Ok(())
+        }
     }
 
     pub(super) fn vblank(
