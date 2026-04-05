@@ -327,14 +327,7 @@ where
             State::Error(_) => {}
         }
     }
-}
 
-impl<'a, Socket1, Socket2, Dns> Driver<Socket1, Socket2, Dns>
-where
-    Socket1: socket::Slot,
-    Socket2: socket::Slot,
-    Dns: dns::Mode,
-{
     pub fn vblank(&mut self) {
         match &mut self.state {
             State::Inactive => {}
