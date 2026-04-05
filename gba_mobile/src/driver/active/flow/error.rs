@@ -33,13 +33,13 @@ impl core::error::Error for Connection {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum Socket {
+pub(crate) enum Socket<BufferError> {
     OpenTcp(open_tcp::Error),
     OpenUdp(open_udp::Error),
-    TransferData(transfer_data::Error),
+    TransferData(transfer_data::Error<BufferError>),
 }
 
-impl Display for Socket {
+impl<BufferError> Display for Socket<BufferError> {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::OpenTcp(_) => formatter.write_str("error during open tcp"),
@@ -49,7 +49,10 @@ impl Display for Socket {
     }
 }
 
-impl core::error::Error for Socket {
+impl<BufferError> core::error::Error for Socket<BufferError>
+where
+    BufferError: core::error::Error + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::OpenTcp(error) => Some(error),

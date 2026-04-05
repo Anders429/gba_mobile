@@ -5,29 +5,31 @@ use core::{
 };
 
 #[derive(Clone, Debug)]
-pub(in crate::driver) enum Error {
+pub(in crate::driver) enum Error<BufferError> {
     TransferData(packet::Error<payload::TransferData>),
     Idle(idle::Error),
-    // TODO: Add the error here.
-    WriteToBuffer,
+    WriteToBuffer(BufferError),
 }
 
-impl Display for Error {
+impl<BufferError> Display for Error<BufferError> {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
             Self::TransferData(_) => formatter.write_str("error while transferring data"),
             Self::Idle(_) => formatter.write_str("error while idling"),
-            Self::WriteToBuffer => formatter.write_str("error while writing to buffer"),
+            Self::WriteToBuffer(_) => formatter.write_str("error while writing to buffer"),
         }
     }
 }
 
-impl core::error::Error for Error {
+impl<BufferError> core::error::Error for Error<BufferError>
+where
+    BufferError: core::error::Error + 'static,
+{
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Self::TransferData(error) => Some(error),
             Self::Idle(error) => Some(error),
-            Self::WriteToBuffer => None,
+            Self::WriteToBuffer(error) => Some(error),
         }
     }
 }

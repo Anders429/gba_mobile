@@ -2,7 +2,7 @@ use core::convert::Infallible;
 
 pub trait Buffer {
     type ReadError: core::error::Error;
-    type WriteError: core::error::Error;
+    type WriteError: core::error::Error + Clone + 'static;
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::ReadError>;
 

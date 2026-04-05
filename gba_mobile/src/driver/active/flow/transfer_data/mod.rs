@@ -58,7 +58,7 @@ impl TransferData {
         adapter: &mut Adapter,
         transfer_length: TransferLength,
         socket: &mut Socket<Buffer>,
-    ) -> Result<Option<Self>, Error>
+    ) -> Result<Option<Self>, Error<Buffer::WriteError>>
     where
         Buffer: socket::Buffer,
     {
@@ -116,7 +116,7 @@ impl TransferData {
                 let bytes_written = socket
                     .read_buffer
                     .write(buffer.as_slice().get((index as usize)..).unwrap_or(&[]))
-                    .map_err(|_| Error::WriteToBuffer)?;
+                    .map_err(Error::WriteToBuffer)?;
                 let index = index.saturating_add(bytes_written as u8);
 
                 if buffer.len() <= index {

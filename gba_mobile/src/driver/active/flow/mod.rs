@@ -185,7 +185,7 @@ impl<Buffer, const INDEX: usize> SocketSubFlow<Socket<Buffer>> for SocketFlow<IN
 where
     Buffer: socket::Buffer,
 {
-    type Error = error::Socket;
+    type Error = error::Socket<Buffer::WriteError>;
 
     fn vblank(self) -> Result<Self, Timeout> {
         match self {
