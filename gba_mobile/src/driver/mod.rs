@@ -106,7 +106,7 @@ where
         match &mut self.state {
             State::Inactive | State::Error(_) => {
                 Self::enable_communication();
-                self.state = State::Active(Active::new());
+                self.state = State::Active(Active::new(self.link_generation));
             }
             State::Active(active) => {
                 active.start_link();
@@ -308,15 +308,14 @@ where
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => {
-                match active.serial(
+                if let Err(error) = active.serial(
                     self.timer,
+                    self.link_generation,
                     &mut self.socket_1,
                     &mut self.socket_2,
                     &mut self.dns,
                 ) {
-                    Ok(active::StateChange::StillActive) => {}
-                    Ok(active::StateChange::Inactive) => self.state = State::Inactive,
-                    Err(error) => self.state = State::Error(Error::Error(error)),
+                    self.state = State::Error(Error::Error(error));
                 }
             }
             State::Error(_) => {}
@@ -327,13 +326,16 @@ where
         match &mut self.state {
             State::Inactive => {}
             State::Active(active) => {
-                if let Err(timeout) = active.vblank(
+                match active.vblank(
                     self.timer,
+                    self.link_generation,
                     &mut self.socket_1,
                     &mut self.socket_2,
                     &self.dns,
                 ) {
-                    self.state = State::Error(Error::Timeout(timeout));
+                    Ok(active::StateChange::StillActive) => {}
+                    Ok(active::StateChange::Inactive) => self.state = State::Inactive,
+                    Err(timeout) => self.state = State::Error(Error::Timeout(timeout)),
                 }
             }
             State::Error(_) => {}

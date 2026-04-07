@@ -4,10 +4,7 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{
-    super::Phase,
-    request::{Packet, packet::payload},
-};
+use super::request::{Packet, packet::payload};
 use crate::{Timer, driver::Adapter, mmio::serial::TransferLength};
 use either::Either;
 

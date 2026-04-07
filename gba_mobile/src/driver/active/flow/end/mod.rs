@@ -4,10 +4,10 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::request::{Packet, WaitForIdle, packet::payload};
+use super::request::{Packet, packet::payload};
 use crate::{
     Timer,
-    driver::Adapter,
+    driver::{Adapter, frames},
     mmio::serial::{SIOCNT, TransferLength},
 };
 use either::Either;
@@ -15,7 +15,7 @@ use either::Either;
 #[derive(Debug)]
 pub(in super::super) enum End {
     EndSession(Packet<payload::EndSession>),
-    WaitForIdle(WaitForIdle),
+    WaitForSio8(u8),
 }
 
 impl End {
@@ -23,23 +23,27 @@ impl End {
         Self::EndSession(Packet::new(payload::EndSession, transfer_length, timer))
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
+    pub(super) fn vblank(self) -> Result<Option<Self>, Timeout> {
         match self {
             Self::EndSession(packet) => packet
                 .vblank()
-                .map(Self::EndSession)
+                .map(|packet| Some(Self::EndSession(packet)))
                 .map_err(Timeout::EndSession),
-            Self::WaitForIdle(wait_for_idle) => wait_for_idle
-                .vblank()
-                .map(Self::WaitForIdle)
-                .map_err(Timeout::WaitForIdle),
+            Self::WaitForSio8(frame) => {
+                if frame >= frames::ONE_HUNDRED_MILLISECONDS {
+                    // We have waited sufficiently long enough to fully close the active state..
+                    Ok(None)
+                } else {
+                    Ok(Some(Self::WaitForSio8(frame.saturating_add(1))))
+                }
+            }
         }
     }
 
     pub(super) fn timer(&mut self) {
         match self {
             Self::EndSession(packet) => packet.timer(),
-            Self::WaitForIdle(_) => {}
+            Self::WaitForSio8(_) => {}
         }
     }
 
@@ -48,12 +52,12 @@ impl End {
         timer: Timer,
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Self, Error> {
         match self {
             Self::EndSession(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self::EndSession(packet)),
+                    Either::Left(packet) => Self::EndSession(packet),
                     Either::Right(response) => {
                         *adapter = response.adapter;
                         *transfer_length = TransferLength::_8Bit;
@@ -62,11 +66,11 @@ impl End {
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),
                             );
                         }
-                        Some(Self::WaitForIdle(WaitForIdle::new(*transfer_length)))
+                        Self::WaitForSio8(0)
                     }
                 })
                 .map_err(Error::EndSession),
-            Self::WaitForIdle(wait_for_idle) => Ok(wait_for_idle.serial().map(Self::WaitForIdle)),
+            Self::WaitForSio8(frame) => Ok(Self::WaitForSio8(frame)),
         }
     }
 }

@@ -1,7 +1,7 @@
 pub(crate) mod item;
 
 use super::{ConnectionRequest, Flow, Phase, State};
-use crate::{Timer, dns, socket};
+use crate::{Generation, Timer, dns, socket};
 use core::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
@@ -149,15 +149,16 @@ where
         &mut self,
         state: &mut State,
         timer: Timer,
+        link_generation: Generation,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &Dns,
     ) -> Option<Flow<Socket1, Socket2, Dns>> {
         self.next().and_then(|item| {
             match item {
-                Item::Start => Some(Flow::start(state.transfer_length)),
+                Item::Start => Some(Flow::start(state.transfer_length, link_generation)),
                 Item::End => Some(Flow::end(state.transfer_length, timer)),
-                Item::Reset => Some(Flow::reset(state.transfer_length, timer)),
+                Item::Reset => Some(Flow::reset(state.transfer_length, timer, link_generation)),
                 Item::Disconnect => Some(Flow::disconnect(state.transfer_length, timer)),
                 Item::Connect => match &state.phase {
                     Phase::Connecting(ConnectionRequest::Accept { .. }) => {

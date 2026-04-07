@@ -28,7 +28,7 @@ impl super::Send for Disconnect {
         0
     }
 
-    fn get(&self, index: u8) -> u8 {
+    fn get(&self, _index: u8) -> u8 {
         0x00
     }
 

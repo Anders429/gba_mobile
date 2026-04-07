@@ -30,11 +30,14 @@ where
                     driver: PhantomData,
                 })
             })
-            .map_err(|error| error.into())
+            .map_err(Into::into)
     }
 
     /// Cancel this pending link.
-    pub fn cancel(self) {
-        todo!()
+    pub fn cancel(
+        &self,
+        driver: &mut Driver<Socket1, Socket2, Dns>,
+    ) -> Result<(), Error<Socket1, Socket2, Dns>> {
+        driver.close_link(self.link_generation).map_err(Into::into)
     }
 }

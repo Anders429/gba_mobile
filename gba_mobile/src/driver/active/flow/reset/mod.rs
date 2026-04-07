@@ -11,14 +11,14 @@ use super::{
     request::{Packet, WaitForIdle, packet::payload},
 };
 use crate::{
-    Timer,
+    Generation, Timer,
     driver::Adapter,
     mmio::serial::{SIOCNT, TransferLength},
 };
 use either::Either;
 
 #[derive(Debug)]
-pub(in super::super) enum Reset {
+enum State {
     Reset(Packet<payload::Reset>),
     WaitForSio8(WaitForIdle),
     EnableSio32(Packet<payload::EnableSio32>),
@@ -27,45 +27,79 @@ pub(in super::super) enum Reset {
     ReadConfig2(Packet<payload::ReadConfig>),
 }
 
+#[derive(Debug)]
+pub(in super::super) struct Reset {
+    state: State,
+    link_generation: Generation,
+}
+
 impl Reset {
-    pub(super) fn new(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::Reset(Packet::new(payload::Reset, transfer_length, timer))
+    pub(super) fn new(
+        transfer_length: TransferLength,
+        timer: Timer,
+        link_generation: Generation,
+    ) -> Self {
+        Self {
+            state: State::Reset(Packet::new(payload::Reset, transfer_length, timer)),
+            link_generation,
+        }
     }
 
     pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        match self {
-            Self::Reset(packet) => packet.vblank().map(Self::Reset).map_err(Timeout::Reset),
-            Self::WaitForSio8(wait_for_idle) => wait_for_idle
+        match self.state {
+            State::Reset(packet) => packet
                 .vblank()
-                .map(Self::WaitForSio8)
+                .map(|packet| Self {
+                    state: State::Reset(packet),
+                    link_generation: self.link_generation,
+                })
+                .map_err(Timeout::Reset),
+            State::WaitForSio8(wait_for_idle) => wait_for_idle
+                .vblank()
+                .map(|wait_for_idle| Self {
+                    state: State::WaitForSio8(wait_for_idle),
+                    link_generation: self.link_generation,
+                })
                 .map_err(Timeout::WaitForSio8),
-            Self::EnableSio32(packet) => packet
+            State::EnableSio32(packet) => packet
                 .vblank()
-                .map(Self::EnableSio32)
+                .map(|packet| Self {
+                    state: State::EnableSio32(packet),
+                    link_generation: self.link_generation,
+                })
                 .map_err(Timeout::EnableSio32),
-            Self::WaitForSio32(wait_for_idle) => wait_for_idle
+            State::WaitForSio32(wait_for_idle) => wait_for_idle
                 .vblank()
-                .map(Self::WaitForSio32)
+                .map(|wait_for_idle| Self {
+                    state: State::WaitForSio32(wait_for_idle),
+                    link_generation: self.link_generation,
+                })
                 .map_err(Timeout::WaitForSio32),
-            Self::ReadConfig1(packet) => packet
+            State::ReadConfig1(packet) => packet
                 .vblank()
-                .map(Self::ReadConfig1)
+                .map(|packet| Self {
+                    state: State::ReadConfig1(packet),
+                    link_generation: self.link_generation,
+                })
                 .map_err(Timeout::ReadConfig1),
-            Self::ReadConfig2(packet) => packet
+            State::ReadConfig2(packet) => packet
                 .vblank()
-                .map(Self::ReadConfig2)
+                .map(|packet| Self {
+                    state: State::ReadConfig2(packet),
+                    link_generation: self.link_generation,
+                })
                 .map_err(Timeout::ReadConfig2),
         }
     }
 
     pub(super) fn timer(&mut self) {
-        match self {
-            Self::Reset(packet) => packet.timer(),
-            Self::WaitForSio8(_) => {}
-            Self::EnableSio32(packet) => packet.timer(),
-            Self::WaitForSio32(_) => {}
-            Self::ReadConfig1(packet) => packet.timer(),
-            Self::ReadConfig2(packet) => packet.timer(),
+        match &mut self.state {
+            State::Reset(packet) => packet.timer(),
+            State::WaitForSio8(_) => {}
+            State::EnableSio32(packet) => packet.timer(),
+            State::WaitForSio32(_) => {}
+            State::ReadConfig1(packet) => packet.timer(),
+            State::ReadConfig2(packet) => packet.timer(),
         }
     }
 
@@ -76,12 +110,16 @@ impl Reset {
         transfer_length: &mut TransferLength,
         phase: &mut Phase,
         config: &mut [u8; 256],
+        link_generation: Generation,
     ) -> Result<Option<Self>, Error> {
-        match self {
-            Self::Reset(packet) => packet
+        match self.state {
+            State::Reset(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self::Reset(packet)),
+                    Either::Left(packet) => Some(Self {
+                        state: State::Reset(packet),
+                        link_generation: self.link_generation,
+                    }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
                         *transfer_length = TransferLength::_8Bit;
@@ -90,18 +128,34 @@ impl Reset {
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),
                             );
                         }
-                        Some(Self::WaitForSio8(WaitForIdle::new(*transfer_length)))
+                        Some(Self {
+                            state: State::WaitForSio8(WaitForIdle::new(*transfer_length)),
+                            link_generation: self.link_generation,
+                        })
                     }
                 })
                 .map_err(Error::Reset),
-            Self::WaitForSio8(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
-                || Self::EnableSio32(Packet::new(payload::EnableSio32, *transfer_length, timer)),
-                Self::WaitForSio8,
+            State::WaitForSio8(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
+                || Self {
+                    state: State::EnableSio32(Packet::new(
+                        payload::EnableSio32,
+                        *transfer_length,
+                        timer,
+                    )),
+                    link_generation: self.link_generation,
+                },
+                |wait_for_idle| Self {
+                    state: State::WaitForSio8(wait_for_idle),
+                    link_generation: self.link_generation,
+                },
             ))),
-            Self::EnableSio32(packet) => packet
+            State::EnableSio32(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self::EnableSio32(packet)),
+                    Either::Left(packet) => Some(Self {
+                        state: State::EnableSio32(packet),
+                        link_generation: self.link_generation,
+                    }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
                         *transfer_length = response.payload.transfer_length;
@@ -110,24 +164,34 @@ impl Reset {
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),
                             );
                         }
-                        Some(Self::WaitForSio32(WaitForIdle::new(*transfer_length)))
+                        Some(Self {
+                            state: State::WaitForSio32(WaitForIdle::new(*transfer_length)),
+                            link_generation: self.link_generation,
+                        })
                     }
                 })
                 .map_err(Error::EnableSio32),
-            Self::WaitForSio32(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
-                || {
-                    Self::ReadConfig1(Packet::new(
+            State::WaitForSio32(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
+                || Self {
+                    state: State::ReadConfig1(Packet::new(
                         payload::ReadConfig::FirstHalf,
                         *transfer_length,
                         timer,
-                    ))
+                    )),
+                    link_generation: self.link_generation,
                 },
-                Self::WaitForSio32,
+                |wait_for_idle| Self {
+                    state: State::WaitForSio32(wait_for_idle),
+                    link_generation: self.link_generation,
+                },
             ))),
-            Self::ReadConfig1(packet) => packet
+            State::ReadConfig1(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self::ReadConfig1(packet)),
+                    Either::Left(packet) => Some(Self {
+                        state: State::ReadConfig1(packet),
+                        link_generation: self.link_generation,
+                    }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
                         unsafe {
@@ -137,18 +201,24 @@ impl Reset {
                                 128,
                             );
                         }
-                        Some(Self::ReadConfig2(Packet::new(
-                            payload::ReadConfig::SecondHalf,
-                            *transfer_length,
-                            timer,
-                        )))
+                        Some(Self {
+                            state: State::ReadConfig2(Packet::new(
+                                payload::ReadConfig::SecondHalf,
+                                *transfer_length,
+                                timer,
+                            )),
+                            link_generation: self.link_generation,
+                        })
                     }
                 })
                 .map_err(Error::ReadConfig1),
-            Self::ReadConfig2(packet) => packet
+            State::ReadConfig2(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self::ReadConfig2(packet)),
+                    Either::Left(packet) => Some(Self {
+                        state: State::ReadConfig2(packet),
+                        link_generation: self.link_generation,
+                    }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
                         unsafe {
@@ -158,10 +228,13 @@ impl Reset {
                                 128,
                             );
                         }
-                        *phase = Phase::Linked {
-                            frame: 0,
-                            connection_failure: None,
-                        };
+                        if link_generation == self.link_generation {
+                            // Only update the phase if we are still in the same link generation.
+                            *phase = Phase::Linked {
+                                frame: 0,
+                                connection_failure: None,
+                            };
+                        }
                         None
                     }
                 })

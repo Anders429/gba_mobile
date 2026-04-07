@@ -27,7 +27,7 @@ use core::{
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{Phase, Queue, State, StateChange};
+use super::{Queue, State};
 use crate::{
     ArrayVec, Digit, Generation, Socket, Timer,
     dns::NoDns,
@@ -308,16 +308,20 @@ where
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
 {
-    pub(super) fn start(transfer_length: TransferLength) -> Self {
-        Self::Start(Start::new(transfer_length))
+    pub(super) fn start(transfer_length: TransferLength, link_generation: Generation) -> Self {
+        Self::Start(Start::new(transfer_length, link_generation))
     }
 
     pub(super) fn end(transfer_length: TransferLength, timer: Timer) -> Self {
         Self::End(End::new(transfer_length, timer))
     }
 
-    pub(super) fn reset(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::Reset(Reset::new(transfer_length, timer))
+    pub(super) fn reset(
+        transfer_length: TransferLength,
+        timer: Timer,
+        link_generation: Generation,
+    ) -> Self {
+        Self::Reset(Reset::new(transfer_length, timer, link_generation))
     }
 
     pub(super) fn login(
@@ -364,26 +368,47 @@ where
         Self::Idle(Idle::new(transfer_length, timer))
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
+    /// Only returns `None` if the active session is being ended.
+    pub(super) fn vblank(self) -> Result<Option<Self>, Timeout> {
         match self {
-            Self::Start(start) => start.vblank().map(Self::Start).map_err(Timeout::Start),
-            Self::End(end) => end.vblank().map(Self::End).map_err(Timeout::End),
-            Self::Reset(reset) => reset.vblank().map(Self::Reset).map_err(Timeout::Reset),
-            Self::Login(login) => login.vblank().map(Self::Login).map_err(Timeout::Login),
-            Self::Connection(connection) => connection.vblank().map(Self::Connection),
+            Self::Start(start) => start
+                .vblank()
+                .map(|flow| Some(Self::Start(flow)))
+                .map_err(Timeout::Start),
+            Self::End(end) => end
+                .vblank()
+                .map(|flow| flow.map(Self::End))
+                .map_err(Timeout::End),
+            Self::Reset(reset) => reset
+                .vblank()
+                .map(|flow| Some(Self::Reset(flow)))
+                .map_err(Timeout::Reset),
+            Self::Login(login) => login
+                .vblank()
+                .map(|flow| Some(Self::Login(flow)))
+                .map_err(Timeout::Login),
+            Self::Connection(connection) => {
+                connection.vblank().map(|flow| Some(Self::Connection(flow)))
+            }
             Self::Disconnect(disconnect) => disconnect
                 .vblank()
-                .map(Self::Disconnect)
+                .map(|flow| Some(Self::Disconnect(flow)))
                 .map_err(Timeout::Disconnect),
-            Self::Socket1(socket_1) => socket_1.vblank().map(Self::Socket1),
-            Self::Socket2(socket_2) => socket_2.vblank().map(Self::Socket2),
-            Self::Dns(dns) => dns.vblank().map(Self::Dns),
+            Self::Socket1(socket_1) => socket_1.vblank().map(|flow| Some(Self::Socket1(flow))),
+            Self::Socket2(socket_2) => socket_2.vblank().map(|flow| Some(Self::Socket2(flow))),
+            Self::Dns(dns) => dns.vblank().map(|flow| Some(Self::Dns(flow))),
             Self::WriteConfig(write_config) => write_config
                 .vblank()
-                .map(Self::WriteConfig)
+                .map(|flow| Some(Self::WriteConfig(flow)))
                 .map_err(Timeout::WriteConfig),
-            Self::Status(status) => status.vblank().map(Self::Status).map_err(Timeout::Status),
-            Self::Idle(idle) => idle.vblank().map(Self::Idle).map_err(Timeout::Idle),
+            Self::Status(status) => status
+                .vblank()
+                .map(|flow| Some(Self::Status(flow)))
+                .map_err(Timeout::Status),
+            Self::Idle(idle) => idle
+                .vblank()
+                .map(|flow| Some(Self::Idle(flow)))
+                .map_err(Timeout::Idle),
         }
     }
 
@@ -409,10 +434,11 @@ where
         state: &mut State,
         queue: &mut Queue<Socket1, Socket2, Dns>,
         timer: Timer,
+        link_generation: Generation,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &mut Dns,
-    ) -> Result<Either<Self, StateChange>, Error<Socket1, Socket2, Dns>> {
+    ) -> Result<Option<Self>, Error<Socket1, Socket2, Dns>> {
         match self {
             Self::Start(start) => start
                 .serial(
@@ -421,9 +447,10 @@ where
                     &mut state.transfer_length,
                     &mut state.phase,
                     &mut state.config,
+                    link_generation,
                 )
                 .map(|response| match response {
-                    Either::Left(start) => Either::Left(Self::Start(start)),
+                    Either::Left(start) => Some(Self::Start(start)),
                     Either::Right(response) => {
                         match response {
                             start::Response::Success => {}
@@ -432,24 +459,13 @@ where
                                 queue.set_start();
                             }
                         }
-                        Either::Right(StateChange::StillActive)
+                        None
                     }
                 })
                 .map_err(Error::Start),
             Self::End(end) => end
                 .serial(timer, &mut state.adapter, &mut state.transfer_length)
-                .map(|flow| {
-                    flow.map_or_else(
-                        || {
-                            if matches!(state.phase, Phase::Ending) {
-                                Either::Right(StateChange::Inactive)
-                            } else {
-                                Either::Right(StateChange::StillActive)
-                            }
-                        },
-                        |flow| Either::Left(Self::End(flow)),
-                    )
-                })
+                .map(|flow| Some(Self::End(flow)))
                 .map_err(Error::End),
             Self::Reset(reset) => reset
                 .serial(
@@ -458,13 +474,9 @@ where
                     &mut state.transfer_length,
                     &mut state.phase,
                     &mut state.config,
+                    link_generation,
                 )
-                .map(|flow| {
-                    flow.map_or_else(
-                        || Either::Right(StateChange::StillActive),
-                        |flow| Either::Left(Self::Reset(flow)),
-                    )
-                })
+                .map(|flow| flow.map(Self::Reset))
                 .map_err(Error::Reset),
             Self::Login(login) => login
                 .serial(
@@ -474,88 +486,39 @@ where
                     &mut state.phase,
                     state.connection_generation,
                 )
-                .map(|flow| {
-                    flow.map_or_else(
-                        || Either::Right(StateChange::StillActive),
-                        |flow| Either::Left(Self::Login(flow)),
-                    )
-                })
+                .map(|flow| flow.map(Self::Login))
                 .map_err(Error::Login),
             Self::Connection(connection) => connection
                 .serial(state, timer, socket_1)
-                .map(|flow| {
-                    if let Some(flow) = flow {
-                        Either::Left(Self::Connection(flow))
-                    } else {
-                        Either::Right(StateChange::StillActive)
-                    }
-                })
+                .map(|flow| flow.map(Self::Connection))
                 .map_err(Error::Connection),
             Self::Disconnect(disconnect) => disconnect
                 .serial(timer, &mut state.adapter)
-                .map(|flow| {
-                    flow.map_or_else(
-                        || Either::Right(StateChange::StillActive),
-                        |flow| Either::Left(Self::Disconnect(flow)),
-                    )
-                })
+                .map(|flow| flow.map(Self::Disconnect))
                 .map_err(Error::Disconnect),
             Self::Socket1(socket) => socket
                 .serial(state, timer, socket_1)
-                .map(|flow| {
-                    if let Some(flow) = flow {
-                        Either::Left(Self::Socket1(flow))
-                    } else {
-                        Either::Right(StateChange::StillActive)
-                    }
-                })
+                .map(|flow| flow.map(Self::Socket1))
                 .map_err(Error::Socket1),
             Self::Socket2(socket) => socket
                 .serial(state, timer, socket_2)
-                .map(|flow| {
-                    if let Some(flow) = flow {
-                        Either::Left(Self::Socket2(flow))
-                    } else {
-                        Either::Right(StateChange::StillActive)
-                    }
-                })
+                .map(|flow| flow.map(Self::Socket2))
                 .map_err(Error::Socket2),
             Self::Dns(flow) => flow
                 .serial(state, timer, dns)
-                .map(|flow| {
-                    if let Some(flow) = flow {
-                        Either::Left(Self::Dns(flow))
-                    } else {
-                        Either::Right(StateChange::StillActive)
-                    }
-                })
+                .map(|flow| flow.map(Self::Dns))
                 .map_err(Error::Dns),
             Self::WriteConfig(write_config) => write_config
                 .serial(timer, &mut state.adapter, state.transfer_length)
-                .map(|flow| {
-                    flow.map_or_else(
-                        || Either::Right(StateChange::StillActive),
-                        |flow| Either::Left(Self::WriteConfig(flow)),
-                    )
-                })
+                .map(|flow| flow.map(Self::WriteConfig))
                 .map_err(Error::WriteConfig),
             Self::Status(status) => status
                 .serial(timer, &mut state.adapter, &mut state.phase)
-                .map(|flow| {
-                    flow.map_or_else(
-                        || Either::Right(StateChange::StillActive),
-                        |flow| Either::Left(Self::Status(flow)),
-                    )
-                })
+                .map(|flow| flow.map(Self::Status))
                 .map_err(Error::Status),
             Self::Idle(idle) => idle
                 .serial(timer, &mut state.phase)
-                .map(|flow| {
-                    flow.map_or_else(
-                        || Either::Right(StateChange::StillActive),
-                        |flow| Either::Left(Self::Idle(flow)),
-                    )
-                })
+                .map(|flow| flow.map(Self::Idle))
                 .map_err(Error::Idle),
         }
     }

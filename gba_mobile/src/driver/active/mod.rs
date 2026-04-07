@@ -17,7 +17,6 @@ use core::{
     fmt::{self, Display, Formatter},
     net::{Ipv4Addr, SocketAddrV4},
 };
-use either::Either;
 use flow::Flow;
 use queue::Queue;
 
@@ -136,10 +135,10 @@ where
 {
     /// Define a new active communication state, attempting to immediately link with the Mobile
     /// Adapter.
-    pub(super) fn new() -> Self {
+    pub(super) fn new(link_generation: Generation) -> Self {
         Self {
             queue: Queue::new(),
-            flow: Some(Flow::start(TransferLength::_8Bit)),
+            flow: Some(Flow::start(TransferLength::_8Bit, link_generation)),
 
             state: State::new(),
         }
@@ -786,10 +785,11 @@ where
     pub(super) fn vblank(
         &mut self,
         timer: Timer,
+        link_generation: Generation,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &Dns,
-    ) -> Result<(), Timeout> {
+    ) -> Result<StateChange, Timeout> {
         match &mut self.state.phase {
             Phase::Linked { frame, .. } => {
                 if *frame == frames::ONE_SECOND {
@@ -855,16 +855,24 @@ where
         }
 
         if let Some(flow) = self.flow.take() {
-            self.flow = Some(flow.vblank()?);
-            Ok(())
-        } else if let Some(new_flow) =
-            self.queue
-                .next_flow(&mut self.state, timer, socket_1, socket_2, dns)
-        {
+            self.flow = flow.vblank()?;
+            if self.flow.is_some() {
+                Ok(StateChange::StillActive)
+            } else {
+                Ok(StateChange::Inactive)
+            }
+        } else if let Some(new_flow) = self.queue.next_flow(
+            &mut self.state,
+            timer,
+            link_generation,
+            socket_1,
+            socket_2,
+            dns,
+        ) {
             // Reset the frame count so we don't timeout.
             self.state.frame = 0;
             self.flow = Some(new_flow);
-            Ok(())
+            Ok(StateChange::StillActive)
         } else if self.state.frame > frames::THREE_SECONDS {
             // Three seconds is how long the adapter will remain connected without any bytes
             // sent to it, so this timeout should align with the disconnect.
@@ -873,7 +881,7 @@ where
             // No flow being processed and none on the queue. Increment the frame so that we
             // timeout if we remain in this state too long.
             self.state.frame += 1;
-            Ok(())
+            Ok(StateChange::StillActive)
         }
     }
 
@@ -887,28 +895,23 @@ where
     pub(super) fn serial(
         &mut self,
         timer: Timer,
+        link_generation: Generation,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &mut Dns,
-    ) -> Result<StateChange, Error<Socket1, Socket2, Dns>> {
+    ) -> Result<(), Error<Socket1, Socket2, Dns>> {
         if let Some(flow) = self.flow.take() {
-            match flow.serial(
+            self.flow = flow.serial(
                 &mut self.state,
                 &mut self.queue,
                 timer,
+                link_generation,
                 socket_1,
                 socket_2,
                 dns,
-            )? {
-                Either::Left(flow) => {
-                    self.flow = Some(flow);
-                    Ok(StateChange::StillActive)
-                }
-                Either::Right(state_change) => Ok(state_change),
-            }
-        } else {
-            Ok(StateChange::StillActive)
+            )?;
         }
+        Ok(())
     }
 }
 
