@@ -467,7 +467,7 @@ where
                     }
                     crate::socket::Status::Connecting => Ok(false),
                     crate::socket::Status::Connected => Ok(true),
-                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::FailedToConnect => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
                     crate::socket::Status::ClosedRemotely => Err(todo!()),
                 }
@@ -518,7 +518,7 @@ where
                         }
                         Ok(())
                     }
-                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::FailedToConnect => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
                     crate::socket::Status::ClosedRemotely => Err(todo!()),
                 }
@@ -583,7 +583,7 @@ where
                         }
                         Ok(read_amount)
                     }
-                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::FailedToConnect => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
                     crate::socket::Status::ClosedRemotely => Err(todo!()),
                 }
@@ -642,7 +642,7 @@ where
                         socket.frame = u8::MAX;
                         Ok(socket.write(buf))
                     }
-                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::FailedToConnect => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
                     crate::socket::Status::ClosedRemotely => Err(todo!()),
                 }

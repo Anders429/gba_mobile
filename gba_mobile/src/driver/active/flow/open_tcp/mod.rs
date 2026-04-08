@@ -99,7 +99,7 @@ impl<const INDEX: usize> OpenTcp<INDEX> {
                         }
                         payload::open_tcp::ReceiveParsed::NotConnected => {
                             if let Some((socket_status, _)) = socket_info {
-                                *socket_status = socket::Status::ConnectionFailure;
+                                *socket_status = socket::Status::FailedToConnect;
                             }
                         }
                     }

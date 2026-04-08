@@ -1,5 +1,5 @@
 use super::{connection, link};
-use crate::driver::active::{ConnectionFailure, socket};
+use crate::driver::active::ConnectionFailure;
 use core::{
     fmt,
     fmt::{Debug, Display, Formatter},
@@ -64,19 +64,6 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> From<socket::Failure> for Error<Socket1, Socket2, Dns>
-where
-    Socket1: crate::socket::Slot,
-    Socket2: crate::socket::Slot,
-    Dns: crate::dns::Mode,
-{
-    fn from(error: socket::Failure) -> Self {
-        Self {
-            kind: Kind::Failure(error),
-        }
-    }
-}
-
 impl<Socket1, Socket2, Dns> From<connection::Error<Socket1, Socket2, Dns>>
     for Error<Socket1, Socket2, Dns>
 where
@@ -126,7 +113,6 @@ where
 {
     Closed,
     Superseded,
-    Failure(socket::Failure),
     Connection(connection::Error<Socket1, Socket2, Dns>),
 }
 
@@ -140,7 +126,6 @@ where
         match self {
             Self::Closed => formatter.write_str("Closed"),
             Self::Superseded => formatter.write_str("Superseded"),
-            Self::Failure(error) => formatter.debug_tuple("Failure").field(error).finish(),
             Self::Connection(error) => formatter.debug_tuple("Connection").field(error).finish(),
         }
     }
@@ -156,7 +141,6 @@ where
         match self {
             Self::Closed => formatter.write_str("the socket was closed"),
             Self::Superseded => formatter.write_str("the socket connection was superseded"),
-            Self::Failure(_) => formatter.write_str("failed to connect socket"),
             Self::Connection(_) => formatter.write_str("connection error"),
         }
     }
@@ -172,7 +156,6 @@ where
         match self {
             Self::Closed => None,
             Self::Superseded => None,
-            Self::Failure(error) => Some(error),
             Self::Connection(error) => Some(error),
         }
     }

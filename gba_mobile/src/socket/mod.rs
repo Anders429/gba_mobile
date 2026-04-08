@@ -36,7 +36,7 @@ pub(crate) enum Status {
     NotConnected,
     Connecting,
     Connected,
-    ConnectionFailure,
+    FailedToConnect,
     ConnectionLost,
     ClosedRemotely,
 }
