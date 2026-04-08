@@ -59,8 +59,10 @@ impl<const INDEX: usize> OpenTcp<INDEX> {
     ) -> Result<Option<Self>, Error> {
         // We only should update the socket state if we are actively logged in, on the correct
         // generations, and still in a connecting state for the specific socket.
-        let socket_status = if let Phase::LoggedIn {
-            socket_generations, ..
+        let socket_info = if let Phase::LoggedIn {
+            socket_generations,
+            socket_protocols,
+            ..
         } = phase
             && connection_generation == self.connection_generation
         {
@@ -68,7 +70,7 @@ impl<const INDEX: usize> OpenTcp<INDEX> {
             if matches!(socket.status, socket::Status::Connecting)
                 && *socket_generation == self.socket_generation
             {
-                Some(&mut socket.status)
+                Some((&mut socket.status, &mut socket_protocols[INDEX]))
             } else {
                 None
             }
@@ -90,12 +92,13 @@ impl<const INDEX: usize> OpenTcp<INDEX> {
                         payload::open_tcp::ReceiveParsed::Connected(id) => {
                             socket.id = id;
                             socket.frame = 0;
-                            if let Some(socket_status) = socket_status {
+                            if let Some((socket_status, socket_protocol)) = socket_info {
                                 *socket_status = socket::Status::Connected;
+                                *socket_protocol = super::super::socket::Protocol::Tcp;
                             }
                         }
                         payload::open_tcp::ReceiveParsed::NotConnected => {
-                            if let Some(socket_status) = socket_status {
+                            if let Some((socket_status, _)) = socket_info {
                                 *socket_status = socket::Status::ConnectionFailure;
                             }
                         }

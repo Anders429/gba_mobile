@@ -1,6 +1,8 @@
 #![allow(private_interfaces)]
 
 mod accept;
+mod close_tcp;
+mod close_udp;
 mod connect;
 mod disconnect;
 mod dns;
@@ -36,6 +38,8 @@ use crate::{
     socket::{self, NoSocket},
 };
 use accept::Accept;
+use close_tcp::CloseTcp;
+use close_udp::CloseUdp;
 use connect::Connect;
 use disconnect::Disconnect;
 use dns::Dns;
@@ -180,6 +184,8 @@ impl<Buffer> SocketSubFlow<Socket<Buffer>> for ConnectionFlow {
 pub(crate) enum SocketFlow<const INDEX: usize> {
     OpenTcp(OpenTcp<INDEX>),
     OpenUdp(OpenUdp<INDEX>),
+    CloseTcp(CloseTcp),
+    CloseUdp(CloseUdp),
     TransferData(TransferData),
 }
 
@@ -199,6 +205,14 @@ where
                 .vblank()
                 .map(Self::OpenUdp)
                 .map_err(Timeout::OpenUdp),
+            Self::CloseTcp(close_tcp) => close_tcp
+                .vblank()
+                .map(Self::CloseTcp)
+                .map_err(Timeout::CloseTcp),
+            Self::CloseUdp(close_udp) => close_udp
+                .vblank()
+                .map(Self::CloseUdp)
+                .map_err(Timeout::CloseUdp),
             Self::TransferData(transfer_data) => transfer_data
                 .vblank()
                 .map(Self::TransferData)
@@ -210,6 +224,8 @@ where
         match self {
             Self::OpenTcp(open_tcp) => open_tcp.timer(),
             Self::OpenUdp(open_udp) => open_udp.timer(),
+            Self::CloseTcp(close_tcp) => close_tcp.timer(),
+            Self::CloseUdp(close_udp) => close_udp.timer(),
             Self::TransferData(transfer_data) => transfer_data.timer(),
         }
     }
@@ -241,6 +257,14 @@ where
                 )
                 .map(|flow| flow.map(Self::OpenUdp))
                 .map_err(error::Socket::OpenUdp),
+            Self::CloseTcp(close_tcp) => close_tcp
+                .serial(timer, &mut state.adapter, &mut state.phase)
+                .map(|flow| flow.map(Self::CloseTcp))
+                .map_err(error::Socket::CloseTcp),
+            Self::CloseUdp(close_udp) => close_udp
+                .serial(timer, &mut state.adapter, &mut state.phase)
+                .map(|flow| flow.map(Self::CloseUdp))
+                .map_err(error::Socket::CloseUdp),
             Self::TransferData(transfer_data) => transfer_data
                 .serial(timer, &mut state.adapter, state.transfer_length, socket)
                 .map(|flow| flow.map(Self::TransferData))
@@ -582,6 +606,30 @@ where
         )))
     }
 
+    pub(super) fn close_tcp_1(
+        transfer_length: TransferLength,
+        timer: Timer,
+        id: socket::Id,
+    ) -> Self {
+        Self::Socket1(SocketFlow::CloseTcp(CloseTcp::new(
+            transfer_length,
+            timer,
+            id,
+        )))
+    }
+
+    pub(super) fn close_udp_1(
+        transfer_length: TransferLength,
+        timer: Timer,
+        id: socket::Id,
+    ) -> Self {
+        Self::Socket1(SocketFlow::CloseUdp(CloseUdp::new(
+            transfer_length,
+            timer,
+            id,
+        )))
+    }
+
     pub(super) fn socket_1_transfer_data(
         transfer_length: TransferLength,
         timer: Timer,
@@ -630,6 +678,30 @@ where
             addr,
             connection_generation,
             socket_generation,
+        )))
+    }
+
+    pub(super) fn close_tcp_2(
+        transfer_length: TransferLength,
+        timer: Timer,
+        id: socket::Id,
+    ) -> Self {
+        Self::Socket2(SocketFlow::CloseTcp(CloseTcp::new(
+            transfer_length,
+            timer,
+            id,
+        )))
+    }
+
+    pub(super) fn close_udp_2(
+        transfer_length: TransferLength,
+        timer: Timer,
+        id: socket::Id,
+    ) -> Self {
+        Self::Socket2(SocketFlow::CloseUdp(CloseUdp::new(
+            transfer_length,
+            timer,
+            id,
         )))
     }
 

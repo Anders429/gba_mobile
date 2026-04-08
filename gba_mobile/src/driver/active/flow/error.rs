@@ -1,6 +1,6 @@
 use super::{
-    SocketSubFlow, accept, connect, disconnect, dns, end, idle, login, open_tcp, open_udp, reset,
-    start, status, transfer_data, write_config,
+    SocketSubFlow, accept, close_tcp, close_udp, connect, disconnect, dns, end, idle, login,
+    open_tcp, open_udp, reset, start, status, transfer_data, write_config,
 };
 use crate::{driver::active::flow::DnsSubFlow, socket};
 use core::{
@@ -36,6 +36,8 @@ impl core::error::Error for Connection {
 pub(crate) enum Socket<BufferError> {
     OpenTcp(open_tcp::Error),
     OpenUdp(open_udp::Error),
+    CloseTcp(close_tcp::Error),
+    CloseUdp(close_udp::Error),
     TransferData(transfer_data::Error<BufferError>),
 }
 
@@ -44,6 +46,8 @@ impl<BufferError> Display for Socket<BufferError> {
         match self {
             Self::OpenTcp(_) => formatter.write_str("error during open tcp"),
             Self::OpenUdp(_) => formatter.write_str("error during open udp"),
+            Self::CloseTcp(_) => formatter.write_str("error during close tcp"),
+            Self::CloseUdp(_) => formatter.write_str("error during close udp"),
             Self::TransferData(_) => formatter.write_str("error during transfer data"),
         }
     }
@@ -57,6 +61,8 @@ where
         match self {
             Self::OpenTcp(error) => Some(error),
             Self::OpenUdp(error) => Some(error),
+            Self::CloseTcp(error) => Some(error),
+            Self::CloseUdp(error) => Some(error),
             Self::TransferData(error) => Some(error),
         }
     }

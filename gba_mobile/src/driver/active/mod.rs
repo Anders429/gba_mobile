@@ -78,6 +78,9 @@ enum Phase {
         secondary_dns: Ipv4Addr,
         socket_generations: [Generation; 2],
         socket_requests: [Option<(SocketAddrV4, socket::Protocol)>; 2],
+        /// These are the currently active protocols for the sockets (as opposed to the requested
+        /// protocols for future connections above).
+        socket_protocols: [socket::Protocol; 2],
     },
 
     /// This link is being closed.
@@ -460,10 +463,61 @@ where
 
                 match socket.status {
                     crate::socket::Status::NotConnected => {
-                        Err(super::error::socket::Error::superseded())
+                        Err(super::error::socket::Error::closed())
                     }
                     crate::socket::Status::Connecting => Ok(false),
                     crate::socket::Status::Connected => Ok(true),
+                    crate::socket::Status::ConnectionFailure => Err(todo!()),
+                    crate::socket::Status::ConnectionLost => Err(todo!()),
+                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                }
+            }
+        }
+    }
+
+    pub(super) fn close_socket<Buffer, const INDEX: usize>(
+        &mut self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+        socket: &mut crate::Socket<Buffer>,
+    ) -> Result<(), super::error::socket::Error<Socket1, Socket2, Dns>> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn {
+                socket_generations, ..
+            } => {
+                if socket_generations[INDEX] != socket_generation {
+                    return Err(super::error::socket::Error::superseded());
+                }
+
+                match socket.status {
+                    crate::socket::Status::NotConnected => {
+                        Err(super::error::socket::Error::closed())
+                    }
+                    crate::socket::Status::Connecting | crate::socket::Status::Connected => {
+                        socket.status = crate::socket::Status::NotConnected;
+                        if INDEX == 0 {
+                            self.queue.set_socket_1_close();
+                        } else {
+                            self.queue.set_socket_2_close();
+                        }
+                        Ok(())
+                    }
                     crate::socket::Status::ConnectionFailure => Err(todo!()),
                     crate::socket::Status::ConnectionLost => Err(todo!()),
                     crate::socket::Status::ClosedRemotely => Err(todo!()),
@@ -508,7 +562,7 @@ where
 
                 match socket.status {
                     crate::socket::Status::NotConnected => {
-                        Err(super::error::socket::Error::superseded().into())
+                        Err(super::error::socket::Error::closed().into())
                     }
                     crate::socket::Status::Connecting => {
                         Err(super::error::socket::Error::superseded().into())
@@ -573,7 +627,7 @@ where
 
                 match socket.status {
                     crate::socket::Status::NotConnected => {
-                        Err(super::error::socket::Error::superseded().into())
+                        Err(super::error::socket::Error::closed().into())
                     }
                     crate::socket::Status::Connecting => {
                         Err(super::error::socket::Error::superseded().into())

@@ -191,7 +191,24 @@ where
                     None
                 }
             }
-            Self::Close => todo!(),
+            Self::Close => {
+                if let Phase::LoggedIn {
+                    socket_protocols, ..
+                } = &mut state.phase
+                {
+                    Some(match socket_protocols[0] {
+                        super::super::socket::Protocol::Tcp => {
+                            Flow::close_tcp_1(state.transfer_length, timer, socket_1.id)
+                        }
+                        super::super::socket::Protocol::Udp => {
+                            Flow::close_udp_1(state.transfer_length, timer, socket_1.id)
+                        }
+                    })
+                } else {
+                    // We are not in the correct phase to close a socket, so we do nothing.
+                    None
+                }
+            }
             Self::Transfer => Some(Flow::socket_1_transfer_data(
                 state.transfer_length,
                 timer,
@@ -257,7 +274,24 @@ where
                     None
                 }
             }
-            Self::Close => todo!(),
+            Self::Close => {
+                if let Phase::LoggedIn {
+                    socket_protocols, ..
+                } = &mut state.phase
+                {
+                    Some(match socket_protocols[1] {
+                        super::super::socket::Protocol::Tcp => {
+                            Flow::close_tcp_2(state.transfer_length, timer, socket_2.id)
+                        }
+                        super::super::socket::Protocol::Udp => {
+                            Flow::close_udp_2(state.transfer_length, timer, socket_2.id)
+                        }
+                    })
+                } else {
+                    // We are not in the correct phase to close a socket, so we do nothing.
+                    None
+                }
+            }
             Self::Transfer => Some(Flow::socket_2_transfer_data(
                 state.transfer_length,
                 timer,

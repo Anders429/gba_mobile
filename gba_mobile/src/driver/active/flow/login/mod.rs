@@ -5,7 +5,7 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::{
-    super::{ConnectionFailure, ConnectionRequest, Phase},
+    super::{ConnectionFailure, ConnectionRequest, Phase, socket},
     request::{Packet, packet::payload},
 };
 use crate::{Adapter, ArrayVec, Digit, Generation, Timer, mmio::serial::TransferLength};
@@ -165,6 +165,14 @@ impl Login {
                                         secondary_dns,
                                         socket_generations: [Generation::new(); 2],
                                         socket_requests: [None, None],
+                                        // Arbitrarily default to TCP.
+                                        //
+                                        // These will be overridden when we actually connect over
+                                        // the sockets.
+                                        socket_protocols: [
+                                            socket::Protocol::Tcp,
+                                            socket::Protocol::Tcp,
+                                        ],
                                     };
                                 }
                                 payload::login::Response::NotConnected => {

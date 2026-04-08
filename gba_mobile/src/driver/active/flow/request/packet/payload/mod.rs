@@ -1,5 +1,7 @@
 pub(in crate::driver::active::flow) mod accept_connection;
 pub(in crate::driver::active::flow) mod begin_session;
+pub(in crate::driver::active::flow) mod close_tcp;
+pub(in crate::driver::active::flow) mod close_udp;
 pub(in crate::driver::active::flow) mod connect;
 pub(in crate::driver::active::flow) mod connection_status;
 pub(in crate::driver::active::flow) mod disconnect;
@@ -22,6 +24,8 @@ pub(in crate::driver) use error::Error;
 
 pub(in crate::driver::active::flow) use accept_connection::AcceptConnection;
 pub(in crate::driver::active::flow) use begin_session::BeginSession;
+pub(in crate::driver::active::flow) use close_tcp::CloseTcp;
+pub(in crate::driver::active::flow) use close_udp::CloseUdp;
 pub(in crate::driver::active::flow) use connect::Connect;
 pub(in crate::driver::active::flow) use connection_status::ConnectionStatus;
 pub(in crate::driver::active::flow) use disconnect::Disconnect;

@@ -100,7 +100,13 @@ where
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
     ) -> Result<(), error::Socket<Socket<Buffer>, Socket2, Dns>> {
-        todo!()
+        driver
+            .close_socket_1(
+                self.link_generation,
+                self.connection_generation,
+                self.socket.0,
+            )
+            .map_err(Into::into)
     }
 }
 
@@ -144,6 +150,12 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
     ) -> Result<(), error::Socket<Socket1, Socket<Buffer>, Dns>> {
-        todo!()
+        driver
+            .close_socket_2(
+                self.link_generation,
+                self.connection_generation,
+                self.socket.0,
+            )
+            .map_err(Into::into)
     }
 }

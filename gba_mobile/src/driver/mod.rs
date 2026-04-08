@@ -445,6 +445,27 @@ where
         }
     }
 
+    pub(crate) fn close_socket_1(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<(), error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.close_socket::<_, 0>(
+                connection_generation,
+                socket_generation,
+                &mut self.socket_1,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
     pub(crate) fn connection_read(
         &mut self,
         link_generation: Generation,
@@ -598,6 +619,27 @@ where
                 connection_generation,
                 socket_generation,
                 &self.socket_2,
+            ),
+            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+        }
+    }
+
+    pub(crate) fn close_socket_2(
+        &mut self,
+        link_generation: Generation,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<(), error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
+        if self.link_generation != link_generation {
+            return Err(error::link::Error::superseded().into());
+        }
+
+        match &mut self.state {
+            State::Inactive => Err(error::link::Error::closed().into()),
+            State::Active(active) => active.close_socket::<_, 1>(
+                connection_generation,
+                socket_generation,
+                &mut self.socket_2,
             ),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
         }
