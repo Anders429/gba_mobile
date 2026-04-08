@@ -92,7 +92,7 @@ impl<const INDEX: usize> OpenUdp<INDEX> {
                     socket.frame = 0;
                     if let Some((socket_status, socket_protocol)) = socket_info {
                         *socket_status = socket::Status::Connected;
-                        *socket_protocol = super::super::socket::Protocol::Udp;
+                        *socket_protocol = socket::Protocol::Udp;
                     }
 
                     None

@@ -1,8 +1,6 @@
 pub(crate) mod flow;
 pub(crate) mod queue;
 
-pub(in crate::driver) mod socket;
-
 mod timeout;
 
 pub(in crate::driver) use flow::Error;
@@ -12,6 +10,7 @@ use crate::{
     ArrayVec, Config, Digit, Generation, Socket, Timer, dns,
     driver::{Adapter, frames},
     mmio::serial::TransferLength,
+    socket,
 };
 use core::{
     fmt::{self, Display, Formatter},
@@ -120,8 +119,8 @@ impl State {
 #[derive(Debug)]
 pub(super) struct Active<Socket1, Socket2, Dns>
 where
-    Socket1: crate::socket::Slot,
-    Socket2: crate::socket::Slot,
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
     Dns: dns::Mode,
 {
     queue: Queue<Socket1, Socket2, Dns>,
@@ -132,8 +131,8 @@ where
 
 impl<Socket1, Socket2, Dns> Active<Socket1, Socket2, Dns>
 where
-    Socket1: crate::socket::Slot,
-    Socket2: crate::socket::Slot,
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
     Dns: dns::Mode,
 {
     /// Define a new active communication state, attempting to immediately link with the Mobile
@@ -318,7 +317,7 @@ where
         socket: &mut Socket<Buffer>,
     ) -> Result<usize, super::error::connection_io::Error<Buffer::ReadError, Socket1, Socket2, Dns>>
     where
-        Buffer: crate::socket::Buffer,
+        Buffer: socket::Buffer,
     {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -359,7 +358,7 @@ where
         socket: &mut Socket<Buffer>,
     ) -> Result<usize, super::error::connection::Error<Socket1, Socket2, Dns>>
     where
-        Buffer: crate::socket::Buffer,
+        Buffer: socket::Buffer,
     {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -392,7 +391,7 @@ where
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
         protocol: socket::Protocol,
-        socket: &mut crate::Socket<Buffer>,
+        socket: &mut Socket<Buffer>,
     ) -> Result<Generation, super::error::connection::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -416,7 +415,7 @@ where
                 socket_requests,
                 ..
             } => {
-                socket.status = crate::socket::Status::Connecting;
+                socket.status = socket::Status::Connecting;
                 socket_requests[INDEX] = Some((socket_addr, protocol));
 
                 if INDEX == 0 {
@@ -435,7 +434,7 @@ where
         &self,
         connection_generation: Generation,
         socket_generation: Generation,
-        socket: &crate::Socket<Buffer>,
+        socket: &Socket<Buffer>,
     ) -> Result<bool, super::error::socket::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -462,14 +461,12 @@ where
                 }
 
                 match socket.status {
-                    crate::socket::Status::NotConnected => {
-                        Err(super::error::socket::Error::closed())
-                    }
-                    crate::socket::Status::Connecting => Ok(false),
-                    crate::socket::Status::Connected => Ok(true),
-                    crate::socket::Status::FailedToConnect => Err(todo!()),
-                    crate::socket::Status::ConnectionLost => Err(todo!()),
-                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::NotConnected => Err(super::error::socket::Error::closed()),
+                    socket::Status::Connecting => Ok(false),
+                    socket::Status::Connected => Ok(true),
+                    socket::Status::FailedToConnect => Err(todo!()),
+                    socket::Status::ConnectionLost => Err(todo!()),
+                    socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
         }
@@ -479,7 +476,7 @@ where
         &mut self,
         connection_generation: Generation,
         socket_generation: Generation,
-        socket: &mut crate::Socket<Buffer>,
+        socket: &mut Socket<Buffer>,
     ) -> Result<(), super::error::socket::Error<Socket1, Socket2, Dns>> {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -506,11 +503,9 @@ where
                 }
 
                 match socket.status {
-                    crate::socket::Status::NotConnected => {
-                        Err(super::error::socket::Error::closed())
-                    }
-                    crate::socket::Status::Connecting | crate::socket::Status::Connected => {
-                        socket.status = crate::socket::Status::NotConnected;
+                    socket::Status::NotConnected => Err(super::error::socket::Error::closed()),
+                    socket::Status::Connecting | socket::Status::Connected => {
+                        socket.status = socket::Status::NotConnected;
                         if INDEX == 0 {
                             self.queue.set_socket_1_close();
                         } else {
@@ -518,9 +513,9 @@ where
                         }
                         Ok(())
                     }
-                    crate::socket::Status::FailedToConnect => Err(todo!()),
-                    crate::socket::Status::ConnectionLost => Err(todo!()),
-                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => Err(todo!()),
+                    socket::Status::ConnectionLost => Err(todo!()),
+                    socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
         }
@@ -534,7 +529,7 @@ where
         socket: &mut Socket<Buffer>,
     ) -> Result<usize, super::error::socket_io::Error<Buffer::ReadError, Socket1, Socket2, Dns>>
     where
-        Buffer: crate::socket::Buffer,
+        Buffer: socket::Buffer,
     {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -561,13 +556,13 @@ where
                 }
 
                 match socket.status {
-                    crate::socket::Status::NotConnected => {
+                    socket::Status::NotConnected => {
                         Err(super::error::socket::Error::closed().into())
                     }
-                    crate::socket::Status::Connecting => {
+                    socket::Status::Connecting => {
                         Err(super::error::socket::Error::superseded().into())
                     }
-                    crate::socket::Status::Connected => {
+                    socket::Status::Connected => {
                         let read_amount = socket
                             .read(buf)
                             .map_err(super::error::socket_io::Error::io)?;
@@ -583,9 +578,9 @@ where
                         }
                         Ok(read_amount)
                     }
-                    crate::socket::Status::FailedToConnect => Err(todo!()),
-                    crate::socket::Status::ConnectionLost => Err(todo!()),
-                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => Err(todo!()),
+                    socket::Status::ConnectionLost => Err(todo!()),
+                    socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
         }
@@ -599,7 +594,7 @@ where
         socket: &mut Socket<Buffer>,
     ) -> Result<usize, super::error::socket::Error<Socket1, Socket2, Dns>>
     where
-        Buffer: crate::socket::Buffer,
+        Buffer: socket::Buffer,
     {
         if self.state.connection_generation != connection_generation {
             return Err(super::error::connection::Error::superseded().into());
@@ -626,13 +621,13 @@ where
                 }
 
                 match socket.status {
-                    crate::socket::Status::NotConnected => {
+                    socket::Status::NotConnected => {
                         Err(super::error::socket::Error::closed().into())
                     }
-                    crate::socket::Status::Connecting => {
+                    socket::Status::Connecting => {
                         Err(super::error::socket::Error::superseded().into())
                     }
-                    crate::socket::Status::Connected => {
+                    socket::Status::Connected => {
                         if INDEX == 0 {
                             self.queue.set_socket_1_transfer();
                         } else {
@@ -642,9 +637,9 @@ where
                         socket.frame = u8::MAX;
                         Ok(socket.write(buf))
                     }
-                    crate::socket::Status::FailedToConnect => Err(todo!()),
-                    crate::socket::Status::ConnectionLost => Err(todo!()),
-                    crate::socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => Err(todo!()),
+                    socket::Status::ConnectionLost => Err(todo!()),
+                    socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
         }

@@ -395,7 +395,7 @@ where
             State::Active(active) => active.open_socket::<_, 0>(
                 connection_generation,
                 socket_addr,
-                active::socket::Protocol::Tcp,
+                socket::Protocol::Tcp,
                 &mut self.socket_1,
             ),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
@@ -417,7 +417,7 @@ where
             State::Active(active) => active.open_socket::<_, 0>(
                 connection_generation,
                 socket_addr,
-                active::socket::Protocol::Udp,
+                socket::Protocol::Udp,
                 &mut self.socket_1,
             ),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
@@ -574,7 +574,7 @@ where
             State::Active(active) => active.open_socket::<_, 1>(
                 connection_generation,
                 socket_addr,
-                active::socket::Protocol::Tcp,
+                socket::Protocol::Tcp,
                 &mut self.socket_2,
             ),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
@@ -596,7 +596,7 @@ where
             State::Active(active) => active.open_socket::<_, 1>(
                 connection_generation,
                 socket_addr,
-                active::socket::Protocol::Udp,
+                socket::Protocol::Udp,
                 &mut self.socket_2,
             ),
             State::Error(error) => Err(error::link::Error::from(error.clone()).into()),

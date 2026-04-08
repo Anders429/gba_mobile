@@ -5,10 +5,10 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::{
-    super::{ConnectionFailure, ConnectionRequest, Phase, socket},
+    super::{ConnectionFailure, ConnectionRequest, Phase},
     request::{Packet, packet::payload},
 };
-use crate::{Adapter, ArrayVec, Digit, Generation, Timer, mmio::serial::TransferLength};
+use crate::{Adapter, ArrayVec, Digit, Generation, Timer, mmio::serial::TransferLength, socket};
 use core::net::Ipv4Addr;
 use either::Either;
 

@@ -94,7 +94,7 @@ impl<const INDEX: usize> OpenTcp<INDEX> {
                             socket.frame = 0;
                             if let Some((socket_status, socket_protocol)) = socket_info {
                                 *socket_status = socket::Status::Connected;
-                                *socket_protocol = super::super::socket::Protocol::Tcp;
+                                *socket_protocol = socket::Protocol::Tcp;
                             }
                         }
                         payload::open_tcp::ReceiveParsed::NotConnected => {

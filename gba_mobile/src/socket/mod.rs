@@ -32,6 +32,12 @@ impl Display for Id {
 }
 
 #[derive(Debug)]
+pub(crate) enum Protocol {
+    Tcp,
+    Udp,
+}
+
+#[derive(Debug)]
 pub(crate) enum Status {
     NotConnected,
     Connecting,

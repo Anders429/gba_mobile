@@ -171,14 +171,14 @@ where
                     socket_requests[0]
                         .take()
                         .map(|(socket_addr, protocol)| match protocol {
-                            super::super::socket::Protocol::Tcp => Flow::open_tcp_1(
+                            socket::Protocol::Tcp => Flow::open_tcp_1(
                                 state.transfer_length,
                                 timer,
                                 socket_addr,
                                 state.connection_generation,
                                 socket_generations[0],
                             ),
-                            super::super::socket::Protocol::Udp => Flow::open_udp_1(
+                            socket::Protocol::Udp => Flow::open_udp_1(
                                 state.transfer_length,
                                 timer,
                                 socket_addr,
@@ -197,10 +197,10 @@ where
                 } = &mut state.phase
                 {
                     Some(match socket_protocols[0] {
-                        super::super::socket::Protocol::Tcp => {
+                        socket::Protocol::Tcp => {
                             Flow::close_tcp_1(state.transfer_length, timer, socket_1.id)
                         }
-                        super::super::socket::Protocol::Udp => {
+                        socket::Protocol::Udp => {
                             Flow::close_udp_1(state.transfer_length, timer, socket_1.id)
                         }
                     })
@@ -254,14 +254,14 @@ where
                     socket_requests[1]
                         .take()
                         .map(|(socket_addr, protocol)| match protocol {
-                            super::super::socket::Protocol::Tcp => Flow::open_tcp_2(
+                            socket::Protocol::Tcp => Flow::open_tcp_2(
                                 state.transfer_length,
                                 timer,
                                 socket_addr,
                                 state.connection_generation,
                                 socket_generations[1],
                             ),
-                            super::super::socket::Protocol::Udp => Flow::open_udp_2(
+                            socket::Protocol::Udp => Flow::open_udp_2(
                                 state.transfer_length,
                                 timer,
                                 socket_addr,
@@ -280,10 +280,10 @@ where
                 } = &mut state.phase
                 {
                     Some(match socket_protocols[1] {
-                        super::super::socket::Protocol::Tcp => {
+                        socket::Protocol::Tcp => {
                             Flow::close_tcp_2(state.transfer_length, timer, socket_2.id)
                         }
-                        super::super::socket::Protocol::Udp => {
+                        socket::Protocol::Udp => {
                             Flow::close_udp_2(state.transfer_length, timer, socket_2.id)
                         }
                     })
