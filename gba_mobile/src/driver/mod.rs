@@ -580,4 +580,13 @@ where
     ) -> Result<Generation, error::connection::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
         self.active.dns(connection_generation, name, self.dns)
     }
+
+    pub(crate) fn cancel_dns(
+        self,
+        connection_generation: Generation,
+        dns_generation: Generation,
+    ) -> Result<(), error::dns::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
+        self.active
+            .cancel_dns(connection_generation, dns_generation, self.dns)
+    }
 }

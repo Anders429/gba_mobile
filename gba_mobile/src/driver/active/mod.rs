@@ -826,7 +826,43 @@ where
                     dns::State::Request(_) => Ok(None),
                     dns::State::Success(ip) => Ok(Some(ip)),
                     dns::State::NotFound => Err(super::error::dns::Error::not_found()),
+                    dns::State::Canceled => Err(super::error::dns::Error::canceled()),
                 }
+            }
+        }
+    }
+
+    pub(crate) fn cancel_dns<const MAX_LEN: usize>(
+        &mut self,
+        connection_generation: Generation,
+        dns_generation: Generation,
+        dns: &mut crate::Dns<MAX_LEN>,
+    ) -> Result<(), super::error::dns::Error<Socket1, Socket2, Dns>> {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &mut self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn { .. } => {
+                if dns.generation != dns_generation {
+                    return Err(super::error::dns::Error::superseded());
+                }
+
+                dns.state = dns::State::Canceled;
+                self.queue.clear_dns();
+                Ok(())
             }
         }
     }

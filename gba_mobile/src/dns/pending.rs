@@ -46,7 +46,10 @@ where
         state: Self::State,
         driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>>,
     ) -> Result<(), Self::Error> {
-        todo!("cancel the DNS request")
+        driver
+            .as_active_mut(state.link_generation)?
+            .cancel_dns(state.connection_generation, state.dns_generation)
+            .map_err(Into::into)
     }
 }
 

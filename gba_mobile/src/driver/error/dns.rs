@@ -31,6 +31,12 @@ where
             kind: Kind::NotFound,
         }
     }
+
+    pub(in crate::driver) fn canceled() -> Self {
+        Self {
+            kind: Kind::Canceled,
+        }
+    }
 }
 
 impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
@@ -115,6 +121,7 @@ where
 {
     Superseded,
     NotFound,
+    Canceled,
     Connection(connection::Error<Socket1, Socket2, Dns>),
 }
 
@@ -128,6 +135,7 @@ where
         match self {
             Self::Superseded => formatter.write_str("Superseded"),
             Self::NotFound => formatter.write_str("NotFound"),
+            Self::Canceled => formatter.write_str("Canceled"),
             Self::Connection(error) => formatter.debug_tuple("Connection").field(error).finish(),
         }
     }
@@ -143,6 +151,7 @@ where
         match self {
             Self::Superseded => formatter.write_str("the DNS request was superseded"),
             Self::NotFound => formatter.write_str("domain lookup failed"),
+            Self::Canceled => formatter.write_str("the DNS request was canceled"),
             Self::Connection(_) => formatter.write_str("connection error"),
         }
     }
@@ -158,6 +167,7 @@ where
         match self {
             Self::Superseded => None,
             Self::NotFound => None,
+            Self::Canceled => None,
             Self::Connection(error) => Some(error),
         }
     }

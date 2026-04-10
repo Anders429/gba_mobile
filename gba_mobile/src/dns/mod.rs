@@ -47,6 +47,7 @@ pub(crate) enum State<const MAX_LEN: usize> {
     Request(ArrayVec<u8, MAX_LEN>),
     Success(Ipv4Addr),
     NotFound,
+    Canceled,
 }
 
 #[derive(Debug)]

@@ -145,6 +145,10 @@ where
         self.set(Self::IDLE);
     }
 
+    pub(super) fn clear_dns(&mut self) {
+        self.clear(Self::DNS);
+    }
+
     pub(super) fn next_flow(
         &mut self,
         state: &mut State,
