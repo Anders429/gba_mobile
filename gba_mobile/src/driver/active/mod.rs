@@ -464,8 +464,12 @@ where
                     socket::Status::NotConnected => Err(super::error::socket::Error::closed()),
                     socket::Status::Connecting => Ok(false),
                     socket::Status::Connected => Ok(true),
-                    socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => {
+                        Err(super::error::socket::Error::failed_to_connect())
+                    }
+                    socket::Status::ClosedRemotely => {
+                        Err(super::error::socket::Error::closed_remotely())
+                    }
                 }
             }
         }
@@ -512,8 +516,12 @@ where
                         }
                         Ok(())
                     }
-                    socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => {
+                        Err(super::error::socket::Error::failed_to_connect())
+                    }
+                    socket::Status::ClosedRemotely => {
+                        Err(super::error::socket::Error::closed_remotely())
+                    }
                 }
             }
         }
@@ -576,8 +584,12 @@ where
                         }
                         Ok(read_amount)
                     }
-                    socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => {
+                        Err(super::error::socket::Error::failed_to_connect().into())
+                    }
+                    socket::Status::ClosedRemotely => {
+                        Err(super::error::socket::Error::closed_remotely().into())
+                    }
                 }
             }
         }
@@ -634,8 +646,12 @@ where
                         socket.frame = u8::MAX;
                         Ok(socket.write(buf))
                     }
-                    socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ClosedRemotely => Err(todo!()),
+                    socket::Status::FailedToConnect => {
+                        Err(super::error::socket::Error::failed_to_connect().into())
+                    }
+                    socket::Status::ClosedRemotely => {
+                        Err(super::error::socket::Error::closed_remotely().into())
+                    }
                 }
             }
         }

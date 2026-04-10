@@ -29,6 +29,18 @@ where
             kind: Kind::Superseded,
         }
     }
+
+    pub(in crate::driver) fn failed_to_connect() -> Self {
+        Self {
+            kind: Kind::FailedToConnect,
+        }
+    }
+
+    pub(in crate::driver) fn closed_remotely() -> Self {
+        Self {
+            kind: Kind::ClosedRemotely,
+        }
+    }
 }
 
 impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
@@ -113,6 +125,8 @@ where
 {
     Closed,
     Superseded,
+    FailedToConnect,
+    ClosedRemotely,
     Connection(connection::Error<Socket1, Socket2, Dns>),
 }
 
@@ -126,6 +140,8 @@ where
         match self {
             Self::Closed => formatter.write_str("Closed"),
             Self::Superseded => formatter.write_str("Superseded"),
+            Self::FailedToConnect => formatter.write_str("FailedToConnect"),
+            Self::ClosedRemotely => formatter.write_str("ClosedRemotely"),
             Self::Connection(error) => formatter.debug_tuple("Connection").field(error).finish(),
         }
     }
@@ -141,6 +157,10 @@ where
         match self {
             Self::Closed => formatter.write_str("the socket was closed"),
             Self::Superseded => formatter.write_str("the socket connection was superseded"),
+            Self::FailedToConnect => {
+                formatter.write_str("the socket connection could not be established")
+            }
+            Self::ClosedRemotely => formatter.write_str("the socket was closed by the remote host"),
             Self::Connection(_) => formatter.write_str("connection error"),
         }
     }
@@ -156,6 +176,8 @@ where
         match self {
             Self::Closed => None,
             Self::Superseded => None,
+            Self::FailedToConnect => None,
+            Self::ClosedRemotely => None,
             Self::Connection(error) => Some(error),
         }
     }
