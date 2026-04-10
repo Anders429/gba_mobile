@@ -31,4 +31,15 @@ where
             })
             .map_err(Into::into)
     }
+
+    /// Cancel this pending connection.
+    pub fn cancel(
+        &self,
+        driver: &mut Driver<Socket1, Socket2, Dns>,
+    ) -> Result<(), Error<Socket1, Socket2, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .disconnect(self.connection_generation)
+            .map_err(Into::into)
+    }
 }

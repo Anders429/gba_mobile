@@ -36,6 +36,17 @@ where
             })
             .map_err(Into::into)
     }
+
+    /// Cancel this pending connection.
+    pub fn cancel(
+        &self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<(), error::P2p<Socket<Buffer>, Socket2, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .disconnect(self.connection_generation)
+            .map_err(Into::into)
+    }
 }
 
 impl<Buffer, Socket2, Dns> Pending<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
@@ -64,6 +75,17 @@ where
             })
             .map_err(Into::into)
     }
+
+    /// Cancel this pending connection.
+    pub fn cancel(
+        &self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<(), error::Socket<Socket<Buffer>, Socket2, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .close_socket_1(self.connection_generation, self.socket.0)
+            .map_err(Into::into)
+    }
 }
 
 impl<Socket1, Buffer, Dns> Pending<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
@@ -90,6 +112,17 @@ where
                     driver: PhantomData,
                 })
             })
+            .map_err(Into::into)
+    }
+
+    /// Cancel this pending connection.
+    pub fn cancel(
+        &self,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
+    ) -> Result<(), error::Socket<Socket1, Socket<Buffer>, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .close_socket_2(self.connection_generation, self.socket.0)
             .map_err(Into::into)
     }
 }
