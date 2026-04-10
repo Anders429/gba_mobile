@@ -165,7 +165,7 @@ pub fn main() {
 
         let status = with_driver(|driver| pending_link.status(driver));
 
-        if let Ok(None) = status {
+        if let None = status {
             continue;
         }
         break status;
@@ -173,7 +173,7 @@ pub fn main() {
 
     log::info!("link connection status: {status:?}");
 
-    if let Ok(Some(link)) = status {
+    if let Some(Ok(link)) = status {
         log::info!(
             "connected to {} adapter",
             with_driver(|driver| link.adapter(driver)).expect("unable to check adapter")
@@ -222,23 +222,23 @@ pub fn main() {
 
             let status = with_driver(|driver| pending_ppp.status(driver));
 
-            if let Ok(None) = status {
+            if let None = status {
                 continue;
             }
             break status;
         };
         log::info!("ppp connection status: {ppp_status:?}");
 
-        if let Ok(Some(ppp)) = ppp_status {
+        if let Some(Ok(ppp)) = ppp_status {
             let pending_dns = with_driver(|driver| ppp.dns(driver, "www.google.com"))
                 .expect("DNS request failed");
             let dns_result = loop {
                 VBlankIntrWait();
 
-                let status = with_driver(|driver| pending_dns.status(driver)).expect("DNS failure");
+                let status = with_driver(|driver| pending_dns.status(driver));
 
                 if let Some(result) = status {
-                    break result;
+                    break result.expect("DNS failure");
                 }
             };
 
@@ -250,14 +250,14 @@ pub fn main() {
 
                 let status = with_driver(|driver| pending_tcp.status(driver));
 
-                if let Ok(None) = status {
+                if let None = status {
                     continue;
                 }
                 break status;
             };
             log::info!("tcp connection status: {tcp_status:?}");
 
-            if let Ok(Some(mut tcp)) = tcp_status {
+            if let Some(Ok(mut tcp)) = tcp_status {
                 const REQUEST: &'static [u8] = b"GET / HTTP/1.1\r\nHost: google.com\r\n\r\n";
                 let mut request = REQUEST;
                 loop {
@@ -325,7 +325,7 @@ pub fn main() {
 
             let status = with_driver(|driver| pending_p2p.status(driver));
 
-            if let Ok(None) = status {
+            if let None = status {
                 continue;
             }
             break status;

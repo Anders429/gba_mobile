@@ -2,8 +2,6 @@ pub mod error;
 
 mod pending;
 
-pub use pending::Pending;
-
 use crate::{Driver, Generation, Socket, dns, socket};
 use core::marker::PhantomData;
 
@@ -18,10 +16,10 @@ pub struct Socket2(pub(crate) Generation);
 
 #[derive(Debug)]
 pub struct Connection<Driver, Socket> {
-    link_generation: Generation,
-    connection_generation: Generation,
-    socket: Socket,
-    driver: PhantomData<Driver>,
+    pub(crate) link_generation: Generation,
+    pub(crate) connection_generation: Generation,
+    pub(crate) socket: Socket,
+    pub(crate) driver: PhantomData<Driver>,
 }
 
 impl<Buffer, Socket2, Dns> Connection<Driver<Socket<Buffer>, Socket2, Dns>, P2p>

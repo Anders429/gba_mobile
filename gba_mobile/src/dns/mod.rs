@@ -3,8 +3,9 @@ mod pending;
 mod to_name;
 
 pub use error::Error;
-pub use pending::Pending;
 pub use to_name::ToName;
+
+pub(crate) use pending::Pending;
 
 use crate::{
     ArrayVec, Generation,

@@ -13,6 +13,7 @@ pub mod digit;
 pub mod dns;
 pub mod internet;
 pub mod link;
+pub mod pending;
 pub mod socket;
 
 mod arrayvec;
@@ -22,10 +23,13 @@ mod mmio;
 mod timer;
 
 pub use config::Config;
+pub use connection::Connection;
 pub use digit::Digit;
 pub use dns::Dns;
 pub use driver::{Adapter, Driver};
+pub use internet::Internet;
 pub use link::Link;
+pub use pending::Pending;
 pub use socket::Socket;
 pub use timer::Timer;
 
