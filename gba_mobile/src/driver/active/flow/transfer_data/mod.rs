@@ -4,13 +4,11 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::request::{Packet, packet::payload};
-use crate::{
-    ArrayVec, Socket, Timer,
-    driver::{Adapter, active::flow::request::RepeatingIdle},
-    mmio::serial::TransferLength,
-    socket,
+use super::{
+    super::{ConnectionFailure, Phase},
+    request::{Packet, RepeatingIdle, packet::payload},
 };
+use crate::{ArrayVec, Socket, Timer, driver::Adapter, mmio::serial::TransferLength, socket};
 use either::Either;
 
 #[derive(Debug)]
@@ -57,6 +55,7 @@ impl TransferData {
         timer: Timer,
         adapter: &mut Adapter,
         transfer_length: TransferLength,
+        phase: &mut Phase,
         socket: &mut Socket<Buffer>,
     ) -> Result<Option<Self>, Error<Buffer::WriteError>>
     where
@@ -100,7 +99,17 @@ impl TransferData {
                                     }
                                 }
                                 payload::transfer_data::Response::ConnectionFailed => {
-                                    socket.status = socket::Status::ConnectionLost;
+                                    if matches!(phase, Phase::Connected(_) | Phase::LoggedIn { .. })
+                                    {
+                                        // If we are currently connected, this response indicates
+                                        // that the connection has been terminated for some reason.
+                                        *phase = Phase::Linked {
+                                            frame: 0,
+                                            connection_failure: Some(
+                                                ConnectionFailure::LostConnection,
+                                            ),
+                                        };
+                                    }
                                     Ok(None)
                                 }
                             }

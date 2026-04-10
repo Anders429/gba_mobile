@@ -266,7 +266,13 @@ where
                 .map(|flow| flow.map(Self::CloseUdp))
                 .map_err(error::Socket::CloseUdp),
             Self::TransferData(transfer_data) => transfer_data
-                .serial(timer, &mut state.adapter, state.transfer_length, socket)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    state.transfer_length,
+                    &mut state.phase,
+                    socket,
+                )
                 .map(|flow| flow.map(Self::TransferData))
                 .map_err(error::Socket::TransferData),
         }

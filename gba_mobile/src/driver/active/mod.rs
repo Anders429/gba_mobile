@@ -465,7 +465,6 @@ where
                     socket::Status::Connecting => Ok(false),
                     socket::Status::Connected => Ok(true),
                     socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ConnectionLost => Err(todo!()),
                     socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
@@ -514,7 +513,6 @@ where
                         Ok(())
                     }
                     socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ConnectionLost => Err(todo!()),
                     socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
@@ -579,7 +577,6 @@ where
                         Ok(read_amount)
                     }
                     socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ConnectionLost => Err(todo!()),
                     socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
@@ -638,7 +635,6 @@ where
                         Ok(socket.write(buf))
                     }
                     socket::Status::FailedToConnect => Err(todo!()),
-                    socket::Status::ConnectionLost => Err(todo!()),
                     socket::Status::ClosedRemotely => Err(todo!()),
                 }
             }
