@@ -20,7 +20,8 @@ where
         driver: &mut Driver<Socket1, Socket2, Dns>,
     ) -> Result<Option<Internet<Driver<Socket1, Socket2, Dns>>>, Error<Socket1, Socket2, Dns>> {
         driver
-            .connection_status(self.link_generation, self.connection_generation)
+            .as_active(self.link_generation)?
+            .connection_status(self.connection_generation)
             .map(|finished| {
                 finished.then(|| Internet {
                     link_generation: self.link_generation,

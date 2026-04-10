@@ -115,184 +115,47 @@ where
         self.link_generation
     }
 
-    pub(crate) fn link_status(
-        &self,
+    pub(crate) fn as_active<'a>(
+        &'a self,
         link_generation: Generation,
-    ) -> Result<bool, error::link::Error<Socket1, Socket2, Dns>> {
-        if link_generation != self.link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => active.link_status(),
-            State::Error(error) => Err(error.clone().into()),
-        }
-    }
-
-    pub(crate) fn close_link(
-        &mut self,
-        link_generation: Generation,
-    ) -> Result<(), error::link::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => active.close_link(),
-            State::Error(error) => Err(error.clone().into()),
-        }
-    }
-
-    pub(crate) fn login(
-        &mut self,
-        link_generation: Generation,
-        phone_number: ArrayVec<Digit, 32>,
-        id: ArrayVec<u8, 32>,
-        password: ArrayVec<u8, 32>,
-        primary_dns: Ipv4Addr,
-        secondary_dns: Ipv4Addr,
-    ) -> Result<Generation, error::link::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => {
-                active.login(phone_number, id, password, primary_dns, secondary_dns)
-            }
-            State::Error(error) => Err(error.clone().into()),
-        }
-    }
-
-    pub(crate) fn connection_status(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-    ) -> Result<bool, error::connection::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.connection_status(connection_generation),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn disconnect(
-        &mut self,
-        link_generation: Generation,
-        connection_generation: Generation,
-    ) -> Result<(), error::connection::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.disconnect(connection_generation),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn adapter(
-        &self,
-        link_generation: Generation,
-    ) -> Result<Adapter, error::link::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.adapter(),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn ip(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.ip(connection_generation),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn primary_dns(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.primary_dns(connection_generation),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn secondary_dns(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.secondary_dns(connection_generation),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn config(
-        &self,
-        link_generation: Generation,
-    ) -> Result<&[u8; 256], error::link::Error<Socket1, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.config(),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn write_config<Config>(
-        &mut self,
-        link_generation: Generation,
-        config: Config,
-    ) -> Result<(), error::link::Error<Socket1, Socket2, Dns>>
-    where
-        Config: self::Config,
+    ) -> Result<ActiveDriver<'a, Socket1, Socket2, Dns>, error::link::Error<Socket1, Socket2, Dns>>
     {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
+        if link_generation == self.link_generation {
+            match &self.state {
+                State::Inactive => Err(error::link::Error::closed()),
+                State::Active(active) => Ok(ActiveDriver {
+                    socket_1: &self.socket_1,
+                    socket_2: &self.socket_2,
+                    dns: &self.dns,
 
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.write_config(config),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
+                    active,
+                }),
+                State::Error(error) => Err(error.clone().into()),
+            }
+        } else {
+            Err(error::link::Error::superseded())
+        }
+    }
+
+    pub(crate) fn as_active_mut<'a>(
+        &'a mut self,
+        link_generation: Generation,
+    ) -> Result<ActiveDriverMut<'a, Socket1, Socket2, Dns>, error::link::Error<Socket1, Socket2, Dns>>
+    {
+        if link_generation == self.link_generation {
+            match &mut self.state {
+                State::Inactive => Err(error::link::Error::closed()),
+                State::Active(active) => Ok(ActiveDriverMut {
+                    socket_1: &mut self.socket_1,
+                    socket_2: &mut self.socket_2,
+                    dns: &mut self.dns,
+
+                    active,
+                }),
+                State::Error(error) => Err(error.clone().into()),
+            }
+        } else {
+            Err(error::link::Error::superseded())
         }
     }
 
@@ -343,394 +206,352 @@ where
     }
 }
 
-impl<Buffer, Socket2, Dns> Driver<Socket<Buffer>, Socket2, Dns>
+#[derive(Debug)]
+pub(crate) struct ActiveDriver<'a, Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    socket_1: &'a Socket1,
+    socket_2: &'a Socket2,
+    dns: &'a Dns,
+
+    active: &'a Active<Socket1, Socket2, Dns>,
+}
+
+impl<'a, Socket1, Socket2, Dns> ActiveDriver<'a, Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    pub(crate) fn link_status(self) -> Result<bool, error::link::Error<Socket1, Socket2, Dns>> {
+        self.active.link_status()
+    }
+
+    pub(crate) fn connection_status(
+        self,
+        connection_generation: Generation,
+    ) -> Result<bool, error::connection::Error<Socket1, Socket2, Dns>> {
+        self.active.connection_status(connection_generation)
+    }
+
+    pub(crate) fn adapter(self) -> Result<Adapter, error::link::Error<Socket1, Socket2, Dns>> {
+        self.active.adapter()
+    }
+
+    pub(crate) fn ip(
+        self,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
+        self.active.ip(connection_generation)
+    }
+
+    pub(crate) fn primary_dns(
+        self,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
+        self.active.primary_dns(connection_generation)
+    }
+
+    pub(crate) fn secondary_dns(
+        self,
+        connection_generation: Generation,
+    ) -> Result<Ipv4Addr, error::connection::Error<Socket1, Socket2, Dns>> {
+        self.active.secondary_dns(connection_generation)
+    }
+
+    pub(crate) fn config(self) -> Result<&'a [u8; 256], error::link::Error<Socket1, Socket2, Dns>> {
+        self.active.config()
+    }
+}
+
+impl<'a, Buffer, Socket2, Dns> ActiveDriver<'a, Socket<Buffer>, Socket2, Dns>
+where
+    Buffer: socket::Buffer,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    pub(crate) fn socket_1_status(
+        self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<bool, error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
+        self.active
+            .socket_status::<_, 0>(connection_generation, socket_generation, self.socket_1)
+    }
+}
+
+impl<'a, Buffer, Socket1, Dns> ActiveDriver<'a, Socket1, Socket<Buffer>, Dns>
+where
+    Buffer: socket::Buffer,
+    Socket1: socket::Slot,
+    Dns: dns::Mode,
+{
+    pub(crate) fn socket_2_status(
+        self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<bool, error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
+        self.active
+            .socket_status::<_, 1>(connection_generation, socket_generation, &self.socket_2)
+    }
+}
+
+impl<'a, Socket1, Socket2, const MAX_LEN: usize> ActiveDriver<'a, Socket1, Socket2, Dns<MAX_LEN>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
+    pub(crate) fn dns_status(
+        self,
+        connection_generation: Generation,
+        dns_generation: Generation,
+    ) -> Result<Option<Ipv4Addr>, error::dns::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
+        self.active
+            .dns_status(connection_generation, dns_generation, &self.dns)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ActiveDriverMut<'a, Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    socket_1: &'a mut Socket1,
+    socket_2: &'a mut Socket2,
+    dns: &'a mut Dns,
+
+    active: &'a mut Active<Socket1, Socket2, Dns>,
+}
+
+impl<'a, Socket1, Socket2, Dns> ActiveDriverMut<'a, Socket1, Socket2, Dns>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+    pub(crate) fn close_link(self) -> Result<(), error::link::Error<Socket1, Socket2, Dns>> {
+        self.active.close_link()
+    }
+
+    pub(crate) fn login(
+        &mut self,
+        phone_number: ArrayVec<Digit, 32>,
+        id: ArrayVec<u8, 32>,
+        password: ArrayVec<u8, 32>,
+        primary_dns: Ipv4Addr,
+        secondary_dns: Ipv4Addr,
+    ) -> Result<Generation, error::link::Error<Socket1, Socket2, Dns>> {
+        self.active
+            .login(phone_number, id, password, primary_dns, secondary_dns)
+    }
+
+    pub(crate) fn disconnect(
+        self,
+        connection_generation: Generation,
+    ) -> Result<(), error::connection::Error<Socket1, Socket2, Dns>> {
+        self.active.disconnect(connection_generation)
+    }
+
+    pub(crate) fn write_config<Config>(
+        &mut self,
+        config: Config,
+    ) -> Result<(), error::link::Error<Socket1, Socket2, Dns>>
+    where
+        Config: self::Config,
+    {
+        self.active.write_config(config)
+    }
+}
+
+impl<'a, Buffer, Socket2, Dns> ActiveDriverMut<'a, Socket<Buffer>, Socket2, Dns>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
 {
     pub(crate) fn accept(
-        &mut self,
-        link_generation: Generation,
+        self,
     ) -> Result<Generation, error::link::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => active.accept(),
-            State::Error(error) => Err(error.clone().into()),
-        }
+        self.active.accept()
     }
 
     pub(crate) fn connect(
-        &mut self,
-        link_generation: Generation,
+        self,
         phone_number: ArrayVec<Digit, 32>,
     ) -> Result<Generation, error::link::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed()),
-            State::Active(active) => active.connect(phone_number),
-            State::Error(error) => Err(error.clone().into()),
-        }
+        self.active.connect(phone_number)
     }
 
     pub(crate) fn open_tcp_1(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_socket::<_, 0>(
-                connection_generation,
-                socket_addr,
-                socket::Protocol::Tcp,
-                &mut self.socket_1,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.open_socket::<_, 0>(
+            connection_generation,
+            socket_addr,
+            socket::Protocol::Tcp,
+            self.socket_1,
+        )
     }
 
     pub(crate) fn open_udp_1(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_socket::<_, 0>(
-                connection_generation,
-                socket_addr,
-                socket::Protocol::Udp,
-                &mut self.socket_1,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn socket_1_status(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-        socket_generation: Generation,
-    ) -> Result<bool, error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.socket_status::<_, 0>(
-                connection_generation,
-                socket_generation,
-                &self.socket_1,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.open_socket::<_, 0>(
+            connection_generation,
+            socket_addr,
+            socket::Protocol::Udp,
+            self.socket_1,
+        )
     }
 
     pub(crate) fn close_socket_1(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Result<(), error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.close_socket::<_, 0>(
-                connection_generation,
-                socket_generation,
-                &mut self.socket_1,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active
+            .close_socket::<_, 0>(connection_generation, socket_generation, self.socket_1)
     }
 
     pub(crate) fn connection_read(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         buf: &mut [u8],
     ) -> Result<usize, error::connection_io::Error<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>>
     {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => {
-                active.connection_read(connection_generation, buf, &mut self.socket_1)
-            }
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active
+            .connection_read(connection_generation, buf, self.socket_1)
     }
 
     pub(crate) fn connection_write(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         buf: &[u8],
     ) -> Result<usize, error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => {
-                active.connection_write(connection_generation, buf, &mut self.socket_1)
-            }
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active
+            .connection_write(connection_generation, buf, self.socket_1)
     }
 
     pub(crate) fn socket_1_read(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &mut [u8],
     ) -> Result<usize, error::socket_io::Error<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>>
     {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.socket_read::<_, 0>(
-                connection_generation,
-                socket_generation,
-                buf,
-                &mut self.socket_1,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.socket_read::<_, 0>(
+            connection_generation,
+            socket_generation,
+            buf,
+            self.socket_1,
+        )
     }
 
     pub(crate) fn socket_1_write(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &[u8],
     ) -> Result<usize, error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.socket_write::<_, 0>(
-                connection_generation,
-                socket_generation,
-                buf,
-                &mut self.socket_1,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.socket_write::<_, 0>(
+            connection_generation,
+            socket_generation,
+            buf,
+            self.socket_1,
+        )
     }
 }
 
-impl<Buffer, Socket1, Dns> Driver<Socket1, Socket<Buffer>, Dns>
+impl<'a, Buffer, Socket1, Dns> ActiveDriverMut<'a, Socket1, Socket<Buffer>, Dns>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
     Dns: dns::Mode,
 {
     pub(crate) fn open_tcp_2(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error<Socket1, Socket<Buffer>, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_socket::<_, 1>(
-                connection_generation,
-                socket_addr,
-                socket::Protocol::Tcp,
-                &mut self.socket_2,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.open_socket::<_, 1>(
+            connection_generation,
+            socket_addr,
+            socket::Protocol::Tcp,
+            self.socket_2,
+        )
     }
 
     pub(crate) fn open_udp_2(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_addr: SocketAddrV4,
     ) -> Result<Generation, error::connection::Error<Socket1, Socket<Buffer>, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.open_socket::<_, 1>(
-                connection_generation,
-                socket_addr,
-                socket::Protocol::Udp,
-                &mut self.socket_2,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn socket_2_status(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-        socket_generation: Generation,
-    ) -> Result<bool, error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.socket_status::<_, 1>(
-                connection_generation,
-                socket_generation,
-                &self.socket_2,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.open_socket::<_, 1>(
+            connection_generation,
+            socket_addr,
+            socket::Protocol::Udp,
+            self.socket_2,
+        )
     }
 
     pub(crate) fn close_socket_2(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_generation: Generation,
     ) -> Result<(), error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.close_socket::<_, 1>(
-                connection_generation,
-                socket_generation,
-                &mut self.socket_2,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active
+            .close_socket::<_, 1>(connection_generation, socket_generation, self.socket_2)
     }
 
     pub(crate) fn socket_2_read(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &mut [u8],
     ) -> Result<usize, error::socket_io::Error<Buffer::ReadError, Socket1, Socket<Buffer>, Dns>>
     {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.socket_read::<_, 1>(
-                connection_generation,
-                socket_generation,
-                buf,
-                &mut self.socket_2,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.socket_read::<_, 1>(
+            connection_generation,
+            socket_generation,
+            buf,
+            self.socket_2,
+        )
     }
 
     pub(crate) fn socket_2_write(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         socket_generation: Generation,
         buf: &[u8],
     ) -> Result<usize, error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.socket_write::<_, 1>(
-                connection_generation,
-                socket_generation,
-                buf,
-                &mut self.socket_2,
-            ),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.socket_write::<_, 1>(
+            connection_generation,
+            socket_generation,
+            buf,
+            self.socket_2,
+        )
     }
 }
 
-impl<Socket1, Socket2, const MAX_LEN: usize> Driver<Socket1, Socket2, Dns<MAX_LEN>>
+impl<'a, Socket1, Socket2, const MAX_LEN: usize> ActiveDriverMut<'a, Socket1, Socket2, Dns<MAX_LEN>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
 {
     pub(crate) fn dns(
-        &mut self,
-        link_generation: Generation,
+        self,
         connection_generation: Generation,
         name: ArrayVec<u8, MAX_LEN>,
     ) -> Result<Generation, error::connection::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &mut self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => active.dns(connection_generation, name, &mut self.dns),
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
-    }
-
-    pub(crate) fn dns_status(
-        &self,
-        link_generation: Generation,
-        connection_generation: Generation,
-        dns_generation: Generation,
-    ) -> Result<Option<Ipv4Addr>, error::dns::Error<Socket1, Socket2, Dns<MAX_LEN>>> {
-        if self.link_generation != link_generation {
-            return Err(error::link::Error::superseded().into());
-        }
-
-        match &self.state {
-            State::Inactive => Err(error::link::Error::closed().into()),
-            State::Active(active) => {
-                active.dns_status(connection_generation, dns_generation, &self.dns)
-            }
-            State::Error(error) => Err(error::link::Error::from(error.clone()).into()),
-        }
+        self.active.dns(connection_generation, name, self.dns)
     }
 }

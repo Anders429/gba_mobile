@@ -62,6 +62,20 @@ where
     }
 }
 
+impl<IoError, Socket1, Socket2, Dns> From<driver::error::link::Error<Socket1, Socket2, Dns>>
+    for P2p<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns>) -> Self {
+        Self {
+            internal: error.into(),
+        }
+    }
+}
+
 pub struct Socket<IoError, Socket1, Socket2, Dns>
 where
     Socket1: crate::socket::Slot,
@@ -117,5 +131,19 @@ where
 {
     fn from(error: driver::error::socket_io::Error<IoError, Socket1, Socket2, Dns>) -> Self {
         Self { internal: error }
+    }
+}
+
+impl<IoError, Socket1, Socket2, Dns> From<driver::error::link::Error<Socket1, Socket2, Dns>>
+    for Socket<IoError, Socket1, Socket2, Dns>
+where
+    Socket1: crate::socket::Slot,
+    Socket2: crate::socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns>) -> Self {
+        Self {
+            internal: error.into(),
+        }
     }
 }

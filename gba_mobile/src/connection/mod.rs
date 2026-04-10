@@ -36,7 +36,8 @@ where
         buf: &mut [u8],
     ) -> Result<usize, error::io::P2p<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>> {
         driver
-            .connection_read(self.link_generation, self.connection_generation, buf)
+            .as_active_mut(self.link_generation)?
+            .connection_read(self.connection_generation, buf)
             .map_err(Into::into)
     }
 
@@ -46,7 +47,8 @@ where
         buf: &[u8],
     ) -> Result<usize, error::P2p<Socket<Buffer>, Socket2, Dns>> {
         driver
-            .connection_write(self.link_generation, self.connection_generation, buf)
+            .as_active_mut(self.link_generation)?
+            .connection_write(self.connection_generation, buf)
             .map_err(Into::into)
     }
 
@@ -55,7 +57,8 @@ where
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
     ) -> Result<(), error::P2p<Socket<Buffer>, Socket2, Dns>> {
         driver
-            .disconnect(self.link_generation, self.connection_generation)
+            .as_active_mut(self.link_generation)?
+            .disconnect(self.connection_generation)
             .map_err(Into::into)
     }
 }
@@ -72,12 +75,8 @@ where
         buf: &mut [u8],
     ) -> Result<usize, error::io::Socket<Buffer::ReadError, Socket<Buffer>, Socket2, Dns>> {
         driver
-            .socket_1_read(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-                buf,
-            )
+            .as_active_mut(self.link_generation)?
+            .socket_1_read(self.connection_generation, self.socket.0, buf)
             .map_err(Into::into)
     }
 
@@ -87,12 +86,8 @@ where
         buf: &[u8],
     ) -> Result<usize, error::Socket<Socket<Buffer>, Socket2, Dns>> {
         driver
-            .socket_1_write(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-                buf,
-            )
+            .as_active_mut(self.link_generation)?
+            .socket_1_write(self.connection_generation, self.socket.0, buf)
             .map_err(Into::into)
     }
 
@@ -101,11 +96,8 @@ where
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
     ) -> Result<(), error::Socket<Socket<Buffer>, Socket2, Dns>> {
         driver
-            .close_socket_1(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-            )
+            .as_active_mut(self.link_generation)?
+            .close_socket_1(self.connection_generation, self.socket.0)
             .map_err(Into::into)
     }
 }
@@ -122,12 +114,8 @@ where
         buf: &mut [u8],
     ) -> Result<usize, error::io::Socket<Buffer::ReadError, Socket1, Socket<Buffer>, Dns>> {
         driver
-            .socket_2_read(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-                buf,
-            )
+            .as_active_mut(self.link_generation)?
+            .socket_2_read(self.connection_generation, self.socket.0, buf)
             .map_err(Into::into)
     }
 
@@ -137,12 +125,8 @@ where
         buf: &[u8],
     ) -> Result<usize, error::Socket<Socket1, Socket<Buffer>, Dns>> {
         driver
-            .socket_2_write(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-                buf,
-            )
+            .as_active_mut(self.link_generation)?
+            .socket_2_write(self.connection_generation, self.socket.0, buf)
             .map_err(Into::into)
     }
 
@@ -151,11 +135,8 @@ where
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
     ) -> Result<(), error::Socket<Socket1, Socket<Buffer>, Dns>> {
         driver
-            .close_socket_2(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-            )
+            .as_active_mut(self.link_generation)?
+            .close_socket_2(self.connection_generation, self.socket.0)
             .map_err(Into::into)
     }
 }

@@ -62,6 +62,21 @@ where
     }
 }
 
+impl<Socket1, Socket2, Dns, const MAX_LEN: usize>
+    From<driver::error::link::Error<Socket1, Socket2, Dns>>
+    for Error<Socket1, Socket2, Dns, MAX_LEN>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: crate::dns::Mode,
+{
+    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns>) -> Self {
+        Self {
+            kind: Kind::Connection(error.into()),
+        }
+    }
+}
+
 impl<Socket1, Socket2, Dns, const MAX_LEN: usize> From<arrayvec::error::Capacity<MAX_LEN>>
     for Error<Socket1, Socket2, Dns, MAX_LEN>
 where

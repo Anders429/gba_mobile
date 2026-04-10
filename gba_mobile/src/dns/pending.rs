@@ -20,11 +20,8 @@ where
         driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>>,
     ) -> Result<Option<Ipv4Addr>, Error<Socket1, Socket2, Dns<MAX_LEN>>> {
         driver
-            .dns_status(
-                self.link_generation,
-                self.connection_generation,
-                self.dns_generation,
-            )
+            .as_active(self.link_generation)?
+            .dns_status(self.connection_generation, self.dns_generation)
             .map_err(Into::into)
     }
 }

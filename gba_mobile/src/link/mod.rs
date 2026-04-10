@@ -36,7 +36,10 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket2, Dns>,
     ) -> Result<(), Error<Socket1, Socket2, Dns>> {
-        driver.close_link(self.link_generation).map_err(Into::into)
+        driver
+            .as_active_mut(self.link_generation)?
+            .close_link()
+            .map_err(Into::into)
     }
 
     pub fn login<PhoneNumber, Id, Password>(
@@ -66,14 +69,8 @@ where
                             .map_err(error::login::Error::password)
                             .and_then(|password| {
                                 driver
-                                    .login(
-                                        self.link_generation,
-                                        digits,
-                                        id,
-                                        password,
-                                        primary_dns,
-                                        secondary_dns,
-                                    )
+                                    .as_active_mut(self.link_generation)?
+                                    .login(digits, id, password, primary_dns, secondary_dns)
                                     .map_err(Into::into)
                             })
                     })
@@ -89,7 +86,10 @@ where
         &self,
         driver: &Driver<Socket1, Socket2, Dns>,
     ) -> Result<Adapter, Error<Socket1, Socket2, Dns>> {
-        driver.adapter(self.link_generation).map_err(Into::into)
+        driver
+            .as_active(self.link_generation)?
+            .adapter()
+            .map_err(Into::into)
     }
 
     pub fn config<Config>(
@@ -100,7 +100,8 @@ where
         Config: self::Config,
     {
         driver
-            .config(self.link_generation)
+            .as_active(self.link_generation)?
+            .config()
             .map_err(Into::into)
             .and_then(|bytes| Config::read(bytes).map_err(error::config::Error::config_error))
     }
@@ -114,7 +115,8 @@ where
         Config: self::Config,
     {
         driver
-            .write_config(self.link_generation, config)
+            .as_active_mut(self.link_generation)?
+            .write_config(config)
             .map_err(Into::into)
     }
 }
@@ -133,7 +135,8 @@ where
         Error<Socket<Buffer>, Socket2, Dns>,
     > {
         driver
-            .accept(self.link_generation)
+            .as_active_mut(self.link_generation)?
+            .accept()
             .map(|connection_generation| connection::Pending {
                 link_generation: self.link_generation,
                 connection_generation,
@@ -158,7 +161,8 @@ where
             .map_err(Into::into)
             .and_then(|digits| {
                 driver
-                    .connect(self.link_generation, digits)
+                    .as_active_mut(self.link_generation)?
+                    .connect(digits)
                     .map_err(Into::into)
             })
             .map(|connection_generation| connection::Pending {

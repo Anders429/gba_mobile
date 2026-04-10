@@ -29,7 +29,8 @@ where
         driver: &Driver<Socket1, Socket2, Dns>,
     ) -> Result<Ipv4Addr, Error<Socket1, Socket2, Dns>> {
         driver
-            .ip(self.link_generation, self.connection_generation)
+            .as_active(self.link_generation)?
+            .ip(self.connection_generation)
             .map_err(Into::into)
     }
 
@@ -38,7 +39,8 @@ where
         driver: &Driver<Socket1, Socket2, Dns>,
     ) -> Result<Ipv4Addr, Error<Socket1, Socket2, Dns>> {
         driver
-            .primary_dns(self.link_generation, self.connection_generation)
+            .as_active(self.link_generation)?
+            .primary_dns(self.connection_generation)
             .map_err(Into::into)
     }
 
@@ -47,7 +49,8 @@ where
         driver: &Driver<Socket1, Socket2, Dns>,
     ) -> Result<Ipv4Addr, Error<Socket1, Socket2, Dns>> {
         driver
-            .secondary_dns(self.link_generation, self.connection_generation)
+            .as_active(self.link_generation)?
+            .secondary_dns(self.connection_generation)
             .map_err(Into::into)
     }
 
@@ -56,7 +59,8 @@ where
         driver: &mut Driver<Socket1, Socket2, Dns>,
     ) -> Result<(), Error<Socket1, Socket2, Dns>> {
         driver
-            .disconnect(self.link_generation, self.connection_generation)
+            .as_active_mut(self.link_generation)?
+            .disconnect(self.connection_generation)
             .map_err(Into::into)
     }
 }
@@ -76,11 +80,8 @@ where
         Error<Socket<Buffer>, Socket2, Dns>,
     > {
         driver
-            .open_tcp_1(
-                self.link_generation,
-                self.connection_generation,
-                socket_addr,
-            )
+            .as_active_mut(self.link_generation)?
+            .open_tcp_1(self.connection_generation, socket_addr)
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
                 connection_generation: self.connection_generation,
@@ -99,11 +100,8 @@ where
         Error<Socket<Buffer>, Socket2, Dns>,
     > {
         driver
-            .open_udp_1(
-                self.link_generation,
-                self.connection_generation,
-                socket_addr,
-            )
+            .as_active_mut(self.link_generation)?
+            .open_udp_1(self.connection_generation, socket_addr)
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
                 connection_generation: self.connection_generation,
@@ -129,11 +127,8 @@ where
         Error<Socket1, Socket<Buffer>, Dns>,
     > {
         driver
-            .open_tcp_2(
-                self.link_generation,
-                self.connection_generation,
-                socket_addr,
-            )
+            .as_active_mut(self.link_generation)?
+            .open_tcp_2(self.connection_generation, socket_addr)
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
                 connection_generation: self.connection_generation,
@@ -152,11 +147,8 @@ where
         Error<Socket1, Socket<Buffer>, Dns>,
     > {
         driver
-            .open_udp_2(
-                self.link_generation,
-                self.connection_generation,
-                socket_addr,
-            )
+            .as_active_mut(self.link_generation)?
+            .open_udp_2(self.connection_generation, socket_addr)
             .map(|socket_generation| connection::Pending {
                 link_generation: self.link_generation,
                 connection_generation: self.connection_generation,
@@ -184,8 +176,8 @@ where
         Name: dns::ToName,
     {
         driver
+            .as_active_mut(self.link_generation)?
             .dns(
-                self.link_generation,
                 self.connection_generation,
                 ArrayVec::try_from_iter(name.to_name().into_iter().copied())?,
             )

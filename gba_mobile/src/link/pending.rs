@@ -23,7 +23,8 @@ where
         driver: &Driver<Socket1, Socket2, Dns>,
     ) -> Result<Option<Link<Driver<Socket1, Socket2, Dns>>>, Error<Socket1, Socket2, Dns>> {
         driver
-            .link_status(self.link_generation)
+            .as_active(self.link_generation)?
+            .link_status()
             .map(|finished| {
                 finished.then(|| Link {
                     link_generation: self.link_generation,
@@ -38,6 +39,9 @@ where
         &self,
         driver: &mut Driver<Socket1, Socket2, Dns>,
     ) -> Result<(), Error<Socket1, Socket2, Dns>> {
-        driver.close_link(self.link_generation).map_err(Into::into)
+        driver
+            .as_active_mut(self.link_generation)?
+            .close_link()
+            .map_err(Into::into)
     }
 }

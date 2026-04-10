@@ -24,7 +24,8 @@ where
         error::P2p<Socket<Buffer>, Socket2, Dns>,
     > {
         driver
-            .connection_status(self.link_generation, self.connection_generation)
+            .as_active(self.link_generation)?
+            .connection_status(self.connection_generation)
             .map(|finished| {
                 finished.then(|| Connection {
                     link_generation: self.link_generation,
@@ -51,11 +52,8 @@ where
         error::Socket<Socket<Buffer>, Socket2, Dns>,
     > {
         driver
-            .socket_1_status(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-            )
+            .as_active(self.link_generation)?
+            .socket_1_status(self.connection_generation, self.socket.0)
             .map(|finished| {
                 finished.then(|| Connection {
                     link_generation: self.link_generation,
@@ -82,11 +80,8 @@ where
         error::Socket<Socket1, Socket<Buffer>, Dns>,
     > {
         driver
-            .socket_2_status(
-                self.link_generation,
-                self.connection_generation,
-                self.socket.0,
-            )
+            .as_active(self.link_generation)?
+            .socket_2_status(self.connection_generation, self.socket.0)
             .map(|finished| {
                 finished.then(|| Connection {
                     link_generation: self.link_generation,
