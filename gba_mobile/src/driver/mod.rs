@@ -441,6 +441,14 @@ where
             .connection_write(connection_generation, buf, self.socket_1)
     }
 
+    pub(crate) fn connection_flush(
+        self,
+        connection_generation: Generation,
+    ) -> Result<(), error::connection::Error<Socket<Buffer>, Socket2, Dns>> {
+        self.active
+            .connection_flush(connection_generation, self.socket_1)
+    }
+
     pub(crate) fn socket_1_read(
         self,
         connection_generation: Generation,
@@ -468,6 +476,15 @@ where
             buf,
             self.socket_1,
         )
+    }
+
+    pub(crate) fn socket_1_flush(
+        self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<(), error::socket::Error<Socket<Buffer>, Socket2, Dns>> {
+        self.active
+            .socket_flush::<_, 0>(connection_generation, socket_generation, self.socket_1)
     }
 }
 
@@ -539,6 +556,15 @@ where
             buf,
             self.socket_2,
         )
+    }
+
+    pub(crate) fn socket_2_flush(
+        self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+    ) -> Result<(), error::socket::Error<Socket1, Socket<Buffer>, Dns>> {
+        self.active
+            .socket_flush::<_, 1>(connection_generation, socket_generation, self.socket_2)
     }
 }
 

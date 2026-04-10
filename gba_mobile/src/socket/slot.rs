@@ -51,7 +51,10 @@ where
         Dns: dns::Mode;
 
     fn ready_for_transfer(&mut self, trigger_frame: u8) -> bool {
-        if matches!(self.status, Status::Connected) && self.read_buffer.is_empty() {
+        if matches!(self.status, Status::Connected)
+            && self.read_buffer.is_empty()
+            && self.write_buffer.is_empty()
+        {
             let result = self.frame == trigger_frame;
             self.frame = self.frame.saturating_add(1);
             result

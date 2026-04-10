@@ -52,6 +52,16 @@ where
             .map_err(Into::into)
     }
 
+    pub fn flush(
+        &mut self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<(), error::P2p<Socket<Buffer>, Socket2, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .connection_flush(self.connection_generation)
+            .map_err(Into::into)
+    }
+
     pub fn close(
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
@@ -91,6 +101,16 @@ where
             .map_err(Into::into)
     }
 
+    pub fn flush(
+        &mut self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+    ) -> Result<(), error::Socket<Socket<Buffer>, Socket2, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .socket_1_flush(self.connection_generation, self.socket.0)
+            .map_err(Into::into)
+    }
+
     pub fn close(
         &self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
@@ -127,6 +147,16 @@ where
         driver
             .as_active_mut(self.link_generation)?
             .socket_2_write(self.connection_generation, self.socket.0, buf)
+            .map_err(Into::into)
+    }
+
+    pub fn flush(
+        &mut self,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
+    ) -> Result<(), error::Socket<Socket1, Socket<Buffer>, Dns>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .socket_2_flush(self.connection_generation, self.socket.0)
             .map_err(Into::into)
     }
 

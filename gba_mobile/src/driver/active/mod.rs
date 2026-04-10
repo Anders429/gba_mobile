@@ -378,10 +378,49 @@ where
             Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded()),
             Phase::Ending => Err(super::error::connection::Error::closed()),
             Phase::Connected(_) => {
+                let write_amount = socket.write(buf);
+
+                if socket.write_buffer.is_full() {
+                    self.queue.set_socket_1_transfer();
+                    // Accelerate the next automatic transfer.
+                    socket.frame = u8::MAX;
+                }
+
+                Ok(write_amount)
+            }
+        }
+    }
+
+    pub(super) fn connection_flush<Buffer>(
+        &mut self,
+        connection_generation: Generation,
+        socket: &mut Socket<Buffer>,
+    ) -> Result<(), super::error::connection::Error<Socket1, Socket2, Dns>>
+    where
+        Buffer: socket::Buffer,
+    {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded()),
+            Phase::LoggedIn { .. } => Err(super::error::connection::Error::superseded()),
+            Phase::Ending => Err(super::error::connection::Error::closed()),
+            Phase::Connected(_) => {
                 self.queue.set_socket_1_transfer();
                 // Accelerate the next automatic transfer.
                 socket.frame = u8::MAX;
-                Ok(socket.write(buf))
+                Ok(())
             }
         }
     }
@@ -637,6 +676,72 @@ where
                         Err(super::error::socket::Error::superseded().into())
                     }
                     socket::Status::Connected => {
+                        let write_amount = socket.write(buf);
+
+                        if socket.write_buffer.is_full() {
+                            if INDEX == 0 {
+                                self.queue.set_socket_1_transfer();
+                            } else {
+                                self.queue.set_socket_2_transfer();
+                            }
+                            // Accelerate the next automatic transfer.
+                            socket.frame = u8::MAX;
+                        }
+
+                        Ok(write_amount)
+                    }
+                    socket::Status::FailedToConnect => {
+                        Err(super::error::socket::Error::failed_to_connect().into())
+                    }
+                    socket::Status::ClosedRemotely => {
+                        Err(super::error::socket::Error::closed_remotely().into())
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn socket_flush<Buffer, const INDEX: usize>(
+        &mut self,
+        connection_generation: Generation,
+        socket_generation: Generation,
+        socket: &mut Socket<Buffer>,
+    ) -> Result<(), super::error::socket::Error<Socket1, Socket2, Dns>>
+    where
+        Buffer: socket::Buffer,
+    {
+        if self.state.connection_generation != connection_generation {
+            return Err(super::error::connection::Error::superseded().into());
+        }
+
+        match &self.state.phase {
+            Phase::Linking => Err(super::error::connection::Error::superseded().into()),
+            Phase::Linked {
+                connection_failure: Some(failure),
+                ..
+            } => Err(failure.clone().into()),
+            Phase::Linked {
+                connection_failure: None,
+                ..
+            } => Err(super::error::connection::Error::closed().into()),
+            Phase::Connecting(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Connected(_) => Err(super::error::connection::Error::superseded().into()),
+            Phase::Ending => Err(super::error::link::Error::closed().into()),
+            Phase::LoggedIn {
+                socket_generations, ..
+            } => {
+                if socket_generations[INDEX] != socket_generation {
+                    return Err(super::error::socket::Error::superseded().into());
+                }
+
+                match socket.status {
+                    socket::Status::NotConnected => {
+                        Err(super::error::socket::Error::closed().into())
+                    }
+                    socket::Status::Connecting => {
+                        Err(super::error::socket::Error::superseded().into())
+                    }
+                    socket::Status::Connected => {
                         if INDEX == 0 {
                             self.queue.set_socket_1_transfer();
                         } else {
@@ -644,7 +749,7 @@ where
                         }
                         // Accelerate the next automatic transfer.
                         socket.frame = u8::MAX;
-                        Ok(socket.write(buf))
+                        Ok(())
                     }
                     socket::Status::FailedToConnect => {
                         Err(super::error::socket::Error::failed_to_connect().into())

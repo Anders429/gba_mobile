@@ -50,6 +50,14 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
         self.len
     }
 
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub(crate) const fn is_full(&self) -> bool {
+        self.len == CAP as u8
+    }
+
     pub(crate) fn get(&self, index: u8) -> Option<&T> {
         if index < self.len() {
             Some(unsafe { self.data.get_unchecked(index as usize).assume_init_ref() })
