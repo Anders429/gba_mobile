@@ -7,7 +7,7 @@ use crate::{
     connection,
     digit::IntoDigits,
     dns,
-    pending::{self, PendableError},
+    pending::{self, Pendable, PendableError},
     socket,
 };
 use core::{marker::PhantomData, net::Ipv4Addr};
@@ -235,4 +235,12 @@ where
             .close_link()
             .map_err(Into::into)
     }
+}
+
+impl<Socket1, Socket2, Dns> Pendable<Socket1, Socket2, Dns> for Link<Driver<Socket1, Socket2, Dns>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
 }

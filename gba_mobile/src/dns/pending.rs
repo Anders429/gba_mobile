@@ -1,7 +1,7 @@
 use super::{Dns, Error};
 use crate::{
     Driver, Generation,
-    pending::{self, PendableError},
+    pending::{self, Pendable, PendableError},
     socket,
 };
 use core::net::Ipv4Addr;
@@ -48,4 +48,11 @@ where
     ) -> Result<(), Self::Error> {
         todo!("cancel the DNS request")
     }
+}
+
+impl<Socket1, Socket2, const MAX_LEN: usize> Pendable<Socket1, Socket2, Dns<MAX_LEN>> for Ipv4Addr
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+{
 }

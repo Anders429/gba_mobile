@@ -1,7 +1,7 @@
 use super::{Connection, error};
 use crate::{
     Driver, Socket, dns,
-    pending::{self, PendableError},
+    pending::{self, Pendable, PendableError},
     socket,
 };
 use core::marker::PhantomData;
@@ -59,6 +59,15 @@ where
     }
 }
 
+impl<Buffer, Socket2, Dns> Pendable<Socket<Buffer>, Socket2, Dns>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>
+where
+    Buffer: socket::Buffer,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+}
+
 impl<Buffer, Socket2, Dns> PendableError<Socket<Buffer>, Socket2, Dns>
     for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
 where
@@ -112,6 +121,15 @@ where
     }
 }
 
+impl<Buffer, Socket2, Dns> Pendable<Socket<Buffer>, Socket2, Dns>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
+where
+    Buffer: socket::Buffer,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
+}
+
 impl<Buffer, Socket1, Dns> PendableError<Socket1, Socket<Buffer>, Dns>
     for Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
 where
@@ -163,4 +181,13 @@ where
             .close_socket_2(state.connection_generation, state.socket.0)
             .map_err(Into::into)
     }
+}
+
+impl<Buffer, Socket1, Dns> Pendable<Socket1, Socket<Buffer>, Dns>
+    for Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
+where
+    Buffer: socket::Buffer,
+    Socket1: socket::Slot,
+    Dns: dns::Mode,
+{
 }

@@ -4,7 +4,7 @@ pub use error::Error;
 
 use crate::{
     ArrayVec, Connection, Dns, Driver, Generation, Pending, Socket, connection, dns,
-    pending::{self, PendableError},
+    pending::{self, Pendable, PendableError},
     socket,
 };
 use core::{
@@ -271,4 +271,13 @@ where
             .disconnect(state.connection_generation)
             .map_err(Into::into)
     }
+}
+
+impl<Socket1, Socket2, Dns> Pendable<Socket1, Socket2, Dns>
+    for Internet<Driver<Socket1, Socket2, Dns>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+{
 }

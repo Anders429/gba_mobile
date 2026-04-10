@@ -38,15 +38,6 @@ where
 {
 }
 
-impl<T, Socket1, Socket2, Dns> Pendable<Socket1, Socket2, Dns> for T
-where
-    T: Sealed<Socket1, Socket2, Dns>,
-    Socket1: socket::Slot,
-    Socket2: socket::Slot,
-    Dns: dns::Mode,
-{
-}
-
 #[derive(Debug)]
 pub struct Pending<T, Socket1, Socket2, Dns>
 where
