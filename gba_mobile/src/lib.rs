@@ -22,14 +22,22 @@ mod generation;
 mod mmio;
 mod timer;
 
+#[doc(inline)]
 pub use config::Config;
+#[doc(inline)]
 pub use connection::Connection;
+#[doc(inline)]
 pub use digit::Digit;
+#[doc(inline)]
 pub use dns::Dns;
 pub use driver::{Adapter, Driver};
+#[doc(inline)]
 pub use internet::Internet;
+#[doc(inline)]
 pub use link::Link;
+#[doc(inline)]
 pub use pending::Pending;
+#[doc(inline)]
 pub use socket::Socket;
 pub use timer::Timer;
 

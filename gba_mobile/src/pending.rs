@@ -1,9 +1,6 @@
 use crate::{Driver, dns, socket};
 use core::marker::PhantomData;
 
-// May need to provide generics here somehow.
-//
-// Otherwise, it can't be used for DNS.
 pub trait PendableError<Socket1, Socket2, Dns>: Sized {
     type Error;
 }
