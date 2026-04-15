@@ -8,7 +8,7 @@ pub use to_name::ToName;
 pub(crate) use pending::Pending;
 
 use crate::{
-    ArrayVec, Generation,
+    ArrayVec, Generation, config,
     driver::active::{
         flow::{self, DnsSubFlow},
         queue::item::{self, DnsSubItem},
@@ -18,10 +18,11 @@ use crate::{
 use core::net::Ipv4Addr;
 
 pub(crate) trait Sealed: Sized {
-    type Item<Socket1, Socket2>: DnsSubItem<Socket1, Socket2, Self>
+    type Item<Socket1, Socket2, Config>: DnsSubItem<Socket1, Socket2, Self, Config>
     where
         Socket1: socket::slot::Sealed,
-        Socket2: socket::slot::Sealed;
+        Socket2: socket::slot::Sealed,
+        Config: config::Mode;
     type Flow: DnsSubFlow<Self>;
 }
 
@@ -32,11 +33,12 @@ pub trait Mode: Sealed {}
 pub struct NoDns;
 
 impl Sealed for NoDns {
-    type Item<Socket1, Socket2>
+    type Item<Socket1, Socket2, Config>
         = item::Empty
     where
         Socket1: socket::slot::Sealed,
-        Socket2: socket::slot::Sealed;
+        Socket2: socket::slot::Sealed,
+        Config: config::Mode;
     type Flow = flow::Empty;
 }
 
@@ -66,11 +68,12 @@ impl<const MAX_LEN: usize> Dns<MAX_LEN> {
 }
 
 impl<const MAX_LEN: usize> Sealed for Dns<MAX_LEN> {
-    type Item<Socket1, Socket2>
+    type Item<Socket1, Socket2, Config>
         = item::Dns
     where
         Socket1: socket::slot::Sealed,
-        Socket2: socket::slot::Sealed;
+        Socket2: socket::slot::Sealed,
+        Config: config::Mode;
     type Flow = flow::DnsFlow<MAX_LEN>;
 }
 

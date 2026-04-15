@@ -1,15 +1,10 @@
 mod error;
 mod timeout;
 
-use core::ptr;
-
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{
-    super::Phase,
-    request::{Packet, WaitForIdle, packet::payload},
-};
+use super::request::{Packet, WaitForIdle, packet::payload};
 use crate::{
     Generation, Timer,
     driver::Adapter,
@@ -23,8 +18,6 @@ enum State {
     WaitForSio8(WaitForIdle),
     EnableSio32(Packet<payload::EnableSio32>),
     WaitForSio32(WaitForIdle),
-    ReadConfig1(Packet<payload::ReadConfig>),
-    ReadConfig2(Packet<payload::ReadConfig>),
 }
 
 #[derive(Debug)]
@@ -75,20 +68,6 @@ impl Reset {
                     link_generation: self.link_generation,
                 })
                 .map_err(Timeout::WaitForSio32),
-            State::ReadConfig1(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::ReadConfig1(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::ReadConfig1),
-            State::ReadConfig2(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::ReadConfig2(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::ReadConfig2),
         }
     }
 
@@ -98,8 +77,6 @@ impl Reset {
             State::WaitForSio8(_) => {}
             State::EnableSio32(packet) => packet.timer(),
             State::WaitForSio32(_) => {}
-            State::ReadConfig1(packet) => packet.timer(),
-            State::ReadConfig2(packet) => packet.timer(),
         }
     }
 
@@ -108,15 +85,13 @@ impl Reset {
         timer: Timer,
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
-        phase: &mut Phase,
-        config: &mut [u8; 256],
         link_generation: Generation,
-    ) -> Result<Option<Self>, Error> {
+    ) -> Result<Either<Self, Response>, Error> {
         match self.state {
             State::Reset(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self {
+                    Either::Left(packet) => Either::Left(Self {
                         state: State::Reset(packet),
                         link_generation: self.link_generation,
                     }),
@@ -128,31 +103,33 @@ impl Reset {
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),
                             );
                         }
-                        Some(Self {
+                        Either::Left(Self {
                             state: State::WaitForSio8(WaitForIdle::new(*transfer_length)),
                             link_generation: self.link_generation,
                         })
                     }
                 })
                 .map_err(Error::Reset),
-            State::WaitForSio8(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
-                || Self {
-                    state: State::EnableSio32(Packet::new(
-                        payload::EnableSio32,
-                        *transfer_length,
-                        timer,
-                    )),
-                    link_generation: self.link_generation,
-                },
-                |wait_for_idle| Self {
-                    state: State::WaitForSio8(wait_for_idle),
-                    link_generation: self.link_generation,
-                },
-            ))),
+            State::WaitForSio8(wait_for_idle) => {
+                Ok(Either::Left(wait_for_idle.serial().map_or_else(
+                    || Self {
+                        state: State::EnableSio32(Packet::new(
+                            payload::EnableSio32,
+                            *transfer_length,
+                            timer,
+                        )),
+                        link_generation: self.link_generation,
+                    },
+                    |wait_for_idle| Self {
+                        state: State::WaitForSio8(wait_for_idle),
+                        link_generation: self.link_generation,
+                    },
+                )))
+            }
             State::EnableSio32(packet) => packet
                 .serial(timer)
                 .map(|response| match response {
-                    Either::Left(packet) => Some(Self {
+                    Either::Left(packet) => Either::Left(Self {
                         state: State::EnableSio32(packet),
                         link_generation: self.link_generation,
                     }),
@@ -164,81 +141,34 @@ impl Reset {
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),
                             );
                         }
-                        Some(Self {
+                        Either::Left(Self {
                             state: State::WaitForSio32(WaitForIdle::new(*transfer_length)),
                             link_generation: self.link_generation,
                         })
                     }
                 })
                 .map_err(Error::EnableSio32),
-            State::WaitForSio32(wait_for_idle) => Ok(Some(wait_for_idle.serial().map_or_else(
-                || Self {
-                    state: State::ReadConfig1(Packet::new(
-                        payload::ReadConfig::FirstHalf,
-                        *transfer_length,
-                        timer,
-                    )),
-                    link_generation: self.link_generation,
-                },
-                |wait_for_idle| Self {
-                    state: State::WaitForSio32(wait_for_idle),
-                    link_generation: self.link_generation,
-                },
-            ))),
-            State::ReadConfig1(packet) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Some(Self {
-                        state: State::ReadConfig1(packet),
-                        link_generation: self.link_generation,
-                    }),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        unsafe {
-                            ptr::copy_nonoverlapping(
-                                response.payload.data().as_ptr(),
-                                config.as_mut_ptr(),
-                                128,
-                            );
-                        }
-                        Some(Self {
-                            state: State::ReadConfig2(Packet::new(
-                                payload::ReadConfig::SecondHalf,
-                                *transfer_length,
-                                timer,
-                            )),
-                            link_generation: self.link_generation,
-                        })
+            State::WaitForSio32(wait_for_idle) => Ok(wait_for_idle.serial().map_or_else(
+                || {
+                    if link_generation == self.link_generation {
+                        Either::Right(Response::Success)
+                    } else {
+                        Either::Right(Response::Superseded)
                     }
-                })
-                .map_err(Error::ReadConfig1),
-            State::ReadConfig2(packet) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Some(Self {
-                        state: State::ReadConfig2(packet),
+                },
+                |wait_for_idle| {
+                    Either::Left(Self {
+                        state: State::WaitForSio32(wait_for_idle),
                         link_generation: self.link_generation,
-                    }),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        unsafe {
-                            ptr::copy_nonoverlapping(
-                                response.payload.data().as_ptr(),
-                                config.as_mut_ptr().add(128),
-                                128,
-                            );
-                        }
-                        if link_generation == self.link_generation {
-                            // Only update the phase if we are still in the same link generation.
-                            *phase = Phase::Linked {
-                                frame: 0,
-                                connection_failure: None,
-                            };
-                        }
-                        None
-                    }
-                })
-                .map_err(Error::ReadConfig2),
+                    })
+                },
+            )),
         }
     }
+}
+
+#[derive(Debug)]
+pub(super) enum Response {
+    Success,
+    Superseded,
 }

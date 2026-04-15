@@ -10,7 +10,7 @@ use core::{
 
 use gba::prelude::*;
 use gba_mobile::{
-    Digit, Dns, Driver, Link, Socket, Timer,
+    Config, Digit, Dns, Driver, Link, Socket, Timer,
     config::mobile_system_gb,
     socket::{self, NoSocket},
 };
@@ -100,18 +100,22 @@ impl socket::Buffer for RingBuffer {
 }
 
 #[unsafe(link_section = ".ewram")]
-static mut DRIVER: Driver<Socket<RingBuffer>, NoSocket, Dns<14>> = Driver::new(
-    Timer::_0,
-    Socket::new(RingBuffer::new()),
-    NoSocket,
-    Dns::new(),
-);
+static mut DRIVER: Driver<Socket<RingBuffer>, NoSocket, Dns<14>, Config<mobile_system_gb::Config>> =
+    Driver::new(
+        Timer::_0,
+        Socket::new(RingBuffer::new()),
+        NoSocket,
+        Dns::new(),
+        Config::new(),
+    );
 
 // TODO: This function should probably be unsafe.
 #[allow(static_mut_refs)]
 fn with_driver<T, F>(f: F) -> T
 where
-    F: FnOnce(&mut Driver<Socket<RingBuffer>, NoSocket, Dns<14>>) -> T,
+    F: FnOnce(
+        &mut Driver<Socket<RingBuffer>, NoSocket, Dns<14>, Config<mobile_system_gb::Config>>,
+    ) -> T,
 {
     let previous_ime = IME.read();
     IME.write(false);
@@ -192,7 +196,7 @@ pub fn main() {
         with_driver(|driver| link.write_config(driver, write_config))
             .expect("couldn't write config");
 
-        let config: Result<mobile_system_gb::Config, _> = with_driver(|driver| link.config(driver));
+        let config = with_driver(|driver| link.config(driver));
         log::info!("attempted to parse Mobile System GB config: {config:?}");
 
         let pending_ppp = {

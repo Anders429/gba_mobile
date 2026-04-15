@@ -3,7 +3,7 @@ pub mod error;
 pub use error::Error;
 
 use crate::{
-    Adapter, ArrayVec, Config, Connection, Driver, Generation, Internet, Pending, Socket,
+    Adapter, ArrayVec, Config, Connection, Driver, Generation, Internet, Pending, Socket, config,
     connection,
     digit::IntoDigits,
     dns,
@@ -18,13 +18,16 @@ pub struct Link<Driver> {
     driver: PhantomData<Driver>,
 }
 
-impl<Socket1, Socket2, Dns> Link<Driver<Socket1, Socket2, Dns>>
+impl<Socket1, Socket2, Dns, Config> Link<Driver<Socket1, Socket2, Dns, Config>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
-    pub fn new(driver: &mut Driver<Socket1, Socket2, Dns>) -> Pending<Self, Socket1, Socket2, Dns> {
+    pub fn new(
+        driver: &mut Driver<Socket1, Socket2, Dns, Config>,
+    ) -> Pending<Self, Socket1, Socket2, Dns, Config> {
         Pending::new(Self {
             link_generation: driver.link(),
             driver: PhantomData,
@@ -33,8 +36,8 @@ where
 
     pub fn close(
         &self,
-        driver: &mut Driver<Socket1, Socket2, Dns>,
-    ) -> Result<(), Error<Socket1, Socket2, Dns>> {
+        driver: &mut Driver<Socket1, Socket2, Dns, Config>,
+    ) -> Result<(), Error<Socket1, Socket2, Dns, Config>> {
         driver
             .as_active_mut(self.link_generation)?
             .close_link()
@@ -43,15 +46,15 @@ where
 
     pub fn login<PhoneNumber, Id, Password>(
         &self,
-        driver: &mut Driver<Socket1, Socket2, Dns>,
+        driver: &mut Driver<Socket1, Socket2, Dns, Config>,
         phone_number: PhoneNumber,
         id: Id,
         password: Password,
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
     ) -> Result<
-        Pending<Internet<Driver<Socket1, Socket2, Dns>>, Socket1, Socket2, Dns>,
-        error::login::Error<Socket1, Socket2, Dns>,
+        Pending<Internet<Driver<Socket1, Socket2, Dns, Config>>, Socket1, Socket2, Dns, Config>,
+        error::login::Error<Socket1, Socket2, Dns, Config>,
     >
     where
         PhoneNumber: IntoDigits,
@@ -85,60 +88,34 @@ where
 
     pub fn adapter(
         &self,
-        driver: &Driver<Socket1, Socket2, Dns>,
-    ) -> Result<Adapter, Error<Socket1, Socket2, Dns>> {
+        driver: &Driver<Socket1, Socket2, Dns, Config>,
+    ) -> Result<Adapter, Error<Socket1, Socket2, Dns, Config>> {
         driver
             .as_active(self.link_generation)?
             .adapter()
             .map_err(Into::into)
     }
-
-    pub fn config<Config>(
-        &self,
-        driver: &Driver<Socket1, Socket2, Dns>,
-    ) -> Result<Config, error::config::Error<Config::Error, Socket1, Socket2, Dns>>
-    where
-        Config: self::Config,
-    {
-        driver
-            .as_active(self.link_generation)?
-            .config()
-            .map_err(Into::into)
-            .and_then(|bytes| Config::read(bytes).map_err(error::config::Error::config_error))
-    }
-
-    pub fn write_config<Config>(
-        &self,
-        driver: &mut Driver<Socket1, Socket2, Dns>,
-        config: Config,
-    ) -> Result<(), Error<Socket1, Socket2, Dns>>
-    where
-        Config: self::Config,
-    {
-        driver
-            .as_active_mut(self.link_generation)?
-            .write_config(config)
-            .map_err(Into::into)
-    }
 }
 
-impl<Buffer, Socket2, Dns> Link<Driver<Socket<Buffer>, Socket2, Dns>>
+impl<Buffer, Socket2, Dns, Config> Link<Driver<Socket<Buffer>, Socket2, Dns, Config>>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     pub fn accept(
         &self,
-        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>,
+            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::P2p>,
             Socket<Buffer>,
             Socket2,
             Dns,
+            Config,
         >,
-        Error<Socket<Buffer>, Socket2, Dns>,
+        Error<Socket<Buffer>, Socket2, Dns, Config>,
     > {
         driver
             .as_active_mut(self.link_generation)?
@@ -156,16 +133,17 @@ where
 
     pub fn connect<PhoneNumber>(
         &self,
-        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
         phone_number: PhoneNumber,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket<Buffer>, Socket2, Dns>, connection::P2p>,
+            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::P2p>,
             Socket<Buffer>,
             Socket2,
             Dns,
+            Config,
         >,
-        error::connect::Error<Socket<Buffer>, Socket2, Dns>,
+        error::connect::Error<Socket<Buffer>, Socket2, Dns, Config>,
     >
     where
         PhoneNumber: IntoDigits,
@@ -189,28 +167,59 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> PendableError<Socket1, Socket2, Dns>
-    for Link<Driver<Socket1, Socket2, Dns>>
+impl<Socket1, Socket2, Dns, Format> Link<Driver<Socket1, Socket2, Dns, Config<Format>>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Format: config::Format,
 {
-    type Error = Error<Socket1, Socket2, Dns>;
+    pub fn config(
+        &self,
+        driver: &Driver<Socket1, Socket2, Dns, Config<Format>>,
+    ) -> Result<Result<Format, Format::Error>, Error<Socket1, Socket2, Dns, Config<Format>>> {
+        driver
+            .as_active(self.link_generation)?
+            .config()
+            .map_err(Into::into)
+    }
+
+    pub fn write_config(
+        &self,
+        driver: &mut Driver<Socket1, Socket2, Dns, Config<Format>>,
+        format: Format,
+    ) -> Result<(), Error<Socket1, Socket2, Dns, Config<Format>>> {
+        driver
+            .as_active_mut(self.link_generation)?
+            .write_config(format)
+            .map_err(Into::into)
+    }
 }
 
-impl<Socket1, Socket2, Dns> pending::Sealed<Socket1, Socket2, Dns>
-    for Link<Driver<Socket1, Socket2, Dns>>
+impl<Socket1, Socket2, Dns, Config> PendableError<Socket1, Socket2, Dns, Config>
+    for Link<Driver<Socket1, Socket2, Dns, Config>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
+{
+    type Error = Error<Socket1, Socket2, Dns, Config>;
+}
+
+impl<Socket1, Socket2, Dns, Config> pending::Sealed<Socket1, Socket2, Dns, Config>
+    for Link<Driver<Socket1, Socket2, Dns, Config>>
+where
+    Socket1: socket::Slot,
+    Socket2: socket::Slot,
+    Dns: dns::Mode,
+    Config: config::Mode,
 {
     type State = Self;
 
     fn status(
         state: &Self::State,
-        driver: &Driver<Socket1, Socket2, Dns>,
+        driver: &Driver<Socket1, Socket2, Dns, Config>,
     ) -> Option<Result<Self, Self::Error>> {
         driver
             .as_active(state.link_generation)
@@ -228,7 +237,7 @@ where
 
     fn cancel(
         state: Self::State,
-        driver: &mut Driver<Socket1, Socket2, Dns>,
+        driver: &mut Driver<Socket1, Socket2, Dns, Config>,
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
@@ -237,10 +246,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> Pendable<Socket1, Socket2, Dns> for Link<Driver<Socket1, Socket2, Dns>>
+impl<Socket1, Socket2, Dns, Config> Pendable<Socket1, Socket2, Dns, Config>
+    for Link<Driver<Socket1, Socket2, Dns, Config>>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
 }

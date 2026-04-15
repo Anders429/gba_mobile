@@ -12,7 +12,7 @@ pub use phone_number::PhoneNumber;
 pub use registration::Registration;
 pub use slot::Slot;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Config {
     pub registration: Registration,
     pub primary_dns: Ipv4Addr,
@@ -24,7 +24,7 @@ pub struct Config {
     pub configuration_slots: [Slot; 3],
 }
 
-impl super::Config for Config {
+impl super::Format for Config {
     type Error = Error;
 
     fn read(bytes: &[u8; 256]) -> Result<Self, Self::Error> {

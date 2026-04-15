@@ -1,33 +1,35 @@
 use super::{Connection, error};
 use crate::{
-    Driver, Socket, dns,
+    Driver, Socket, config, dns,
     pending::{self, Pendable, PendableError},
     socket,
 };
 use core::marker::PhantomData;
 
-impl<Buffer, Socket2, Dns> PendableError<Socket<Buffer>, Socket2, Dns>
-    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>
+impl<Buffer, Socket2, Dns, Config> PendableError<Socket<Buffer>, Socket2, Dns, Config>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, super::P2p>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
-    type Error = error::P2p<Socket<Buffer>, Socket2, Dns>;
+    type Error = error::P2p<Socket<Buffer>, Socket2, Dns, Config>;
 }
 
-impl<Buffer, Socket2, Dns> pending::Sealed<Socket<Buffer>, Socket2, Dns>
-    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>
+impl<Buffer, Socket2, Dns, Config> pending::Sealed<Socket<Buffer>, Socket2, Dns, Config>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, super::P2p>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     type State = Self;
 
     fn status(
         state: &Self::State,
-        driver: &Driver<Socket<Buffer>, Socket2, Dns>,
+        driver: &Driver<Socket<Buffer>, Socket2, Dns, Config>,
     ) -> Option<Result<Self, Self::Error>> {
         driver
             .as_active(state.link_generation)
@@ -50,7 +52,7 @@ where
 
     fn cancel(
         state: Self::State,
-        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
@@ -59,37 +61,40 @@ where
     }
 }
 
-impl<Buffer, Socket2, Dns> Pendable<Socket<Buffer>, Socket2, Dns>
-    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::P2p>
+impl<Buffer, Socket2, Dns, Config> Pendable<Socket<Buffer>, Socket2, Dns, Config>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, super::P2p>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
 }
 
-impl<Buffer, Socket2, Dns> PendableError<Socket<Buffer>, Socket2, Dns>
-    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
+impl<Buffer, Socket2, Dns, Config> PendableError<Socket<Buffer>, Socket2, Dns, Config>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, super::Socket1>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
-    type Error = error::Socket<Socket<Buffer>, Socket2, Dns>;
+    type Error = error::Socket<Socket<Buffer>, Socket2, Dns, Config>;
 }
 
-impl<Buffer, Socket2, Dns> pending::Sealed<Socket<Buffer>, Socket2, Dns>
-    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
+impl<Buffer, Socket2, Dns, Config> pending::Sealed<Socket<Buffer>, Socket2, Dns, Config>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, super::Socket1>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     type State = Self;
 
     fn status(
         state: &Self::State,
-        driver: &Driver<Socket<Buffer>, Socket2, Dns>,
+        driver: &Driver<Socket<Buffer>, Socket2, Dns, Config>,
     ) -> Option<Result<Self, Self::Error>> {
         driver
             .as_active(state.link_generation)
@@ -112,7 +117,7 @@ where
 
     fn cancel(
         state: Self::State,
-        driver: &mut Driver<Socket<Buffer>, Socket2, Dns>,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
@@ -121,37 +126,40 @@ where
     }
 }
 
-impl<Buffer, Socket2, Dns> Pendable<Socket<Buffer>, Socket2, Dns>
-    for Connection<Driver<Socket<Buffer>, Socket2, Dns>, super::Socket1>
+impl<Buffer, Socket2, Dns, Config> Pendable<Socket<Buffer>, Socket2, Dns, Config>
+    for Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, super::Socket1>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
 }
 
-impl<Buffer, Socket1, Dns> PendableError<Socket1, Socket<Buffer>, Dns>
-    for Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
+impl<Buffer, Socket1, Dns, Config> PendableError<Socket1, Socket<Buffer>, Dns, Config>
+    for Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, super::Socket2>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
-    type Error = error::Socket<Socket1, Socket<Buffer>, Dns>;
+    type Error = error::Socket<Socket1, Socket<Buffer>, Dns, Config>;
 }
 
-impl<Buffer, Socket1, Dns> pending::Sealed<Socket1, Socket<Buffer>, Dns>
-    for Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
+impl<Buffer, Socket1, Dns, Config> pending::Sealed<Socket1, Socket<Buffer>, Dns, Config>
+    for Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, super::Socket2>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     type State = Self;
 
     fn status(
         state: &Self::State,
-        driver: &Driver<Socket1, Socket<Buffer>, Dns>,
+        driver: &Driver<Socket1, Socket<Buffer>, Dns, Config>,
     ) -> Option<Result<Self, Self::Error>> {
         driver
             .as_active(state.link_generation)
@@ -174,7 +182,7 @@ where
 
     fn cancel(
         state: Self::State,
-        driver: &mut Driver<Socket1, Socket<Buffer>, Dns>,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns, Config>,
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
@@ -183,11 +191,12 @@ where
     }
 }
 
-impl<Buffer, Socket1, Dns> Pendable<Socket1, Socket<Buffer>, Dns>
-    for Connection<Driver<Socket1, Socket<Buffer>, Dns>, super::Socket2>
+impl<Buffer, Socket1, Dns, Config> Pendable<Socket1, Socket<Buffer>, Dns, Config>
+    for Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, super::Socket2>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
 }

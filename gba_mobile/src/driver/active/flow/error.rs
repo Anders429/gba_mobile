@@ -1,8 +1,12 @@
 use super::{
     SocketSubFlow, accept, close_tcp, close_udp, connect, disconnect, dns, end, idle, login,
-    open_tcp, open_udp, reset, start, status, transfer_data, write_config,
+    open_tcp, open_udp, read_config, reset, start, status, transfer_data, write_config,
 };
-use crate::{driver::active::flow::DnsSubFlow, socket};
+use crate::{
+    config,
+    driver::active::flow::{ConfigSubFlow, DnsSubFlow},
+    socket,
+};
 use core::{
     fmt,
     fmt::{Debug, Display, Formatter},
@@ -89,11 +93,36 @@ impl<const MAX_LEN: usize> core::error::Error for Dns<MAX_LEN> {
     }
 }
 
-pub(in crate::driver) enum Error<Socket1, Socket2, Dns>
+#[derive(Clone, Debug)]
+pub(crate) enum Config {
+    ReadConfig(read_config::Error),
+    WriteConfig(write_config::Error),
+}
+
+impl Display for Config {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::ReadConfig(_) => formatter.write_str("error during read config"),
+            Self::WriteConfig(_) => formatter.write_str("error during write config"),
+        }
+    }
+}
+
+impl core::error::Error for Config {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::ReadConfig(error) => Some(error),
+            Self::WriteConfig(error) => Some(error),
+        }
+    }
+}
+
+pub(in crate::driver) enum Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     Start(start::Error),
     End(end::Error),
@@ -104,16 +133,17 @@ where
     Socket1(<Socket1::SocketFlow<0> as SocketSubFlow<Socket1>>::Error),
     Socket2(<Socket2::SocketFlow<1> as SocketSubFlow<Socket2>>::Error),
     Dns(<Dns::Flow as DnsSubFlow<Dns>>::Error),
-    WriteConfig(write_config::Error),
+    Config(<Config::Flow as ConfigSubFlow<Config>>::Error),
     Status(status::Error),
     Idle(idle::Error),
 }
 
-impl<Socket1, Socket2, Dns> Clone for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Clone for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn clone(&self) -> Self {
         match self {
@@ -126,18 +156,19 @@ where
             Self::Socket1(error) => Self::Socket1(error.clone()),
             Self::Socket2(error) => Self::Socket2(error.clone()),
             Self::Dns(error) => Self::Dns(error.clone()),
-            Self::WriteConfig(error) => Self::WriteConfig(error.clone()),
+            Self::Config(error) => Self::Config(error.clone()),
             Self::Status(error) => Self::Status(error.clone()),
             Self::Idle(error) => Self::Idle(error.clone()),
         }
     }
 }
 
-impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Debug for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -150,18 +181,19 @@ where
             Self::Socket1(error) => formatter.debug_tuple("Socket1").field(error).finish(),
             Self::Socket2(error) => formatter.debug_tuple("Socket2").field(error).finish(),
             Self::Dns(error) => formatter.debug_tuple("Dns").field(error).finish(),
-            Self::WriteConfig(error) => formatter.debug_tuple("WriteConfig").field(error).finish(),
+            Self::Config(error) => formatter.debug_tuple("Config").field(error).finish(),
             Self::Status(error) => formatter.debug_tuple("Status").field(error).finish(),
             Self::Idle(error) => formatter.debug_tuple("Idle").field(error).finish(),
         }
     }
 }
 
-impl<Socket1, Socket2, Dns> Display for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Display for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -174,18 +206,19 @@ where
             Self::Socket1(_) => formatter.write_str("error during socket 1 flow"),
             Self::Socket2(_) => formatter.write_str("error during socket 2 flow"),
             Self::Dns(_) => formatter.write_str("error during dns flow"),
-            Self::WriteConfig(_) => formatter.write_str("error during write config"),
+            Self::Config(_) => formatter.write_str("error during config flow"),
             Self::Status(_) => formatter.write_str("error during status"),
             Self::Idle(_) => formatter.write_str("error during idle"),
         }
     }
 }
 
-impl<Socket1, Socket2, Dns> core::error::Error for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> core::error::Error for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
@@ -198,7 +231,7 @@ where
             Self::Socket1(error) => Some(error),
             Self::Socket2(error) => Some(error),
             Self::Dns(error) => Some(error),
-            Self::WriteConfig(error) => Some(error),
+            Self::Config(error) => Some(error),
             Self::Status(error) => Some(error),
             Self::Idle(error) => Some(error),
         }

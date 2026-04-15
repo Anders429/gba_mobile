@@ -4,16 +4,12 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{
-    super::Phase,
-    request::{Packet, WaitForIdle, packet::payload},
-};
+use super::request::{Packet, WaitForIdle, packet::payload};
 use crate::{
     Generation, Timer,
     driver::Adapter,
     mmio::serial::{SIOCNT, TransferLength},
 };
-use core::ptr;
 use either::Either;
 
 #[derive(Debug)]
@@ -22,8 +18,6 @@ enum State {
     BeginSession(Packet<payload::BeginSession>),
     Sio32(Packet<payload::EnableSio32>),
     WaitForIdle(WaitForIdle),
-    ReadConfig1(Packet<payload::ReadConfig>),
-    ReadConfig2(Packet<payload::ReadConfig>),
 }
 
 #[derive(Debug)]
@@ -70,20 +64,6 @@ impl Start {
                     link_generation: self.link_generation,
                 })
                 .map_err(Timeout::WaitForIdle),
-            State::ReadConfig1(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::ReadConfig1(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::ReadConfig1),
-            State::ReadConfig2(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::ReadConfig2(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::ReadConfig2),
         }
     }
 
@@ -93,8 +73,6 @@ impl Start {
             State::BeginSession(packet) => packet.timer(),
             State::Sio32(packet) => packet.timer(),
             State::WaitForIdle(_) => {}
-            State::ReadConfig1(packet) => packet.timer(),
-            State::ReadConfig2(packet) => packet.timer(),
         }
     }
 
@@ -103,8 +81,6 @@ impl Start {
         timer: Timer,
         adapter: &mut Adapter,
         transfer_length: &mut TransferLength,
-        phase: &mut Phase,
-        config: &mut [u8; 256],
         link_generation: Generation,
     ) -> Result<Either<Self, Response>, Error> {
         match self.state {
@@ -171,76 +147,21 @@ impl Start {
                     }
                 })
                 .map_err(Error::Sio32),
-            State::WaitForIdle(wait_for_idle) => {
-                Ok(Either::Left(wait_for_idle.serial().map_or_else(
-                    || Self {
-                        state: State::ReadConfig1(Packet::new(
-                            payload::ReadConfig::FirstHalf,
-                            *transfer_length,
-                            timer,
-                        )),
-                        link_generation: self.link_generation,
-                    },
-                    |wait_for_idle| Self {
+            State::WaitForIdle(wait_for_idle) => Ok(wait_for_idle.serial().map_or_else(
+                || {
+                    if link_generation == self.link_generation {
+                        Either::Right(Response::Success)
+                    } else {
+                        Either::Right(Response::Superseded)
+                    }
+                },
+                |wait_for_idle| {
+                    Either::Left(Self {
                         state: State::WaitForIdle(wait_for_idle),
                         link_generation: self.link_generation,
-                    },
-                )))
-            }
-            State::ReadConfig1(packet) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Either::Left(Self {
-                        state: State::ReadConfig1(packet),
-                        link_generation: self.link_generation,
-                    }),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        unsafe {
-                            ptr::copy_nonoverlapping(
-                                response.payload.data().as_ptr(),
-                                config.as_mut_ptr(),
-                                128,
-                            );
-                        }
-                        Either::Left(Self {
-                            state: State::ReadConfig2(Packet::new(
-                                payload::ReadConfig::SecondHalf,
-                                *transfer_length,
-                                timer,
-                            )),
-                            link_generation: self.link_generation,
-                        })
-                    }
-                })
-                .map_err(Error::ReadConfig1),
-            State::ReadConfig2(packet) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Either::Left(Self {
-                        state: State::ReadConfig2(packet),
-                        link_generation: self.link_generation,
-                    }),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        unsafe {
-                            ptr::copy_nonoverlapping(
-                                response.payload.data().as_ptr(),
-                                config.as_mut_ptr().add(128),
-                                128,
-                            );
-                        }
-                        if link_generation == self.link_generation {
-                            // Only update the phase if we are still in the same link generation.
-                            *phase = Phase::Linked {
-                                frame: 0,
-                                connection_failure: None,
-                            };
-                        }
-                        Either::Right(Response::Success)
-                    }
-                })
-                .map_err(Error::ReadConfig2),
+                    })
+                },
+            )),
         }
     }
 }
@@ -249,4 +170,5 @@ impl Start {
 pub(super) enum Response {
     Success,
     AlreadyActive,
+    Superseded,
 }

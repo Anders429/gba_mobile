@@ -12,6 +12,7 @@ mod idle;
 mod login;
 mod open_tcp;
 mod open_udp;
+mod read_config;
 mod request;
 mod reset;
 mod start;
@@ -29,9 +30,10 @@ use core::{
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::{Queue, State};
+use super::{Phase, Queue, State};
 use crate::{
-    ArrayVec, Digit, Generation, Socket, Timer,
+    ArrayVec, Config, Digit, Generation, Socket, Timer,
+    config::{self, NoConfig},
     dns::NoDns,
     driver::Adapter,
     mmio::serial::TransferLength,
@@ -49,6 +51,7 @@ use idle::Idle;
 use login::Login;
 use open_tcp::OpenTcp;
 use open_udp::OpenUdp;
+use read_config::ReadConfig;
 use reset::Reset;
 use start::Start;
 use status::Status;
@@ -78,6 +81,26 @@ pub(crate) trait DnsSubFlow<Dns>: Sized + Debug {
         state: &mut State,
         timer: Timer,
         dns: &mut Dns,
+    ) -> Result<Option<Self>, Self::Error>;
+}
+
+pub(crate) trait ConfigSubFlow<Config>: Sized + Debug {
+    type Error: Clone + core::error::Error + 'static;
+
+    fn read_config(
+        transfer_length: TransferLength,
+        timer: Timer,
+        link_generation: Generation,
+    ) -> Option<Self>;
+
+    fn vblank(self) -> Result<Self, Timeout>;
+    fn timer(&mut self);
+    fn serial(
+        self,
+        state: &mut State,
+        timer: Timer,
+        config: &mut Config,
+        link_generation: Generation,
     ) -> Result<Option<Self>, Self::Error>;
 }
 
@@ -124,6 +147,36 @@ impl DnsSubFlow<NoDns> for Empty {
         _state: &mut State,
         _timer: Timer,
         _dns: &mut NoDns,
+    ) -> Result<Option<Self>, Self::Error> {
+        unreachable!()
+    }
+}
+
+impl ConfigSubFlow<NoConfig> for Empty {
+    type Error = Infallible;
+
+    fn read_config(
+        _transfer_length: TransferLength,
+        _timer: Timer,
+        _link_generation: Generation,
+    ) -> Option<Self> {
+        None
+    }
+
+    fn vblank(self) -> Result<Self, Timeout> {
+        unreachable!()
+    }
+
+    fn timer(&mut self) {
+        unreachable!()
+    }
+
+    fn serial(
+        self,
+        _state: &mut State,
+        _timer: Timer,
+        _config: &mut NoConfig,
+        _link_generation: Generation,
     ) -> Result<Option<Self>, Self::Error> {
         unreachable!()
     }
@@ -307,11 +360,83 @@ impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> 
 }
 
 #[derive(Debug)]
-pub(super) enum Flow<Socket1, Socket2, Dns>
+pub(crate) enum ConfigFlow {
+    ReadConfig(ReadConfig),
+    WriteConfig(WriteConfig),
+}
+
+impl<Format> ConfigSubFlow<Config<Format>> for ConfigFlow
+where
+    Format: config::Format,
+{
+    type Error = error::Config;
+
+    fn read_config(
+        transfer_length: TransferLength,
+        timer: Timer,
+        link_generation: Generation,
+    ) -> Option<Self> {
+        Some(Self::ReadConfig(ReadConfig::new(
+            transfer_length,
+            timer,
+            link_generation,
+        )))
+    }
+
+    fn vblank(self) -> Result<Self, Timeout> {
+        match self {
+            Self::ReadConfig(read_config) => read_config
+                .vblank()
+                .map(Self::ReadConfig)
+                .map_err(Timeout::ReadConfig),
+            Self::WriteConfig(write_config) => write_config
+                .vblank()
+                .map(Self::WriteConfig)
+                .map_err(Timeout::WriteConfig),
+        }
+    }
+
+    fn timer(&mut self) {
+        match self {
+            Self::ReadConfig(read_config) => read_config.timer(),
+            Self::WriteConfig(write_config) => write_config.timer(),
+        }
+    }
+
+    fn serial(
+        self,
+        state: &mut State,
+        timer: Timer,
+        config: &mut Config<Format>,
+        link_generation: Generation,
+    ) -> Result<Option<Self>, Self::Error> {
+        match self {
+            Self::ReadConfig(read_config) => read_config
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    state.transfer_length,
+                    config,
+                    &mut state.phase,
+                    link_generation,
+                )
+                .map(|flow| flow.map(Self::ReadConfig))
+                .map_err(error::Config::ReadConfig),
+            Self::WriteConfig(write_config) => write_config
+                .serial(timer, &mut state.adapter, state.transfer_length)
+                .map(|flow| flow.map(Self::WriteConfig))
+                .map_err(error::Config::WriteConfig),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) enum Flow<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::slot::Sealed,
     Socket2: socket::slot::Sealed,
     Dns: crate::dns::Sealed,
+    Config: config::Sealed,
 {
     Start(Start),
     End(End),
@@ -326,17 +451,18 @@ where
     Socket2(Socket2::SocketFlow<1>),
     Dns(Dns::Flow),
 
-    WriteConfig(WriteConfig),
+    Config(Config::Flow),
 
     Status(Status),
     Idle(Idle),
 }
 
-impl<Socket1, Socket2, Dns> Flow<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Flow<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     pub(super) fn start(transfer_length: TransferLength, link_generation: Generation) -> Self {
         Self::Start(Start::new(transfer_length, link_generation))
@@ -382,14 +508,6 @@ where
         Self::Disconnect(Disconnect::new(transfer_length, timer))
     }
 
-    pub(super) fn write_config(
-        transfer_length: TransferLength,
-        timer: Timer,
-        config: &[u8; 256],
-    ) -> Self {
-        Self::WriteConfig(WriteConfig::new(transfer_length, timer, config))
-    }
-
     pub(super) fn status(transfer_length: TransferLength, timer: Timer) -> Self {
         Self::Status(Status::new(transfer_length, timer))
     }
@@ -427,10 +545,7 @@ where
             Self::Socket1(socket_1) => socket_1.vblank().map(|flow| Some(Self::Socket1(flow))),
             Self::Socket2(socket_2) => socket_2.vblank().map(|flow| Some(Self::Socket2(flow))),
             Self::Dns(dns) => dns.vblank().map(|flow| Some(Self::Dns(flow))),
-            Self::WriteConfig(write_config) => write_config
-                .vblank()
-                .map(|flow| Some(Self::WriteConfig(flow)))
-                .map_err(Timeout::WriteConfig),
+            Self::Config(config) => config.vblank().map(|flow| Some(Self::Config(flow))),
             Self::Status(status) => status
                 .vblank()
                 .map(|flow| Some(Self::Status(flow)))
@@ -453,7 +568,7 @@ where
             Self::Socket1(socket_1) => socket_1.timer(),
             Self::Socket2(socket_2) => socket_2.timer(),
             Self::Dns(dns) => dns.timer(),
-            Self::WriteConfig(write_config) => write_config.timer(),
+            Self::Config(config) => config.timer(),
             Self::Status(status) => status.timer(),
             Self::Idle(idle) => idle.timer(),
         }
@@ -462,35 +577,52 @@ where
     pub(super) fn serial(
         self,
         state: &mut State,
-        queue: &mut Queue<Socket1, Socket2, Dns>,
+        queue: &mut Queue<Socket1, Socket2, Dns, Config>,
         timer: Timer,
         link_generation: Generation,
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &mut Dns,
-    ) -> Result<Option<Self>, Error<Socket1, Socket2, Dns>> {
+        config: &mut Config,
+    ) -> Result<Option<Self>, Error<Socket1, Socket2, Dns, Config>> {
         match self {
             Self::Start(start) => start
                 .serial(
                     timer,
                     &mut state.adapter,
                     &mut state.transfer_length,
-                    &mut state.phase,
-                    &mut state.config,
                     link_generation,
                 )
                 .map(|response| match response {
                     Either::Left(start) => Some(Self::Start(start)),
-                    Either::Right(response) => {
-                        match response {
-                            start::Response::Success => {}
-                            start::Response::AlreadyActive => {
-                                queue.set_end();
-                                queue.set_start();
+                    Either::Right(response) => match response {
+                        start::Response::Success => {
+                            let config_flow = Config::Flow::read_config(
+                                state.transfer_length,
+                                timer,
+                                link_generation,
+                            )
+                            .map(Self::Config);
+                            if config_flow.is_none() {
+                                // Since there is no config read happening, we update the phase now.
+                                state.phase = Phase::Linked {
+                                    frame: 0,
+                                    connection_failure: None,
+                                };
                             }
+                            config_flow
                         }
-                        None
-                    }
+                        start::Response::Superseded => {
+                            // Don't do anything here. We expect that another start or reset flow
+                            // will be executed next.
+                            None
+                        }
+                        start::Response::AlreadyActive => {
+                            queue.set_end();
+                            queue.set_start();
+                            None
+                        }
+                    },
                 })
                 .map_err(Error::Start),
             Self::End(end) => end
@@ -502,11 +634,34 @@ where
                     timer,
                     &mut state.adapter,
                     &mut state.transfer_length,
-                    &mut state.phase,
-                    &mut state.config,
                     link_generation,
                 )
-                .map(|flow| flow.map(Self::Reset))
+                .map(|response| match response {
+                    Either::Left(reset) => Some(Self::Reset(reset)),
+                    Either::Right(response) => match response {
+                        reset::Response::Success => {
+                            let config_flow = Config::Flow::read_config(
+                                state.transfer_length,
+                                timer,
+                                link_generation,
+                            )
+                            .map(Self::Config);
+                            if config_flow.is_none() {
+                                // Since there is no config read happening, we update the phase now.
+                                state.phase = Phase::Linked {
+                                    frame: 0,
+                                    connection_failure: None,
+                                };
+                            }
+                            config_flow
+                        }
+                        reset::Response::Superseded => {
+                            // Don't do anything here. We expect that another start or reset flow
+                            // will be executed next.
+                            None
+                        }
+                    },
+                })
                 .map_err(Error::Reset),
             Self::Login(login) => login
                 .serial(
@@ -538,10 +693,10 @@ where
                 .serial(state, timer, dns)
                 .map(|flow| flow.map(Self::Dns))
                 .map_err(Error::Dns),
-            Self::WriteConfig(write_config) => write_config
-                .serial(timer, &mut state.adapter, state.transfer_length)
-                .map(|flow| flow.map(Self::WriteConfig))
-                .map_err(Error::WriteConfig),
+            Self::Config(flow) => flow
+                .serial(state, timer, config, link_generation)
+                .map(|flow| flow.map(Self::Config))
+                .map_err(Error::Config),
             Self::Status(status) => status
                 .serial(timer, &mut state.adapter, &mut state.phase)
                 .map(|flow| flow.map(Self::Status))
@@ -554,11 +709,12 @@ where
     }
 }
 
-impl<Buffer, Socket2, Dns> Flow<Socket<Buffer>, Socket2, Dns>
+impl<Buffer, Socket2, Dns, Config> Flow<Socket<Buffer>, Socket2, Dns, Config>
 where
     Buffer: socket::Buffer,
     Socket2: socket::Slot,
     Dns: crate::dns::Sealed,
+    Config: config::Sealed,
 {
     pub(super) fn accept(transfer_length: TransferLength, timer: Timer) -> Self {
         Self::Connection(ConnectionFlow::Accept(Accept::new(transfer_length, timer)))
@@ -649,11 +805,12 @@ where
     }
 }
 
-impl<Buffer, Socket1, Dns> Flow<Socket1, Socket<Buffer>, Dns>
+impl<Buffer, Socket1, Dns, Config> Flow<Socket1, Socket<Buffer>, Dns, Config>
 where
     Buffer: socket::Buffer,
     Socket1: socket::Slot,
     Dns: crate::dns::Sealed,
+    Config: config::Sealed,
 {
     pub(super) fn open_tcp_2(
         transfer_length: TransferLength,
@@ -724,10 +881,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, const MAX_LEN: usize> Flow<Socket1, Socket2, crate::Dns<MAX_LEN>>
+impl<Socket1, Socket2, Config, const MAX_LEN: usize>
+    Flow<Socket1, Socket2, crate::Dns<MAX_LEN>, Config>
 where
     Socket1: socket::slot::Sealed,
     Socket2: socket::slot::Sealed,
+    Config: config::Sealed,
 {
     pub(super) fn dns(
         transfer_length: TransferLength,
@@ -741,5 +900,25 @@ where
             name,
             dns_generation,
         )))
+    }
+}
+
+impl<Socket1, Socket2, Dns, Format> Flow<Socket1, Socket2, Dns, Config<Format>>
+where
+    Socket1: socket::slot::Sealed,
+    Socket2: socket::slot::Sealed,
+    Dns: crate::dns::Sealed,
+    Format: config::Format,
+{
+    pub(super) fn write_config(
+        transfer_length: TransferLength,
+        timer: Timer,
+        config: &Config<Format>,
+    ) -> Option<Self> {
+        Some(Self::Config(ConfigFlow::WriteConfig(WriteConfig::new(
+            transfer_length,
+            timer,
+            config,
+        )?)))
     }
 }

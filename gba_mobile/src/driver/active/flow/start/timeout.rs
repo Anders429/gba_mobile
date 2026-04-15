@@ -10,8 +10,6 @@ pub(in crate::driver) enum Timeout {
     BeginSession(packet::Timeout),
     Sio32(packet::Timeout),
     WaitForIdle(wait_for_idle::Timeout),
-    ReadConfig1(packet::Timeout),
-    ReadConfig2(packet::Timeout),
 }
 
 impl Display for Timeout {
@@ -23,12 +21,6 @@ impl Display for Timeout {
             Self::WaitForIdle(_) => formatter.write_str(
                 "timeout while waiting for adapter to enter idle state after enabling SIO32 mode",
             ),
-            Self::ReadConfig1(_) => {
-                formatter.write_str("timeout while reading first half of config")
-            }
-            Self::ReadConfig2(_) => {
-                formatter.write_str("timeout while reading second half of config")
-            }
         }
     }
 }
@@ -40,8 +32,6 @@ impl core::error::Error for Timeout {
             Self::BeginSession(timeout) => Some(timeout),
             Self::Sio32(timeout) => Some(timeout),
             Self::WaitForIdle(timeout) => Some(timeout),
-            Self::ReadConfig1(timeout) => Some(timeout),
-            Self::ReadConfig2(timeout) => Some(timeout),
         }
     }
 }

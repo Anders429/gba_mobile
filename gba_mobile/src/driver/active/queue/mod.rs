@@ -1,7 +1,7 @@
 pub(crate) mod item;
 
 use super::{ConnectionRequest, Flow, Phase, State};
-use crate::{Generation, Timer, dns, socket};
+use crate::{Generation, Timer, config, dns, driver::active::queue::item::ConfigSubItem, socket};
 use core::{
     fmt::{self, Debug, Formatter},
     marker::PhantomData,
@@ -9,17 +9,19 @@ use core::{
 };
 use item::{ConnectionSubItem, DnsSubItem, Item, SocketSubItem};
 
-pub(super) struct Queue<Socket1, Socket2, Dns> {
+pub(super) struct Queue<Socket1, Socket2, Dns, Config> {
     bits: u16,
     sockets: PhantomData<(Socket1, Socket2)>,
     dns: PhantomData<Dns>,
+    config: PhantomData<Config>,
 }
 
-impl<Socket1, Socket2, Dns> Queue<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Queue<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     const NONE: Self = Self::bits(0b0000_0000_0000_0000);
 
@@ -64,6 +66,7 @@ where
             bits,
             sockets: PhantomData,
             dns: PhantomData,
+            config: PhantomData,
         }
     }
 
@@ -157,7 +160,8 @@ where
         socket_1: &mut Socket1,
         socket_2: &mut Socket2,
         dns: &Dns,
-    ) -> Option<Flow<Socket1, Socket2, Dns>> {
+        config: &Config,
+    ) -> Option<Flow<Socket1, Socket2, Dns, Config>> {
         self.next().and_then(|item| {
             match item {
                 Item::Start => Some(Flow::start(state.transfer_length, link_generation)),
@@ -197,11 +201,7 @@ where
                 Item::Socket1(item) => item.next_flow(state, timer, socket_1, socket_2),
                 Item::Socket2(item) => item.next_flow(state, timer, socket_1, socket_2),
                 Item::Dns(item) => item.flow(dns, state, timer),
-                Item::WriteConfig => Some(Flow::write_config(
-                    state.transfer_length,
-                    timer,
-                    &state.config,
-                )),
+                Item::Config(item) => item.flow(config, state, timer),
                 Item::Status => Some(Flow::status(state.transfer_length, timer)),
                 Item::Idle => Some(Flow::idle(state.transfer_length, timer)),
             }
@@ -252,11 +252,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> BitOr for Queue<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> BitOr for Queue<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     type Output = Self;
 
@@ -265,34 +266,37 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> Clone for Queue<Socket1, Socket2, Dns> {
+impl<Socket1, Socket2, Dns, Config> Clone for Queue<Socket1, Socket2, Dns, Config> {
     fn clone(&self) -> Self {
         Self {
             bits: self.bits,
             sockets: self.sockets,
             dns: self.dns,
+            config: self.config,
         }
     }
 }
 
-impl<Socket1, Socket2, Dns> Debug for Queue<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Debug for Queue<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         formatter.debug_list().entries(self.clone()).finish()
     }
 }
 
-impl<Socket1, Socket2, Dns> Iterator for Queue<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Iterator for Queue<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: dns::Mode,
+    Config: config::Mode,
 {
-    type Item = Item<Socket1, Socket2, Dns>;
+    type Item = Item<Socket1, Socket2, Dns, Config>;
 
     /// Iterates over the items set on the queue, returning highest priority items first.
     ///
@@ -310,7 +314,7 @@ where
             Some(Item::Socket2(Socket2::Socket2Item::transfer()))
         } else if self.has(Queue::WRITE_CONFIG) {
             self.clear(Queue::WRITE_CONFIG);
-            Some(Item::WriteConfig)
+            Some(Item::Config(Config::Item::write_config()))
         } else if self.has(Queue::DNS) {
             self.clear(Queue::DNS);
             Some(Item::Dns(Dns::Item::dns()))

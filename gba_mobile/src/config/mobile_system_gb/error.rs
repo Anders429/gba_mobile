@@ -4,7 +4,7 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Error {
     HeaderM(u8),
     HeaderA(u8),

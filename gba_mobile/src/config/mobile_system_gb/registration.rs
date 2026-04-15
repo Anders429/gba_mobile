@@ -20,7 +20,7 @@ impl Registration {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Error(u8);
 
 impl Display for Error {

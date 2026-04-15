@@ -1,6 +1,6 @@
 use super::{Dns, Error};
 use crate::{
-    Driver, Generation,
+    Driver, Generation, config,
     pending::{self, Pendable, PendableError},
     socket,
 };
@@ -13,26 +13,28 @@ pub(crate) struct Pending {
     pub(crate) dns_generation: Generation,
 }
 
-impl<Socket1, Socket2, const MAX_LEN: usize> PendableError<Socket1, Socket2, Dns<MAX_LEN>>
-    for Ipv4Addr
+impl<Socket1, Socket2, Config, const MAX_LEN: usize>
+    PendableError<Socket1, Socket2, Dns<MAX_LEN>, Config> for Ipv4Addr
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Config: config::Mode,
 {
-    type Error = Error<Socket1, Socket2, Dns<MAX_LEN>>;
+    type Error = Error<Socket1, Socket2, Dns<MAX_LEN>, Config>;
 }
 
-impl<Socket1, Socket2, const MAX_LEN: usize> pending::Sealed<Socket1, Socket2, Dns<MAX_LEN>>
-    for Ipv4Addr
+impl<Socket1, Socket2, Config, const MAX_LEN: usize>
+    pending::Sealed<Socket1, Socket2, Dns<MAX_LEN>, Config> for Ipv4Addr
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Config: config::Mode,
 {
     type State = Pending;
 
     fn status(
         state: &Self::State,
-        driver: &Driver<Socket1, Socket2, Dns<MAX_LEN>>,
+        driver: &Driver<Socket1, Socket2, Dns<MAX_LEN>, Config>,
     ) -> Option<Result<Self, Self::Error>> {
         driver
             .as_active(state.link_generation)
@@ -44,7 +46,7 @@ where
 
     fn cancel(
         state: Self::State,
-        driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>>,
+        driver: &mut Driver<Socket1, Socket2, Dns<MAX_LEN>, Config>,
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
@@ -53,9 +55,11 @@ where
     }
 }
 
-impl<Socket1, Socket2, const MAX_LEN: usize> Pendable<Socket1, Socket2, Dns<MAX_LEN>> for Ipv4Addr
+impl<Socket1, Socket2, Config, const MAX_LEN: usize>
+    Pendable<Socket1, Socket2, Dns<MAX_LEN>, Config> for Ipv4Addr
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
+    Config: config::Mode,
 {
 }

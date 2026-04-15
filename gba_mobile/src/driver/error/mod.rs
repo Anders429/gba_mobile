@@ -12,21 +12,23 @@ use core::{
 };
 
 /// All internal error states the driver can enter.
-pub(in crate::driver) enum Error<Socket1, Socket2, Dns>
+pub(in crate::driver) enum Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     Timeout(active::Timeout),
-    Error(active::Error<Socket1, Socket2, Dns>),
+    Error(active::Error<Socket1, Socket2, Dns, Config>),
 }
 
-impl<Socket1, Socket2, Dns> Clone for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Clone for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn clone(&self) -> Self {
         match self {
@@ -36,11 +38,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Debug for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -50,11 +53,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> Display for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Display for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -64,11 +68,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> core::error::Error for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> core::error::Error for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot + 'static,
     Socket2: crate::socket::Slot + 'static,
     Dns: crate::dns::Mode + 'static,
+    Config: crate::config::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {

@@ -3,20 +3,22 @@ use core::{
     fmt::{Debug, Display, Formatter},
 };
 
-pub(crate) struct Error<Socket1, Socket2, Dns>
+pub(crate) struct Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
-    kind: Kind<Socket1, Socket2, Dns>,
+    kind: Kind<Socket1, Socket2, Dns, Config>,
 }
 
-impl<Socket1, Socket2, Dns> Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     pub(in crate::driver) fn closed() -> Self {
         Self { kind: Kind::Closed }
@@ -29,69 +31,75 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> Debug for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Debug for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         Debug::fmt(&self.kind, formatter)
     }
 }
 
-impl<Socket1, Socket2, Dns> Display for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Display for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         Display::fmt(&self.kind, formatter)
     }
 }
 
-impl<Socket1, Socket2, Dns> core::error::Error for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> core::error::Error for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot + 'static,
     Socket2: crate::socket::Slot + 'static,
     Dns: crate::dns::Mode + 'static,
+    Config: crate::config::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.kind.source()
     }
 }
 
-impl<Socket1, Socket2, Dns> From<super::Error<Socket1, Socket2, Dns>>
-    for Error<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> From<super::Error<Socket1, Socket2, Dns, Config>>
+    for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
-    fn from(error: super::Error<Socket1, Socket2, Dns>) -> Self {
+    fn from(error: super::Error<Socket1, Socket2, Dns, Config>) -> Self {
         Self {
             kind: Kind::Driver(error),
         }
     }
 }
 
-enum Kind<Socket1, Socket2, Dns>
+enum Kind<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
-    Driver(super::Error<Socket1, Socket2, Dns>),
+    Driver(super::Error<Socket1, Socket2, Dns, Config>),
     Closed,
     Superseded,
 }
 
-impl<Socket1, Socket2, Dns> Debug for Kind<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Debug for Kind<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -102,11 +110,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> Display for Kind<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> Display for Kind<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot,
     Socket2: crate::socket::Slot,
     Dns: crate::dns::Mode,
+    Config: crate::config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -117,11 +126,12 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns> core::error::Error for Kind<Socket1, Socket2, Dns>
+impl<Socket1, Socket2, Dns, Config> core::error::Error for Kind<Socket1, Socket2, Dns, Config>
 where
     Socket1: crate::socket::Slot + 'static,
     Socket2: crate::socket::Slot + 'static,
     Dns: crate::dns::Mode + 'static,
+    Config: crate::config::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {

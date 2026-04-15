@@ -5,7 +5,7 @@ pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
 use super::request::{Packet, packet::payload};
-use crate::{Timer, driver::Adapter, mmio::serial::TransferLength};
+use crate::{Config, Timer, config, driver::Adapter, mmio::serial::TransferLength};
 use core::ptr;
 use either::Either;
 
@@ -16,22 +16,39 @@ pub(in super::super) enum WriteConfig {
 }
 
 impl WriteConfig {
-    pub(super) fn new(transfer_length: TransferLength, timer: Timer, config: &[u8; 256]) -> Self {
+    pub(super) fn new<Format>(
+        transfer_length: TransferLength,
+        timer: Timer,
+        config: &Config<Format>,
+    ) -> Option<Self>
+    where
+        Format: config::Format,
+    {
+        let mut full_config = [0; 256];
+        unsafe {
+            config
+                .data
+                .assume_init_ref()
+                .as_ref()
+                .ok()
+                .map(|format| format.write(&mut full_config))
+        }?;
+
         let mut first_half = [0; 128];
         let mut second_half = [0; 128];
         unsafe {
-            ptr::copy_nonoverlapping(config.as_ptr(), first_half.as_mut_ptr(), 128);
-            ptr::copy_nonoverlapping(config.as_ptr().add(128), second_half.as_mut_ptr(), 128);
+            ptr::copy_nonoverlapping(full_config.as_ptr(), first_half.as_mut_ptr(), 128);
+            ptr::copy_nonoverlapping(full_config.as_ptr().add(128), second_half.as_mut_ptr(), 128);
         }
 
-        Self::WriteConfig1(
+        Some(Self::WriteConfig1(
             Packet::new(
                 payload::WriteConfig::new(payload::write_config::Location::FirstHalf, first_half),
                 transfer_length,
                 timer,
             ),
             second_half,
-        )
+        ))
     }
 
     pub(super) fn vblank(self) -> Result<Self, Timeout> {

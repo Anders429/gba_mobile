@@ -1,88 +1,97 @@
-use crate::{arrayvec, driver, internet, socket};
+use crate::{arrayvec, config, driver, internet, socket};
 use core::{
     fmt,
     fmt::{Debug, Display, Formatter},
 };
 
-pub struct Error<Socket1, Socket2, Dns, const MAX_LEN: usize>
+pub struct Error<Socket1, Socket2, Dns, Config, const MAX_LEN: usize>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
-    kind: Kind<Socket1, Socket2, Dns, MAX_LEN>,
+    kind: Kind<Socket1, Socket2, Dns, Config, MAX_LEN>,
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> Debug for Error<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> Debug
+    for Error<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         Debug::fmt(&self.kind, formatter)
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> Display for Error<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> Display
+    for Error<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         Display::fmt(&self.kind, formatter)
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> core::error::Error
-    for Error<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> core::error::Error
+    for Error<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot + 'static,
     Socket2: socket::Slot + 'static,
     Dns: crate::dns::Mode + 'static,
+    Config: config::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.kind.source()
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize>
-    From<driver::error::connection::Error<Socket1, Socket2, Dns>>
-    for Error<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize>
+    From<driver::error::connection::Error<Socket1, Socket2, Dns, Config>>
+    for Error<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
-    fn from(error: driver::error::connection::Error<Socket1, Socket2, Dns>) -> Self {
+    fn from(error: driver::error::connection::Error<Socket1, Socket2, Dns, Config>) -> Self {
         Self {
             kind: Kind::Connection(error.into()),
         }
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize>
-    From<driver::error::link::Error<Socket1, Socket2, Dns>>
-    for Error<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize>
+    From<driver::error::link::Error<Socket1, Socket2, Dns, Config>>
+    for Error<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
-    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns>) -> Self {
+    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns, Config>) -> Self {
         Self {
             kind: Kind::Connection(error.into()),
         }
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> From<arrayvec::error::Capacity<MAX_LEN>>
-    for Error<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> From<arrayvec::error::Capacity<MAX_LEN>>
+    for Error<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn from(error: arrayvec::error::Capacity<MAX_LEN>) -> Self {
         Self {
@@ -91,21 +100,24 @@ where
     }
 }
 
-enum Kind<Socket1, Socket2, Dns, const MAX_LEN: usize>
+enum Kind<Socket1, Socket2, Dns, Config, const MAX_LEN: usize>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     Capacity(arrayvec::error::Capacity<MAX_LEN>),
-    Connection(internet::Error<Socket1, Socket2, Dns>),
+    Connection(internet::Error<Socket1, Socket2, Dns, Config>),
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> Debug for Kind<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> Debug
+    for Kind<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -115,11 +127,13 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> Display for Kind<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> Display
+    for Kind<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot,
     Socket2: socket::Slot,
     Dns: crate::dns::Mode,
+    Config: config::Mode,
 {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
@@ -129,12 +143,13 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns, const MAX_LEN: usize> core::error::Error
-    for Kind<Socket1, Socket2, Dns, MAX_LEN>
+impl<Socket1, Socket2, Dns, Config, const MAX_LEN: usize> core::error::Error
+    for Kind<Socket1, Socket2, Dns, Config, MAX_LEN>
 where
     Socket1: socket::Slot + 'static,
     Socket2: socket::Slot + 'static,
     Dns: crate::dns::Mode + 'static,
+    Config: config::Mode + 'static,
 {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
