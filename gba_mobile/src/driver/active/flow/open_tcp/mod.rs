@@ -34,15 +34,8 @@ impl<const INDEX: usize> OpenTcp<INDEX> {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        self.packet
-            .vblank()
-            .map(|packet| Self {
-                connection_generation: self.connection_generation,
-                socket_generation: self.socket_generation,
-                packet,
-            })
-            .map_err(Timeout::OpenTcp)
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        self.packet.vblank().map_err(Timeout::OpenTcp)
     }
 
     pub(super) fn timer(&mut self) {

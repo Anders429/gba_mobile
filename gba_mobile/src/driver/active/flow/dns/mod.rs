@@ -27,14 +27,8 @@ impl<const MAX_LEN: usize> Dns<MAX_LEN> {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        self.packet
-            .vblank()
-            .map(|packet| Self {
-                packet,
-                dns_generation: self.dns_generation,
-            })
-            .map_err(Timeout::Dns)
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        self.packet.vblank().map_err(Timeout::Dns)
     }
 
     pub(super) fn timer(&mut self) {

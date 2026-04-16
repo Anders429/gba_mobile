@@ -31,12 +31,12 @@ impl Idle {
         }
     }
 
-    pub(in crate::driver::active::flow) fn vblank(mut self) -> Result<Self, Timeout> {
+    pub(in crate::driver::active::flow) fn vblank(&mut self) -> Result<(), Timeout> {
         if self.frame > frames::THREE_SECONDS {
             Err(Timeout)
         } else {
             self.frame += 1;
-            Ok(self)
+            Ok(())
         }
     }
 

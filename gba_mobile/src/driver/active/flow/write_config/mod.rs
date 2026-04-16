@@ -51,16 +51,10 @@ impl WriteConfig {
         ))
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::WriteConfig1(packet, data) => packet
-                .vblank()
-                .map(|packet| Self::WriteConfig1(packet, data))
-                .map_err(Timeout::WriteConfig1),
-            Self::WriteConfig2(packet) => packet
-                .vblank()
-                .map(Self::WriteConfig2)
-                .map_err(Timeout::WriteConfig2),
+            Self::WriteConfig1(packet, _) => packet.vblank().map_err(Timeout::WriteConfig1),
+            Self::WriteConfig2(packet) => packet.vblank().map_err(Timeout::WriteConfig2),
         }
     }
 

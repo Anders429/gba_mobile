@@ -61,7 +61,7 @@ use write_config::WriteConfig;
 pub(crate) trait SocketSubFlow<Socket>: Sized + Debug {
     type Error: Clone + core::error::Error + 'static;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
     fn timer(&mut self);
     fn serial(
         self,
@@ -74,7 +74,7 @@ pub(crate) trait SocketSubFlow<Socket>: Sized + Debug {
 pub(crate) trait DnsSubFlow<Dns>: Sized + Debug {
     type Error: Clone + core::error::Error + 'static;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
     fn timer(&mut self);
     fn serial(
         self,
@@ -93,7 +93,7 @@ pub(crate) trait ConfigSubFlow<Config>: Sized + Debug {
         link_generation: Generation,
     ) -> Option<Self>;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
     fn timer(&mut self);
     fn serial(
         self,
@@ -113,7 +113,7 @@ pub(crate) enum Empty {}
 impl SocketSubFlow<NoSocket> for Empty {
     type Error = Infallible;
 
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         unreachable!()
     }
 
@@ -134,7 +134,7 @@ impl SocketSubFlow<NoSocket> for Empty {
 impl DnsSubFlow<NoDns> for Empty {
     type Error = Infallible;
 
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         unreachable!()
     }
 
@@ -163,7 +163,7 @@ impl ConfigSubFlow<NoConfig> for Empty {
         None
     }
 
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         unreachable!()
     }
 
@@ -191,13 +191,10 @@ pub(crate) enum ConnectionFlow {
 impl<Buffer> SocketSubFlow<Socket<Buffer>> for ConnectionFlow {
     type Error = error::Connection;
 
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::Accept(accept) => accept.vblank().map(Self::Accept).map_err(Timeout::Accept),
-            Self::Connect(connect) => connect
-                .vblank()
-                .map(Self::Connect)
-                .map_err(Timeout::Connect),
+            Self::Accept(accept) => accept.vblank().map_err(Timeout::Accept),
+            Self::Connect(connect) => connect.vblank().map_err(Timeout::Connect),
         }
     }
 
@@ -248,28 +245,15 @@ where
 {
     type Error = error::Socket<Buffer::WriteError>;
 
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::OpenTcp(open_tcp) => open_tcp
-                .vblank()
-                .map(Self::OpenTcp)
-                .map_err(Timeout::OpenTcp),
-            Self::OpenUdp(open_udp) => open_udp
-                .vblank()
-                .map(Self::OpenUdp)
-                .map_err(Timeout::OpenUdp),
-            Self::CloseTcp(close_tcp) => close_tcp
-                .vblank()
-                .map(Self::CloseTcp)
-                .map_err(Timeout::CloseTcp),
-            Self::CloseUdp(close_udp) => close_udp
-                .vblank()
-                .map(Self::CloseUdp)
-                .map_err(Timeout::CloseUdp),
-            Self::TransferData(transfer_data) => transfer_data
-                .vblank()
-                .map(Self::TransferData)
-                .map_err(Timeout::TransferData),
+            Self::OpenTcp(open_tcp) => open_tcp.vblank().map_err(Timeout::OpenTcp),
+            Self::OpenUdp(open_udp) => open_udp.vblank().map_err(Timeout::OpenUdp),
+            Self::CloseTcp(close_tcp) => close_tcp.vblank().map_err(Timeout::CloseTcp),
+            Self::CloseUdp(close_udp) => close_udp.vblank().map_err(Timeout::CloseUdp),
+            Self::TransferData(transfer_data) => {
+                transfer_data.vblank().map_err(Timeout::TransferData)
+            }
         }
     }
 
@@ -338,8 +322,8 @@ pub(crate) struct DnsFlow<const MAX_LEN: usize>(Dns<MAX_LEN>);
 impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> {
     type Error = error::Dns<MAX_LEN>;
 
-    fn vblank(self) -> Result<Self, Timeout> {
-        self.0.vblank().map(DnsFlow).map_err(Timeout::Dns)
+    fn vblank(&mut self) -> Result<(), Timeout> {
+        self.0.vblank().map_err(Timeout::Dns)
     }
 
     fn timer(&mut self) {
@@ -383,16 +367,10 @@ where
         )))
     }
 
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::ReadConfig(read_config) => read_config
-                .vblank()
-                .map(Self::ReadConfig)
-                .map_err(Timeout::ReadConfig),
-            Self::WriteConfig(write_config) => write_config
-                .vblank()
-                .map(Self::WriteConfig)
-                .map_err(Timeout::WriteConfig),
+            Self::ReadConfig(read_config) => read_config.vblank().map_err(Timeout::ReadConfig),
+            Self::WriteConfig(write_config) => write_config.vblank().map_err(Timeout::WriteConfig),
         }
     }
 
@@ -516,44 +494,24 @@ where
         Self::Idle(Idle::new(transfer_length, timer))
     }
 
-    /// Only returns `None` if the active session is being ended.
-    pub(super) fn vblank(self) -> Result<Option<Self>, Timeout> {
+    /// Only returns `false` if the active session is being ended.
+    pub(super) fn vblank(&mut self) -> Result<bool, Timeout> {
         match self {
-            Self::Start(start) => start
-                .vblank()
-                .map(|flow| Some(Self::Start(flow)))
-                .map_err(Timeout::Start),
-            Self::End(end) => end
-                .vblank()
-                .map(|flow| flow.map(Self::End))
-                .map_err(Timeout::End),
-            Self::Reset(reset) => reset
-                .vblank()
-                .map(|flow| Some(Self::Reset(flow)))
-                .map_err(Timeout::Reset),
-            Self::Login(login) => login
-                .vblank()
-                .map(|flow| Some(Self::Login(flow)))
-                .map_err(Timeout::Login),
-            Self::Connection(connection) => {
-                connection.vblank().map(|flow| Some(Self::Connection(flow)))
-            }
+            Self::Start(start) => start.vblank().map(|_| true).map_err(Timeout::Start),
+            Self::End(end) => end.vblank().map_err(Timeout::End),
+            Self::Reset(reset) => reset.vblank().map(|_| true).map_err(Timeout::Reset),
+            Self::Login(login) => login.vblank().map(|_| true).map_err(Timeout::Login),
+            Self::Connection(connection) => connection.vblank().map(|_| true),
             Self::Disconnect(disconnect) => disconnect
                 .vblank()
-                .map(|flow| Some(Self::Disconnect(flow)))
+                .map(|_| true)
                 .map_err(Timeout::Disconnect),
-            Self::Socket1(socket_1) => socket_1.vblank().map(|flow| Some(Self::Socket1(flow))),
-            Self::Socket2(socket_2) => socket_2.vblank().map(|flow| Some(Self::Socket2(flow))),
-            Self::Dns(dns) => dns.vblank().map(|flow| Some(Self::Dns(flow))),
-            Self::Config(config) => config.vblank().map(|flow| Some(Self::Config(flow))),
-            Self::Status(status) => status
-                .vblank()
-                .map(|flow| Some(Self::Status(flow)))
-                .map_err(Timeout::Status),
-            Self::Idle(idle) => idle
-                .vblank()
-                .map(|flow| Some(Self::Idle(flow)))
-                .map_err(Timeout::Idle),
+            Self::Socket1(socket_1) => socket_1.vblank().map(|_| true),
+            Self::Socket2(socket_2) => socket_2.vblank().map(|_| true),
+            Self::Dns(dns) => dns.vblank().map(|_| true),
+            Self::Config(config) => config.vblank().map(|_| true),
+            Self::Status(status) => status.vblank().map(|_| true).map_err(Timeout::Status),
+            Self::Idle(idle) => idle.vblank().map(|_| true).map_err(Timeout::Idle),
         }
     }
 

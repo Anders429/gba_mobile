@@ -40,22 +40,10 @@ impl ReadConfig {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        match self.state {
-            State::ReadConfig1(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::ReadConfig1(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::ReadConfig1),
-            State::ReadConfig2(first_half, packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::ReadConfig2(first_half, packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::ReadConfig2),
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        match &mut self.state {
+            State::ReadConfig1(packet) => packet.vblank().map_err(Timeout::ReadConfig1),
+            State::ReadConfig2(_, packet) => packet.vblank().map_err(Timeout::ReadConfig2),
         }
     }
 

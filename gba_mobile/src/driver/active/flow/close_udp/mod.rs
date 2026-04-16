@@ -23,11 +23,8 @@ impl CloseUdp {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        self.packet
-            .vblank()
-            .map(|packet| Self { packet })
-            .map_err(Timeout::CloseUdp)
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        self.packet.vblank().map_err(Timeout::CloseUdp)
     }
 
     pub(super) fn timer(&mut self) {

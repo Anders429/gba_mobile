@@ -30,16 +30,12 @@ impl TransferData {
         ))
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::TransferData(packet) => packet
-                .vblank()
-                .map(|packet| Self::TransferData(packet))
-                .map_err(Timeout::TransferData),
-            Self::WriteToBuffer(buffer, index, repeating_idle) => repeating_idle
-                .vblank()
-                .map(|repeating_idle| Self::WriteToBuffer(buffer, index, repeating_idle))
-                .map_err(Timeout::WriteToBuffer),
+            Self::TransferData(packet) => packet.vblank().map_err(Timeout::TransferData),
+            Self::WriteToBuffer(_, _, repeating_idle) => {
+                repeating_idle.vblank().map_err(Timeout::WriteToBuffer)
+            }
         }
     }
 

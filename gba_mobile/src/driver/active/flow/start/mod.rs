@@ -34,36 +34,14 @@ impl Start {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        match self.state {
-            State::Wake(wait_for_idle) => wait_for_idle
-                .vblank()
-                .map(|wait_for_idle| Self {
-                    state: State::Wake(wait_for_idle),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::Wake),
-            State::BeginSession(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::BeginSession(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::BeginSession),
-            State::Sio32(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::Sio32(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::Sio32),
-            State::WaitForIdle(wait_for_idle) => wait_for_idle
-                .vblank()
-                .map(|wait_for_idle| Self {
-                    state: State::WaitForIdle(wait_for_idle),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::WaitForIdle),
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        match &mut self.state {
+            State::Wake(wait_for_idle) => wait_for_idle.vblank().map_err(Timeout::Wake),
+            State::BeginSession(packet) => packet.vblank().map_err(Timeout::BeginSession),
+            State::Sio32(packet) => packet.vblank().map_err(Timeout::Sio32),
+            State::WaitForIdle(wait_for_idle) => {
+                wait_for_idle.vblank().map_err(Timeout::WaitForIdle)
+            }
         }
     }
 

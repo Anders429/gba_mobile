@@ -25,12 +25,9 @@ impl Accept {
         ))
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::AcceptConnection(packet) => packet
-                .vblank()
-                .map(Self::AcceptConnection)
-                .map_err(Timeout::AcceptConnection),
+            Self::AcceptConnection(packet) => packet.vblank().map_err(Timeout::AcceptConnection),
         }
     }
 

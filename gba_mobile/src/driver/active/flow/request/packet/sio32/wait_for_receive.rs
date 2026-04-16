@@ -52,7 +52,7 @@ where
     type Receive = Receive<Payload>;
     type ReceiveError = ReceiveError<Payload>;
 
-    fn vblank(mut self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         if self.packet_frame > frames::FIFTEEN_SECONDS {
             Err(Timeout::Packet)
         } else if self.serial_frame > frames::THREE_SECONDS {
@@ -68,7 +68,7 @@ where
             }
             self.packet_frame += 1;
             self.serial_frame += 1;
-            Ok(self)
+            Ok(())
         }
     }
 

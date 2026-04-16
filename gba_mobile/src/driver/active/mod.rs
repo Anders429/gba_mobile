@@ -1066,9 +1066,8 @@ where
             _ => {}
         }
 
-        if let Some(flow) = self.flow.take() {
-            self.flow = flow.vblank()?;
-            if self.flow.is_some() {
+        if let Some(flow) = &mut self.flow {
+            if flow.vblank()? {
                 Ok(StateChange::StillActive)
             } else {
                 Ok(StateChange::Inactive)

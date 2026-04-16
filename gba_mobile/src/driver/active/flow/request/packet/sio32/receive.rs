@@ -103,12 +103,12 @@ where
 {
     type ReceiveError = ReceiveError<Payload>;
 
-    fn vblank(mut self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         if self.state.frame > frames::THREE_SECONDS {
             return Err(Timeout::Serial);
         } else {
             self.state.frame += 1;
-            Ok(self)
+            Ok(())
         }
     }
 

@@ -38,36 +38,16 @@ impl Reset {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        match self.state {
-            State::Reset(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::Reset(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::Reset),
-            State::WaitForSio8(wait_for_idle) => wait_for_idle
-                .vblank()
-                .map(|wait_for_idle| Self {
-                    state: State::WaitForSio8(wait_for_idle),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::WaitForSio8),
-            State::EnableSio32(packet) => packet
-                .vblank()
-                .map(|packet| Self {
-                    state: State::EnableSio32(packet),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::EnableSio32),
-            State::WaitForSio32(wait_for_idle) => wait_for_idle
-                .vblank()
-                .map(|wait_for_idle| Self {
-                    state: State::WaitForSio32(wait_for_idle),
-                    link_generation: self.link_generation,
-                })
-                .map_err(Timeout::WaitForSio32),
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        match &mut self.state {
+            State::Reset(packet) => packet.vblank().map_err(Timeout::Reset),
+            State::WaitForSio8(wait_for_idle) => {
+                wait_for_idle.vblank().map_err(Timeout::WaitForSio8)
+            }
+            State::EnableSio32(packet) => packet.vblank().map_err(Timeout::EnableSio32),
+            State::WaitForSio32(wait_for_idle) => {
+                wait_for_idle.vblank().map_err(Timeout::WaitForSio32)
+            }
         }
     }
 

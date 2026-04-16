@@ -20,7 +20,7 @@ const MAX_RETRIES: u8 = 5;
 pub(in crate::driver::active) trait Send: Sized {
     type WaitForReceive;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
 
     fn timer(&mut self);
 
@@ -31,7 +31,7 @@ pub(in crate::driver::active) trait WaitForReceive: Sized {
     type Receive;
     type ReceiveError;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
 
     fn serial(self) -> Result<Either<Self, Self::Receive>, Self::ReceiveError>;
 }
@@ -42,7 +42,7 @@ where
 {
     type ReceiveError;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
 
     fn timer(&mut self);
 
@@ -57,7 +57,7 @@ where
 {
     type WaitForReceive;
 
-    fn vblank(self) -> Result<Self, Timeout>;
+    fn vblank(&mut self) -> Result<(), Timeout>;
 
     fn timer(&mut self);
 
@@ -98,14 +98,12 @@ where
     Payload: self::Payload,
     Sio: self::Sio,
 {
-    fn vblank(self) -> Result<Self, Timeout> {
+    fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::Send(send) => Ok(Self::Send(send.vblank()?)),
-            Self::WaitForReceive(wait_for_receive) => {
-                Ok(Self::WaitForReceive(wait_for_receive.vblank()?))
-            }
-            Self::Receive(receive) => Ok(Self::Receive(receive.vblank()?)),
-            Self::ReceiveError(receive_error) => Ok(Self::ReceiveError(receive_error.vblank()?)),
+            Self::Send(send) => send.vblank(),
+            Self::WaitForReceive(wait_for_receive) => wait_for_receive.vblank(),
+            Self::Receive(receive) => receive.vblank(),
+            Self::ReceiveError(receive_error) => receive_error.vblank(),
         }
     }
 
@@ -196,10 +194,10 @@ where
         }
     }
 
-    pub(in crate::driver::active::flow) fn vblank(self) -> Result<Self, Timeout> {
+    pub(in crate::driver::active::flow) fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::Packet8(packet) => packet.vblank().map(Self::Packet8),
-            Self::Packet32(packet) => packet.vblank().map(Self::Packet32),
+            Self::Packet8(packet) => packet.vblank(),
+            Self::Packet32(packet) => packet.vblank(),
         }
     }
 

@@ -48,30 +48,10 @@ impl Login {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
         match self {
-            Self::Connect {
-                packet,
-                login,
-                connection_generation,
-            } => packet
-                .vblank()
-                .map(|packet| Self::Connect {
-                    packet,
-                    login,
-                    connection_generation,
-                })
-                .map_err(Timeout::Connect),
-            Self::Login {
-                packet,
-                connection_generation,
-            } => packet
-                .vblank()
-                .map(|packet| Self::Login {
-                    packet,
-                    connection_generation,
-                })
-                .map_err(Timeout::Login),
+            Self::Connect { packet, .. } => packet.vblank().map_err(Timeout::Connect),
+            Self::Login { packet, .. } => packet.vblank().map_err(Timeout::Login),
         }
     }
 

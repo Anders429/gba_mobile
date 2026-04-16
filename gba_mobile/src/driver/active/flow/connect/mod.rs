@@ -38,14 +38,8 @@ impl Connect {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        self.packet
-            .vblank()
-            .map(|packet| Self {
-                packet,
-                connection_generation: self.connection_generation,
-            })
-            .map_err(Timeout::Connect)
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        self.packet.vblank().map_err(Timeout::Connect)
     }
 
     pub(super) fn timer(&mut self) {

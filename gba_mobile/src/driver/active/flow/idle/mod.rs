@@ -19,11 +19,8 @@ impl Idle {
         }
     }
 
-    pub(super) fn vblank(self) -> Result<Self, Timeout> {
-        self.idle
-            .vblank()
-            .map(|idle| Self { idle })
-            .map_err(Timeout::Idle)
+    pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
+        self.idle.vblank().map_err(Timeout::Idle)
     }
 
     pub(super) fn timer(&mut self) {

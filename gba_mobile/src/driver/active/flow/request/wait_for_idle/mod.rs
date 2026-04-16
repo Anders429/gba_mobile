@@ -24,7 +24,7 @@ impl WaitForIdle {
         }
     }
 
-    pub(in crate::driver::active::flow) fn vblank(mut self) -> Result<Self, Timeout> {
+    pub(in crate::driver::active::flow) fn vblank(&mut self) -> Result<(), Timeout> {
         if self.frame % frames::ONE_HUNDRED_MILLISECONDS == 0 {
             if matches!(self.communication_state, communication::State::Send) {
                 // Send a new idle byte.
@@ -42,7 +42,7 @@ impl WaitForIdle {
             Err(Timeout)
         } else {
             self.frame += 1;
-            Ok(self)
+            Ok(())
         }
     }
 

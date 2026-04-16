@@ -18,15 +18,12 @@ impl RepeatingIdle {
         Self::Idle(Idle::new(transfer_length, timer))
     }
 
-    pub(in crate::driver::active::flow) fn vblank(self) -> Result<Self, idle::Timeout> {
+    pub(in crate::driver::active::flow) fn vblank(&mut self) -> Result<(), idle::Timeout> {
         match self {
-            Self::Idle(idle) => idle.vblank().map(Self::Idle),
-            Self::Delay {
-                transfer_length,
-                timer,
-            } => {
+            Self::Idle(idle) => idle.vblank(),
+            Self::Delay { .. } => {
                 // Send a new idle every frame.
-                Ok(Self::new(transfer_length, timer))
+                Ok(())
             }
         }
     }

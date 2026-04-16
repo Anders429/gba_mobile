@@ -23,18 +23,16 @@ impl End {
         Self::EndSession(Packet::new(payload::EndSession, transfer_length, timer))
     }
 
-    pub(super) fn vblank(self) -> Result<Option<Self>, Timeout> {
+    pub(super) fn vblank(&mut self) -> Result<bool, Timeout> {
         match self {
-            Self::EndSession(packet) => packet
-                .vblank()
-                .map(|packet| Some(Self::EndSession(packet)))
-                .map_err(Timeout::EndSession),
+            Self::EndSession(packet) => packet.vblank().map(|_| true).map_err(Timeout::EndSession),
             Self::WaitForSio8(frame) => {
-                if frame >= frames::ONE_HUNDRED_MILLISECONDS {
+                if *frame >= frames::ONE_HUNDRED_MILLISECONDS {
                     // We have waited sufficiently long enough to fully close the active state..
-                    Ok(None)
+                    Ok(false)
                 } else {
-                    Ok(Some(Self::WaitForSio8(frame.saturating_add(1))))
+                    *frame = frame.saturating_add(1);
+                    Ok(true)
                 }
             }
         }
