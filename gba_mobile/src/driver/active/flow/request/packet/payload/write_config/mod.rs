@@ -1,15 +1,9 @@
 pub(in crate::driver) mod error;
 
 use super::{Payload, command_error};
-use crate::driver::Command;
+use crate::{config::format::Location, driver::Command};
 use core::num::NonZeroU16;
 use either::Either;
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::driver::active::flow) enum Location {
-    FirstHalf,
-    SecondHalf,
-}
 
 #[derive(Debug)]
 pub(in crate::driver) struct WriteConfig {
@@ -40,7 +34,7 @@ impl super::Send for WriteConfig {
     }
 
     fn length(&self) -> u8 {
-        129
+        self.location.length.get() + 1
     }
 
     fn get(&self, index: u8) -> u8 {
@@ -52,10 +46,7 @@ impl super::Send for WriteConfig {
                 .unwrap_or(0x00)
         } else {
             // If this is the first byte, send the write location offset.
-            match self.location {
-                Location::FirstHalf => 0,
-                Location::SecondHalf => 128,
-            }
+            self.location.offset
         }
     }
 
@@ -180,48 +171,30 @@ impl super::ReceiveData for ReceiveData {
         (Self::Error, Self::ReceiveCommand, Option<(NonZeroU16, u16)>),
     > {
         match self.command_data {
-            CommandData::Offset => match self.location {
-                Location::FirstHalf => {
-                    if byte == 0 {
-                        Ok(Either::Left(Self {
-                            command_data: CommandData::Length,
+            CommandData::Offset => {
+                if byte == self.location.offset {
+                    Ok(Either::Left(Self {
+                        command_data: CommandData::Length,
+                        location: self.location,
+                    }))
+                } else {
+                    Err((
+                        error::InvalidData::Offset(byte, self.location.offset),
+                        ReceiveCommand {
                             location: self.location,
-                        }))
-                    } else {
-                        Err((
-                            error::InvalidData::FirstHalfOffset(byte),
-                            ReceiveCommand {
-                                location: self.location,
-                            },
-                            Some((unsafe { NonZeroU16::new_unchecked(2) }, 1)),
-                        ))
-                    }
+                        },
+                        Some((unsafe { NonZeroU16::new_unchecked(2) }, 1)),
+                    ))
                 }
-                Location::SecondHalf => {
-                    if byte == 128 {
-                        Ok(Either::Left(Self {
-                            command_data: CommandData::Length,
-                            location: self.location,
-                        }))
-                    } else {
-                        Err((
-                            error::InvalidData::SecondHalfOffset(byte),
-                            ReceiveCommand {
-                                location: self.location,
-                            },
-                            Some((unsafe { NonZeroU16::new_unchecked(2) }, 1)),
-                        ))
-                    }
-                }
-            },
+            }
             CommandData::Length => {
-                if byte == 128 {
+                if byte == self.location.length.get() {
                     Ok(Either::Right(ReceiveParsed {
                         location: self.location,
                     }))
                 } else {
                     Err((
-                        error::InvalidData::InvalidLength(byte),
+                        error::InvalidData::InvalidLength(byte, self.location.length),
                         ReceiveCommand {
                             location: self.location,
                         },

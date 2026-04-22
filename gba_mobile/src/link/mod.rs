@@ -177,10 +177,14 @@ where
     pub fn config(
         &self,
         driver: &Driver<Socket1, Socket2, Dns, Config<Format>>,
-    ) -> Result<Result<Format, Format::Error>, Error<Socket1, Socket2, Dns, Config<Format>>> {
+    ) -> Result<
+        Result<Format, Format::Error>,
+        error::config::Error<Socket1, Socket2, Dns, Config<Format>>,
+    > {
         driver
-            .as_active(self.link_generation)?
-            .config()
+            .as_active(self.link_generation)
+            .map_err(Into::into)
+            .and_then(|active| active.config())
             .map_err(Into::into)
     }
 

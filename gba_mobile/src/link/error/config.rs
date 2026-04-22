@@ -1,7 +1,3 @@
-pub mod config;
-pub mod connect;
-pub mod login;
-
 use crate::{dns, driver, socket};
 use core::{
     fmt,
@@ -15,7 +11,7 @@ where
     Dns: dns::Mode,
     Config: crate::config::Mode,
 {
-    internal: driver::error::link::Error<Socket1, Socket2, Dns, Config>,
+    internal: driver::error::config::Error<Socket1, Socket2, Dns, Config>,
 }
 
 impl<Socket1, Socket2, Dns, Config> Debug for Error<Socket1, Socket2, Dns, Config>
@@ -54,7 +50,8 @@ where
     }
 }
 
-impl<Socket1, Socket2, Dns, Config> From<driver::error::link::Error<Socket1, Socket2, Dns, Config>>
+impl<Socket1, Socket2, Dns, Config>
+    From<driver::error::config::Error<Socket1, Socket2, Dns, Config>>
     for Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
@@ -62,7 +59,7 @@ where
     Dns: dns::Mode,
     Config: crate::config::Mode,
 {
-    fn from(error: driver::error::link::Error<Socket1, Socket2, Dns, Config>) -> Self {
+    fn from(error: driver::error::config::Error<Socket1, Socket2, Dns, Config>) -> Self {
         Self { internal: error }
     }
 }

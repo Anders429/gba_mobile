@@ -5,7 +5,7 @@ use core::{
     fmt::{Display, Formatter},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(in crate::driver) struct UnsupportedCommand(pub(super) Command);
 
 impl Display for UnsupportedCommand {
@@ -24,16 +24,16 @@ impl core::error::Error for UnsupportedCommand {}
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum InvalidLength {
-    ReadConfig(u8),
+    ReadConfig(u8, u8),
     CommandError(u8),
 }
 
 impl Display for InvalidLength {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::ReadConfig(length) => write!(
+            Self::ReadConfig(received, expected) => write!(
                 formatter,
-                "received length of {length} for {} packet, but expected length of 129",
+                "received length of {received} for {} packet, but expected length of {expected}",
                 Command::ReadConfigurationData,
             ),
             Self::CommandError(length) => write!(

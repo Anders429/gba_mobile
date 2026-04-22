@@ -351,7 +351,7 @@ where
         self,
     ) -> Result<
         Result<Format, Format::Error>,
-        error::link::Error<Socket1, Socket2, Dns, Config<Format>>,
+        error::config::Error<Socket1, Socket2, Dns, Config<Format>>,
     > {
         unsafe { self.active.config(self.config) }
     }

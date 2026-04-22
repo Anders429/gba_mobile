@@ -1,18 +1,15 @@
-use super::ReadConfig;
+use crate::config::format::Location;
+
 use core::{
     fmt,
     fmt::{Display, Formatter},
 };
-use deranged::RangedU8;
 use either::Either;
 
 #[derive(Debug)]
 pub(in crate::driver) enum Data {
     Offset,
-    Config {
-        index: RangedU8<0, 127>,
-        data: [u8; 128],
-    },
+    Config { index: u8, data: [u8; 128] },
 }
 
 impl Data {
@@ -22,7 +19,7 @@ impl Data {
 
     fn new_config() -> Self {
         Self::Config {
-            index: RangedU8::new_static::<0>(),
+            index: 0,
             data: [0; 128],
         }
     }
@@ -30,20 +27,29 @@ impl Data {
     pub(super) fn receive_data(
         self,
         byte: u8,
-        read_config: ReadConfig,
+        location: Location,
     ) -> Result<Either<Self, [u8; 128]>, (Error, Option<u16>)> {
         match self {
-            Self::Offset => match (read_config, byte) {
-                (ReadConfig::FirstHalf, 0) => Ok(Either::Left(Self::new_config())),
-                (ReadConfig::FirstHalf, _) => Err((Error::FirstHalfOffset(byte), Some(1))),
-                (ReadConfig::SecondHalf, 128) => Ok(Either::Left(Self::new_config())),
-                (ReadConfig::SecondHalf, _) => Err((Error::SecondHalfOffset(byte), Some(1))),
-            },
+            Self::Offset => {
+                if byte == location.offset {
+                    if location.length.get() == 0 {
+                        Ok(Either::Right([0; 128]))
+                    } else {
+                        Ok(Either::Left(Self::new_config()))
+                    }
+                } else {
+                    Err((Error::Offset(byte, location.offset), Some(1)))
+                }
+            }
             Self::Config { index, mut data } => {
-                data[index.get() as usize] = byte;
-                match index.checked_add(1) {
-                    Some(index) => Ok(Either::Left(Self::Config { index, data })),
-                    None => Ok(Either::Right(data)),
+                data[index as usize] = byte;
+                if index + 1 == location.length.get() {
+                    Ok(Either::Right(data))
+                } else {
+                    Ok(Either::Left(Self::Config {
+                        index: index + 1,
+                        data,
+                    }))
                 }
             }
         }
@@ -52,20 +58,15 @@ impl Data {
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum Error {
-    FirstHalfOffset(u8),
-    SecondHalfOffset(u8),
+    Offset(u8, u8),
 }
 
 impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::FirstHalfOffset(offset) => write!(
+            Self::Offset(received, expected) => write!(
                 formatter,
-                "received offset of {offset} when reading first half of config, but expected offset of 0"
-            ),
-            Self::SecondHalfOffset(offset) => write!(
-                formatter,
-                "received offset of {offset} when reading second half of config, but expected offset of 128"
+                "received offset of {received} when reading config, but expected offset of {expected}",
             ),
         }
     }

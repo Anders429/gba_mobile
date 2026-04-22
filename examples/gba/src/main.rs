@@ -106,7 +106,7 @@ static mut DRIVER: Driver<Socket<RingBuffer>, NoSocket, Dns<14>, Config<mobile_s
         Socket::new(RingBuffer::new()),
         NoSocket,
         Dns::new(),
-        Config::new(),
+        Config::new(mobile_system_gb::Config::new()),
     );
 
 // TODO: This function should probably be unsafe.

@@ -14,7 +14,6 @@ use crate::{
 };
 use core::{
     fmt::{self, Display, Formatter},
-    mem::MaybeUninit,
     net::{Ipv4Addr, SocketAddrV4},
 };
 use flow::Flow;
@@ -964,15 +963,19 @@ where
         config: &crate::Config<Format>,
     ) -> Result<
         Result<Format, Format::Error>,
-        super::error::link::Error<Socket1, Socket2, Dns, Config>,
+        super::error::config::Error<Socket1, Socket2, Dns, Config>,
     >
     where
         Format: config::Format,
     {
         if matches!(self.state.phase, Phase::Ending) {
-            Err(super::error::link::Error::closed())
+            Err(super::error::link::Error::closed().into())
         } else {
-            Ok(unsafe { config.data.assume_init_ref().clone() })
+            match &config.data {
+                config::Data::Config(format) => Ok(Ok(format.clone())),
+                config::Data::Segments(_) => Err(super::error::config::Error::uninitialized()),
+                config::Data::Error(error) => Ok(Err(error.clone())),
+            }
         }
     }
 
@@ -987,7 +990,7 @@ where
         if matches!(self.state.phase, Phase::Ending) {
             Err(super::error::link::Error::closed())
         } else {
-            config.data = MaybeUninit::new(Ok(value));
+            config.data = config::Data::Config(value);
             self.queue.set_write_config();
             Ok(())
         }

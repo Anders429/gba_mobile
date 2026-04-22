@@ -3,6 +3,7 @@ use core::{
     fmt,
     fmt::{Display, Formatter},
 };
+use deranged::RangedU8;
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) struct UnsupportedCommand(pub(super) Command);
@@ -48,9 +49,8 @@ impl core::error::Error for InvalidLength {}
 
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum InvalidData {
-    FirstHalfOffset(u8),
-    SecondHalfOffset(u8),
-    InvalidLength(u8),
+    Offset(u8, u8),
+    InvalidLength(u8, RangedU8<0, 128>),
     UnknownCommandError(command::error::Unknown),
     UnexpectedCommandError(command::Error),
 }
@@ -58,17 +58,13 @@ pub(in crate::driver) enum InvalidData {
 impl Display for InvalidData {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::FirstHalfOffset(offset) => write!(
+            Self::Offset(expected, received) => write!(
                 formatter,
-                "received offset of {offset} when writing first half of config, but expected offset of 0"
+                "received offset of {received} when writing config, but expected offset of {expected}"
             ),
-            Self::SecondHalfOffset(offset) => write!(
+            Self::InvalidLength(received, expected) => write!(
                 formatter,
-                "received offset of {offset} when writing second half of config, but expected offset of 128"
-            ),
-            Self::InvalidLength(length) => write!(
-                formatter,
-                "received length of {length} when writing config, but expected length of 128"
+                "received length of {received} when writing config, but expected length of {expected}"
             ),
             Self::UnknownCommandError(_) => {
                 formatter.write_str("unable to parse command error payload")
@@ -83,9 +79,8 @@ impl Display for InvalidData {
 impl core::error::Error for InvalidData {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::FirstHalfOffset(_) => None,
-            Self::SecondHalfOffset(_) => None,
-            Self::InvalidLength(_) => None,
+            Self::Offset(_, _) => None,
+            Self::InvalidLength(_, _) => None,
             Self::UnknownCommandError(unknown) => Some(unknown),
             Self::UnexpectedCommandError(error) => Some(error),
         }

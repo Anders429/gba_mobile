@@ -6,63 +6,57 @@ pub(in crate::driver) use timeout::Timeout;
 
 use super::request::{Packet, packet::payload};
 use crate::{Config, Timer, config, driver::Adapter, mmio::serial::TransferLength};
-use core::ptr;
+use core::{
+    fmt,
+    fmt::{Debug, Formatter},
+    marker::PhantomData,
+};
 use either::Either;
 
-#[derive(Debug)]
-pub(in super::super) enum WriteConfig {
-    WriteConfig1(Packet<payload::WriteConfig>, [u8; 128]),
-    WriteConfig2(Packet<payload::WriteConfig>),
+pub(in super::super) struct WriteConfig<Format> {
+    packet: Packet<payload::WriteConfig>,
+    request: usize,
+    format: PhantomData<Format>,
 }
 
-impl WriteConfig {
-    pub(super) fn new<Format>(
+impl<Format> WriteConfig<Format>
+where
+    Format: config::Format,
+{
+    pub(super) fn new(
         transfer_length: TransferLength,
         timer: Timer,
         config: &Config<Format>,
-    ) -> Option<Self>
-    where
-        Format: config::Format,
-    {
-        let mut full_config = [0; 256];
-        unsafe {
-            config
-                .data
-                .assume_init_ref()
-                .as_ref()
-                .ok()
-                .map(|format| format.write(&mut full_config))
-        }?;
-
-        let mut first_half = [0; 128];
-        let mut second_half = [0; 128];
-        unsafe {
-            ptr::copy_nonoverlapping(full_config.as_ptr(), first_half.as_mut_ptr(), 128);
-            ptr::copy_nonoverlapping(full_config.as_ptr().add(128), second_half.as_mut_ptr(), 128);
+    ) -> Option<Self> {
+        if Format::WRITES == 0 {
+            // There is no writing to actually be done for this config format.
+            None
+        } else {
+            let mut data = [0; 128];
+            if let config::Data::Config(format) = &config.data {
+                let location = format.write(0, &mut data);
+                Some(Self {
+                    packet: Packet::new(
+                        payload::WriteConfig::new(location, data),
+                        transfer_length,
+                        timer,
+                    ),
+                    request: 0,
+                    format: PhantomData,
+                })
+            } else {
+                // The config is not currently in a valid state.
+                None
+            }
         }
-
-        Some(Self::WriteConfig1(
-            Packet::new(
-                payload::WriteConfig::new(payload::write_config::Location::FirstHalf, first_half),
-                transfer_length,
-                timer,
-            ),
-            second_half,
-        ))
     }
 
     pub(super) fn vblank(&mut self) -> Result<(), Timeout> {
-        match self {
-            Self::WriteConfig1(packet, _) => packet.vblank().map_err(Timeout::WriteConfig1),
-            Self::WriteConfig2(packet) => packet.vblank().map_err(Timeout::WriteConfig2),
-        }
+        self.packet.vblank().map_err(Timeout::WriteConfig)
     }
 
     pub(super) fn timer(&mut self) {
-        match self {
-            Self::WriteConfig1(packet, _) => packet.timer(),
-            Self::WriteConfig2(packet) => packet.timer(),
-        }
+        self.packet.timer()
     }
 
     pub(super) fn serial(
@@ -70,35 +64,58 @@ impl WriteConfig {
         timer: Timer,
         adapter: &mut Adapter,
         transfer_length: TransferLength,
+        config: &Config<Format>,
     ) -> Result<Option<Self>, Error> {
-        match self {
-            Self::WriteConfig1(packet, data) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Some(Self::WriteConfig1(packet, data)),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        Some(Self::WriteConfig2(Packet::new(
-                            payload::WriteConfig::new(
-                                payload::write_config::Location::SecondHalf,
-                                data,
-                            ),
-                            transfer_length,
-                            timer,
-                        )))
-                    }
-                })
-                .map_err(Error::WriteConfig1),
-            Self::WriteConfig2(packet) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Some(Self::WriteConfig2(packet)),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
+        self.packet
+            .serial(timer)
+            .map(|response| match response {
+                Either::Left(packet) => Some(Self {
+                    packet,
+                    request: self.request,
+                    format: PhantomData,
+                }),
+                Either::Right(response) => {
+                    *adapter = response.adapter;
+                    if self.request + 1 == Format::WRITES {
+                        // We are done writing.
                         None
+                    } else {
+                        // We still have more to write.
+                        if let config::Data::Config(format) = &config.data {
+                            let mut data = [0; 128];
+                            let location = format.write(self.request + 1, &mut data);
+                            Some(Self {
+                                packet: Packet::new(
+                                    payload::WriteConfig::new(location, data),
+                                    transfer_length,
+                                    timer,
+                                ),
+                                request: self.request + 1,
+                                format: PhantomData,
+                            })
+                        } else {
+                            // The config is not currently in a valid state.
+                            //
+                            // Note that the config could have changed between when we started this
+                            // flow and now. That is acceptable; if the config changes, it is
+                            // because we have received a new config write request. We will rewrite
+                            // anything we have already written in this flow anyway.
+                            None
+                        }
                     }
-                })
-                .map_err(Error::WriteConfig2),
-        }
+                }
+            })
+            .map_err(Error::WriteConfig)
+    }
+}
+
+impl<Format> Debug for WriteConfig<Format> {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        formatter
+            .debug_struct("WriteConfig")
+            .field("packet", &self.packet)
+            .field("request", &self.request)
+            .field("format", &self.format)
+            .finish()
     }
 }

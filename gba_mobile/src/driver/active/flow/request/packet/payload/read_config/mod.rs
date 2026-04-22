@@ -2,15 +2,20 @@ pub(in crate::driver) mod data;
 pub(in crate::driver) mod error;
 
 use super::{Payload, command_error};
-use crate::driver::Command;
+use crate::{config::format::Location, driver::Command};
 use core::num::NonZeroU16;
 use data::Data;
 use either::Either;
 
-#[derive(Clone, Copy, Debug)]
-pub(in crate::driver) enum ReadConfig {
-    FirstHalf,
-    SecondHalf,
+#[derive(Debug)]
+pub(in crate::driver) struct ReadConfig {
+    location: Location,
+}
+
+impl ReadConfig {
+    pub(in crate::driver::active::flow) fn new(location: Location) -> Self {
+        Self { location }
+    }
 }
 
 impl Payload for ReadConfig {
@@ -35,11 +40,8 @@ impl super::Send for ReadConfig {
 
     fn get(&self, index: u8) -> u8 {
         match index {
-            0 => match self {
-                Self::FirstHalf => 0,
-                Self::SecondHalf => 128,
-            },
-            1 => 128,
+            0 => self.location.offset,
+            1 => self.location.length.get(),
             _ => 0x00,
         }
     }
@@ -57,11 +59,11 @@ impl super::ReceiveCommand for ReadConfig {
         match command {
             Command::ReadConfigurationData => Ok(ReceiveLength {
                 received_command: ReceivedCommand::ReadConfig,
-                read_config: self,
+                location: self.location,
             }),
             Command::CommandError => Ok(ReceiveLength {
                 received_command: ReceivedCommand::CommandError,
-                read_config: self,
+                location: self.location,
             }),
             _ => Err((error::UnsupportedCommand(command), self)),
         }
@@ -77,7 +79,7 @@ enum ReceivedCommand {
 #[derive(Debug)]
 pub(in crate::driver) struct ReceiveLength {
     received_command: ReceivedCommand,
-    read_config: ReadConfig,
+    location: Location,
 }
 
 impl super::ReceiveLength for ReceiveLength {
@@ -93,30 +95,42 @@ impl super::ReceiveLength for ReceiveLength {
     {
         match self.received_command {
             ReceivedCommand::ReadConfig => {
-                if length == 129 {
+                if length == self.location.length.get() + 1 {
                     Ok(Either::Left(ReceiveData {
                         command_data: CommandData::ReadConfig(Data::new()),
-                        read_config: self.read_config,
+                        location: self.location,
                     }))
                 } else {
-                    Err((error::InvalidLength::ReadConfig(length), self.read_config))
+                    Err((
+                        error::InvalidLength::ReadConfig(length, self.location.length.get() + 1),
+                        ReadConfig {
+                            location: self.location,
+                        },
+                    ))
                 }
             }
             ReceivedCommand::CommandError => {
                 if length == 2 {
                     Ok(Either::Left(ReceiveData {
                         command_data: CommandData::CommandError(command_error::Data::new()),
-                        read_config: self.read_config,
+                        location: self.location,
                     }))
                 } else {
-                    Err((error::InvalidLength::CommandError(length), self.read_config))
+                    Err((
+                        error::InvalidLength::CommandError(length),
+                        ReadConfig {
+                            location: self.location,
+                        },
+                    ))
                 }
             }
         }
     }
 
     fn restart(self) -> Self::ReceiveCommand {
-        self.read_config
+        ReadConfig {
+            location: self.location,
+        }
     }
 }
 
@@ -129,7 +143,7 @@ enum CommandData {
 #[derive(Debug)]
 pub(in crate::driver) struct ReceiveData {
     command_data: CommandData,
-    read_config: ReadConfig,
+    location: Location,
 }
 
 impl super::ReceiveData for ReceiveData {
@@ -146,37 +160,43 @@ impl super::ReceiveData for ReceiveData {
     > {
         match self.command_data {
             CommandData::ReadConfig(data) => data
-                .receive_data(byte, self.read_config)
+                .receive_data(byte, self.location)
                 .map(|data| match data {
                     Either::Left(data) => Either::Left(Self {
                         command_data: CommandData::ReadConfig(data),
-                        read_config: self.read_config,
+                        location: self.location,
                     }),
                     Either::Right(data) => Either::Right(ReceiveParsed {
                         data,
-                        read_config: self.read_config,
+                        location: self.location,
                     }),
                 })
                 .map_err(|(error, index)| {
                     (
                         error::InvalidData::ReadConfig(error),
-                        self.read_config,
+                        ReadConfig {
+                            location: self.location,
+                        },
                         index.map(|index| (unsafe { NonZeroU16::new_unchecked(129) }, index)),
                     )
                 }),
             CommandData::CommandError(data) => match data.receive_data(byte) {
                 Ok(Either::Left(data)) => Ok(Either::Left(Self {
                     command_data: CommandData::CommandError(data),
-                    read_config: self.read_config,
+                    location: self.location,
                 })),
                 Ok(Either::Right(command_error)) => Err((
                     error::InvalidData::UnexpectedCommandError(command_error),
-                    self.read_config,
+                    ReadConfig {
+                        location: self.location,
+                    },
                     None,
                 )),
                 Err(error) => Err((
                     error::InvalidData::UnknownCommandError(error),
-                    self.read_config,
+                    ReadConfig {
+                        location: self.location,
+                    },
                     None,
                 )),
             },
@@ -187,7 +207,7 @@ impl super::ReceiveData for ReceiveData {
 #[derive(Debug)]
 pub(in crate::driver) struct ReceiveParsed {
     data: [u8; 128],
-    read_config: ReadConfig,
+    location: Location,
 }
 
 impl ReceiveParsed {
@@ -204,6 +224,8 @@ impl super::ReceiveParsed for ReceiveParsed {
     }
 
     fn restart(self) -> Self::ReceiveCommand {
-        self.read_config
+        ReadConfig {
+            location: self.location,
+        }
     }
 }

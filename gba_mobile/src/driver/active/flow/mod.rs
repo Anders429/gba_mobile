@@ -21,12 +21,6 @@ mod timeout;
 mod transfer_data;
 mod write_config;
 
-use core::{
-    convert::Infallible,
-    fmt::Debug,
-    net::{Ipv4Addr, SocketAddrV4},
-};
-
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
@@ -43,6 +37,12 @@ use accept::Accept;
 use close_tcp::CloseTcp;
 use close_udp::CloseUdp;
 use connect::Connect;
+use core::{
+    convert::Infallible,
+    fmt,
+    fmt::{Debug, Formatter},
+    net::{Ipv4Addr, SocketAddrV4},
+};
 use disconnect::Disconnect;
 use dns::Dns;
 use either::Either;
@@ -91,6 +91,7 @@ pub(crate) trait ConfigSubFlow<Config>: Sized + Debug {
         transfer_length: TransferLength,
         timer: Timer,
         link_generation: Generation,
+        config: &Config,
     ) -> Option<Self>;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
@@ -159,6 +160,7 @@ impl ConfigSubFlow<NoConfig> for Empty {
         _transfer_length: TransferLength,
         _timer: Timer,
         _link_generation: Generation,
+        _config: &NoConfig,
     ) -> Option<Self> {
         None
     }
@@ -343,13 +345,21 @@ impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> 
     }
 }
 
-#[derive(Debug)]
-pub(crate) enum ConfigFlow {
-    ReadConfig(ReadConfig),
-    WriteConfig(WriteConfig),
+pub(crate) enum ConfigFlow<Format> {
+    ReadConfig(ReadConfig<Format>),
+    WriteConfig(WriteConfig<Format>),
 }
 
-impl<Format> ConfigSubFlow<Config<Format>> for ConfigFlow
+impl<Format> Debug for ConfigFlow<Format> {
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::ReadConfig(flow) => formatter.debug_tuple("ReadConfig").field(flow).finish(),
+            Self::WriteConfig(flow) => formatter.debug_tuple("WriteConfig").field(flow).finish(),
+        }
+    }
+}
+
+impl<Format> ConfigSubFlow<Config<Format>> for ConfigFlow<Format>
 where
     Format: config::Format,
 {
@@ -359,12 +369,9 @@ where
         transfer_length: TransferLength,
         timer: Timer,
         link_generation: Generation,
+        config: &Config<Format>,
     ) -> Option<Self> {
-        Some(Self::ReadConfig(ReadConfig::new(
-            transfer_length,
-            timer,
-            link_generation,
-        )))
+        ReadConfig::new(transfer_length, timer, link_generation, config).map(Self::ReadConfig)
     }
 
     fn vblank(&mut self) -> Result<(), Timeout> {
@@ -401,7 +408,7 @@ where
                 .map(|flow| flow.map(Self::ReadConfig))
                 .map_err(error::Config::ReadConfig),
             Self::WriteConfig(write_config) => write_config
-                .serial(timer, &mut state.adapter, state.transfer_length)
+                .serial(timer, &mut state.adapter, state.transfer_length, config)
                 .map(|flow| flow.map(Self::WriteConfig))
                 .map_err(error::Config::WriteConfig),
         }
@@ -559,6 +566,7 @@ where
                                 state.transfer_length,
                                 timer,
                                 link_generation,
+                                &config,
                             )
                             .map(Self::Config);
                             if config_flow.is_none() {
@@ -602,6 +610,7 @@ where
                                 state.transfer_length,
                                 timer,
                                 link_generation,
+                                &config,
                             )
                             .map(Self::Config);
                             if config_flow.is_none() {

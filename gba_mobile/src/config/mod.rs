@@ -1,4 +1,7 @@
+pub mod format;
 pub mod mobile_system_gb;
+
+pub use format::Format;
 
 use crate::{
     dns,
@@ -8,14 +11,10 @@ use crate::{
     },
     socket,
 };
-use core::mem::MaybeUninit;
-
-pub trait Format: Sized + Clone {
-    type Error: Clone + core::error::Error + 'static;
-
-    fn read(bytes: &[u8; 256]) -> Result<Self, Self::Error>;
-    fn write(&self, bytes: &mut [u8; 256]);
-}
+use core::{
+    fmt,
+    fmt::{Debug, Formatter},
+};
 
 pub(crate) trait Sealed: Sized {
     type Item<Socket1, Socket2, Dns>: ConfigSubItem<Socket1, Socket2, Dns, Self>
@@ -44,23 +43,58 @@ impl Sealed for NoConfig {
 
 impl Mode for NoConfig {}
 
-#[derive(Debug)]
+pub(crate) enum Data<Format>
+where
+    Format: self::Format,
+{
+    Segments(Format::Segments),
+    Config(Format),
+    Error(Format::Error),
+}
+
+impl<Format> Debug for Data<Format>
+where
+    Format: self::Format + Debug,
+    Format::Segments: Debug,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Segments(segments) => formatter.debug_tuple("Segments").field(segments).finish(),
+            Self::Config(format) => formatter.debug_tuple("Config").field(format).finish(),
+            Self::Error(error) => formatter.debug_tuple("Error").field(error).finish(),
+        }
+    }
+}
+
 pub struct Config<Format>
 where
     Format: self::Format,
 {
-    pub(crate) data: MaybeUninit<Result<Format, Format::Error>>,
+    pub(crate) data: Data<Format>,
 }
 
 impl<Format> Config<Format>
 where
     Format: self::Format,
 {
-    pub const fn new() -> Self {
+    pub const fn new(segments: Format::Segments) -> Self {
         Self {
             // This value will be initialized upon linking with the adapter.
-            data: MaybeUninit::uninit(),
+            data: Data::Segments(segments),
         }
+    }
+}
+
+impl<Format> Debug for Config<Format>
+where
+    Format: self::Format + Debug,
+    Format::Segments: Debug,
+{
+    fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
+        formatter
+            .debug_struct("Config")
+            .field("data", &self.data)
+            .finish()
     }
 }
 
@@ -74,7 +108,7 @@ where
         Socket1: socket::Slot,
         Socket2: socket::Slot,
         Dns: dns::Sealed;
-    type Flow = ConfigFlow;
+    type Flow = ConfigFlow<Format>;
 }
 
 impl<Format> Mode for Config<Format> where Format: self::Format {}
