@@ -1,6 +1,7 @@
 use super::{
-    accept, close_tcp, close_udp, connect, disconnect, dns, end, idle, login, open_tcp, open_udp,
-    read_config, reset, start, status, transfer_data, write_config,
+    login,
+    request::{idle, packet},
+    reset, start, transfer_data,
 };
 use core::{
     fmt,
@@ -10,21 +11,21 @@ use core::{
 #[derive(Clone, Debug)]
 pub(in crate::driver) enum Timeout {
     Start(start::Timeout),
-    End(end::Timeout),
+    End(packet::Timeout),
     Reset(reset::Timeout),
-    Accept(accept::Timeout),
-    Connect(connect::Timeout),
+    Accept(packet::Timeout),
+    Connect(packet::Timeout),
     Login(login::Timeout),
-    Disconnect(disconnect::Timeout),
-    OpenTcp(open_tcp::Timeout),
-    OpenUdp(open_udp::Timeout),
-    CloseTcp(close_tcp::Timeout),
-    CloseUdp(close_udp::Timeout),
+    Disconnect(packet::Timeout),
+    OpenTcp(packet::Timeout),
+    OpenUdp(packet::Timeout),
+    CloseTcp(packet::Timeout),
+    CloseUdp(packet::Timeout),
     TransferData(transfer_data::Timeout),
-    Dns(dns::Timeout),
-    ReadConfig(read_config::Timeout),
-    WriteConfig(write_config::Timeout),
-    Status(status::Timeout),
+    Dns(packet::Timeout),
+    ReadConfig(packet::Timeout),
+    WriteConfig(packet::Timeout),
+    Status(packet::Timeout),
     Idle(idle::Timeout),
 }
 

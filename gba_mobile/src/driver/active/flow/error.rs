@@ -1,6 +1,7 @@
 use super::{
-    SocketSubFlow, accept, close_tcp, close_udp, connect, disconnect, dns, end, idle, login,
-    open_tcp, open_udp, read_config, reset, start, status, transfer_data, write_config,
+    SocketSubFlow, login,
+    request::{idle, packet, packet::payload},
+    reset, start, transfer_data,
 };
 use crate::{
     config,
@@ -14,8 +15,8 @@ use core::{
 
 #[derive(Clone, Debug)]
 pub(crate) enum Connection {
-    Accept(accept::Error),
-    Connect(connect::Error),
+    Accept(packet::Error<payload::AcceptConnection>),
+    Connect(packet::Error<payload::Connect>),
 }
 
 impl Display for Connection {
@@ -38,10 +39,10 @@ impl core::error::Error for Connection {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Socket<BufferError> {
-    OpenTcp(open_tcp::Error),
-    OpenUdp(open_udp::Error),
-    CloseTcp(close_tcp::Error),
-    CloseUdp(close_udp::Error),
+    OpenTcp(packet::Error<payload::OpenTcp>),
+    OpenUdp(packet::Error<payload::OpenUdp>),
+    CloseTcp(packet::Error<payload::CloseTcp>),
+    CloseUdp(packet::Error<payload::CloseUdp>),
     TransferData(transfer_data::Error<BufferError>),
 }
 
@@ -74,7 +75,7 @@ where
 
 #[derive(Clone, Debug)]
 pub(crate) enum Dns<const MAX_LEN: usize> {
-    Dns(dns::Error<MAX_LEN>),
+    Dns(packet::Error<payload::Dns<MAX_LEN>>),
 }
 
 impl<const MAX_LEN: usize> Display for Dns<MAX_LEN> {
@@ -95,8 +96,8 @@ impl<const MAX_LEN: usize> core::error::Error for Dns<MAX_LEN> {
 
 #[derive(Clone, Debug)]
 pub(crate) enum Config {
-    ReadConfig(read_config::Error),
-    WriteConfig(write_config::Error),
+    ReadConfig(packet::Error<payload::ReadConfig>),
+    WriteConfig(packet::Error<payload::WriteConfig>),
 }
 
 impl Display for Config {
@@ -125,16 +126,16 @@ where
     Config: config::Mode,
 {
     Start(start::Error),
-    End(end::Error),
+    End(packet::Error<payload::EndSession>),
     Reset(reset::Error),
     Login(login::Error),
     Connection(<Socket1::ConnectionFlow as SocketSubFlow<Socket1>>::Error),
-    Disconnect(disconnect::Error),
+    Disconnect(packet::Error<payload::Disconnect>),
     Socket1(<Socket1::SocketFlow<0> as SocketSubFlow<Socket1>>::Error),
     Socket2(<Socket2::SocketFlow<1> as SocketSubFlow<Socket2>>::Error),
     Dns(<Dns::Flow as DnsSubFlow<Dns>>::Error),
     Config(<Config::Flow as ConfigSubFlow<Config>>::Error),
-    Status(status::Error),
+    Status(packet::Error<payload::ConnectionStatus>),
     Idle(idle::Error),
 }
 

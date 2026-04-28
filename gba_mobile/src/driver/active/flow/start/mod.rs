@@ -4,7 +4,7 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::request::{Packet, WaitForIdle, packet::payload};
+use super::request::{Packet, WaitForIdle, packet, packet::payload};
 use crate::{
     Generation, Timer,
     driver::Adapter,
@@ -45,11 +45,11 @@ impl Start {
         }
     }
 
-    pub(super) fn timer(&mut self) {
+    pub(super) fn timer(&mut self, packet_data: &packet::Data) {
         match &mut self.state {
             State::Wake(_) => {}
-            State::BeginSession(packet) => packet.timer(),
-            State::Sio32(packet) => packet.timer(),
+            State::BeginSession(packet) => packet.timer(packet_data),
+            State::Sio32(packet) => packet.timer(packet_data),
             State::WaitForIdle(_) => {}
         }
     }
@@ -58,6 +58,7 @@ impl Start {
         self,
         timer: Timer,
         adapter: &mut Adapter,
+        packet_data: &mut packet::Data,
         transfer_length: &mut TransferLength,
         link_generation: Generation,
     ) -> Result<Either<Self, Response>, Error> {
@@ -65,7 +66,7 @@ impl Start {
             State::Wake(wait_for_idle) => Ok(Either::Left(wait_for_idle.serial().map_or_else(
                 || Self {
                     state: State::BeginSession(Packet::new(
-                        payload::BeginSession,
+                        payload::BeginSession::new(packet_data),
                         *transfer_length,
                         timer,
                     )),
@@ -76,35 +77,31 @@ impl Start {
                     link_generation: self.link_generation,
                 },
             ))),
-            State::BeginSession(packet) => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Either::Left(Self {
-                        state: State::BeginSession(packet),
-                        link_generation: self.link_generation,
-                    }),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        match response.payload {
-                            payload::begin_session::ReceiveParsed::BeginSession => {
-                                Either::Left(Self {
-                                    state: State::Sio32(Packet::new(
-                                        payload::EnableSio32,
-                                        *transfer_length,
-                                        timer,
-                                    )),
-                                    link_generation: self.link_generation,
-                                })
-                            }
-                            payload::begin_session::ReceiveParsed::AlreadyActive => {
-                                Either::Right(Response::AlreadyActive)
-                            }
+            State::BeginSession(packet) => match packet.serial(timer, packet_data) {
+                Ok(Either::Left(packet)) => Ok(Either::Left(Self {
+                    state: State::BeginSession(packet),
+                    link_generation: self.link_generation,
+                })),
+                Ok(Either::Right(response)) => {
+                    *adapter = response.adapter;
+                    Ok(match response.payload {
+                        payload::begin_session::Response::BeginSession => Either::Left(Self {
+                            state: State::Sio32(Packet::new(
+                                payload::EnableSio32::new(packet_data),
+                                *transfer_length,
+                                timer,
+                            )),
+                            link_generation: self.link_generation,
+                        }),
+                        payload::begin_session::Response::AlreadyActive => {
+                            Either::Right(Response::AlreadyActive)
                         }
-                    }
-                })
-                .map_err(Error::BeginSession),
+                    })
+                }
+                Err(error) => Err(Error::BeginSession(error)),
+            },
             State::Sio32(packet) => packet
-                .serial(timer)
+                .serial(timer, packet_data)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self {
                         state: State::Sio32(packet),
@@ -112,7 +109,7 @@ impl Start {
                     }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
-                        *transfer_length = response.payload.transfer_length;
+                        *transfer_length = response.payload;
                         unsafe {
                             SIOCNT.write_volatile(
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),

@@ -1,10 +1,11 @@
 #![allow(private_interfaces)]
 
-use super::super::{Flow, Phase, State};
+use super::super::{Flow, Phase, State, flow::request::packet};
 use crate::{
-    ArrayVec, Config, Digit, Timer,
+    Adapter, ArrayVec, Config, Digit, Generation, Timer,
     config::{self, NoConfig},
     dns::{self, NoDns},
+    mmio::serial::TransferLength,
     socket,
 };
 use core::{
@@ -41,12 +42,15 @@ where
     Config: config::Sealed,
 {
     fn connect(
-        phone_number: &ArrayVec<Digit, 32>,
-        state: &State,
+        digits: &ArrayVec<Digit, 32>,
+        transfer_length: TransferLength,
+        adapter: Adapter,
+        connection_generation: Generation,
         timer: Timer,
+        packet_data: &mut packet::Data,
     ) -> Option<Flow<Socket1, Socket2, Dns, Config>>;
 
-    fn accept(state: &State, timer: Timer) -> Option<Flow<Socket1, Socket2, Dns, Config>>;
+    fn accept(state: &mut State, timer: Timer) -> Option<Flow<Socket1, Socket2, Dns, Config>>;
 }
 
 pub(crate) trait DnsSubItem<Socket1, Socket2, Dns, Config>: Debug
@@ -61,7 +65,7 @@ where
     fn flow(
         self,
         dns: &Dns,
-        state: &State,
+        state: &mut State,
         timer: Timer,
     ) -> Option<Flow<Socket1, Socket2, Dns, Config>>;
 }
@@ -78,7 +82,7 @@ where
     fn flow(
         self,
         config: &Config,
-        state: &State,
+        state: &mut State,
         timer: Timer,
     ) -> Option<Flow<Socket1, Socket2, Dns, Config>>;
 }
@@ -126,14 +130,17 @@ where
     Config: config::Sealed,
 {
     fn connect(
-        _phone_number: &ArrayVec<Digit, 32>,
-        _state: &State,
+        _digits: &ArrayVec<Digit, 32>,
+        _transfer_length: TransferLength,
+        _adapter: Adapter,
+        _connection_generation: Generation,
         _timer: Timer,
+        _packet_data: &mut packet::Data,
     ) -> Option<Flow<Socket1, Socket2, Dns, Config>> {
         None
     }
 
-    fn accept(_state: &State, _timer: Timer) -> Option<Flow<Socket1, Socket2, Dns, Config>> {
+    fn accept(_state: &mut State, _timer: Timer) -> Option<Flow<Socket1, Socket2, Dns, Config>> {
         None
     }
 }
@@ -151,7 +158,7 @@ where
     fn flow(
         self,
         _dns: &NoDns,
-        _state: &State,
+        _state: &mut State,
         _timer: Timer,
     ) -> Option<Flow<Socket1, Socket2, NoDns, Config>> {
         None
@@ -171,7 +178,7 @@ where
     fn flow(
         self,
         _config: &NoConfig,
-        _state: &State,
+        _state: &mut State,
         _timer: Timer,
     ) -> Option<Flow<Socket1, Socket2, Dns, NoConfig>> {
         None
@@ -226,6 +233,7 @@ where
                             socket::Protocol::Tcp => Flow::open_tcp_1(
                                 state.transfer_length,
                                 timer,
+                                &mut state.packet_data,
                                 socket_addr,
                                 state.connection_generation,
                                 socket_generations[0],
@@ -233,6 +241,7 @@ where
                             socket::Protocol::Udp => Flow::open_udp_1(
                                 state.transfer_length,
                                 timer,
+                                &mut state.packet_data,
                                 socket_addr,
                                 state.connection_generation,
                                 socket_generations[0],
@@ -249,12 +258,18 @@ where
                 } = &mut state.phase
                 {
                     Some(match socket_protocols[0] {
-                        socket::Protocol::Tcp => {
-                            Flow::close_tcp_1(state.transfer_length, timer, socket_1.id)
-                        }
-                        socket::Protocol::Udp => {
-                            Flow::close_udp_1(state.transfer_length, timer, socket_1.id)
-                        }
+                        socket::Protocol::Tcp => Flow::close_tcp_1(
+                            state.transfer_length,
+                            timer,
+                            &mut state.packet_data,
+                            socket_1.id,
+                        ),
+                        socket::Protocol::Udp => Flow::close_udp_1(
+                            state.transfer_length,
+                            timer,
+                            &mut state.packet_data,
+                            socket_1.id,
+                        ),
                     })
                 } else {
                     // We are not in the correct phase to close a socket, so we do nothing.
@@ -264,6 +279,7 @@ where
             Self::Transfer => Some(Flow::socket_1_transfer_data(
                 state.transfer_length,
                 timer,
+                &mut state.packet_data,
                 socket_1,
             )),
         }
@@ -311,6 +327,7 @@ where
                             socket::Protocol::Tcp => Flow::open_tcp_2(
                                 state.transfer_length,
                                 timer,
+                                &mut state.packet_data,
                                 socket_addr,
                                 state.connection_generation,
                                 socket_generations[1],
@@ -318,6 +335,7 @@ where
                             socket::Protocol::Udp => Flow::open_udp_2(
                                 state.transfer_length,
                                 timer,
+                                &mut state.packet_data,
                                 socket_addr,
                                 state.connection_generation,
                                 socket_generations[1],
@@ -334,12 +352,18 @@ where
                 } = &mut state.phase
                 {
                     Some(match socket_protocols[1] {
-                        socket::Protocol::Tcp => {
-                            Flow::close_tcp_2(state.transfer_length, timer, socket_2.id)
-                        }
-                        socket::Protocol::Udp => {
-                            Flow::close_udp_2(state.transfer_length, timer, socket_2.id)
-                        }
+                        socket::Protocol::Tcp => Flow::close_tcp_2(
+                            state.transfer_length,
+                            timer,
+                            &mut state.packet_data,
+                            socket_2.id,
+                        ),
+                        socket::Protocol::Udp => Flow::close_udp_2(
+                            state.transfer_length,
+                            timer,
+                            &mut state.packet_data,
+                            socket_2.id,
+                        ),
                     })
                 } else {
                     // We are not in the correct phase to close a socket, so we do nothing.
@@ -349,6 +373,7 @@ where
             Self::Transfer => Some(Flow::socket_2_transfer_data(
                 state.transfer_length,
                 timer,
+                &mut state.packet_data,
                 socket_2,
             )),
         }
@@ -364,24 +389,32 @@ where
     Config: config::Sealed,
 {
     fn connect(
-        phone_number: &ArrayVec<Digit, 32>,
-        state: &State,
+        digits: &ArrayVec<Digit, 32>,
+        transfer_length: TransferLength,
+        adapter: Adapter,
+        connection_generation: Generation,
         timer: Timer,
+        packet_data: &mut packet::Data,
     ) -> Option<Flow<socket::Socket<Buffer>, Socket2, Dns, Config>> {
         Some(Flow::connect(
-            state.transfer_length,
+            transfer_length,
             timer,
-            state.adapter,
-            phone_number.clone(),
-            state.connection_generation,
+            packet_data,
+            adapter,
+            digits,
+            connection_generation,
         ))
     }
 
     fn accept(
-        state: &State,
+        state: &mut State,
         timer: Timer,
     ) -> Option<Flow<socket::Socket<Buffer>, Socket2, Dns, Config>> {
-        Some(Flow::accept(state.transfer_length, timer))
+        Some(Flow::accept(
+            state.transfer_length,
+            timer,
+            &mut state.packet_data,
+        ))
     }
 }
 
@@ -402,13 +435,14 @@ where
     fn flow(
         self,
         dns: &dns::Dns<MAX_LEN>,
-        state: &State,
+        state: &mut State,
         timer: Timer,
     ) -> Option<Flow<Socket1, Socket2, dns::Dns<MAX_LEN>, Config>> {
         if let dns::State::Request(name) = &dns.state {
             Some(Flow::dns(
                 state.transfer_length,
                 timer,
+                &mut state.packet_data,
                 name.clone(),
                 dns.generation,
             ))
@@ -437,10 +471,10 @@ where
     fn flow(
         self,
         config: &Config<Format>,
-        state: &State,
+        state: &mut State,
         timer: Timer,
     ) -> Option<Flow<Socket1, Socket2, Dns, Config<Format>>> {
-        Flow::write_config(state.transfer_length, timer, config)
+        Flow::write_config(state.transfer_length, timer, &mut state.packet_data, config)
     }
 }
 

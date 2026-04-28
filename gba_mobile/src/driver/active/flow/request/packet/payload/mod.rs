@@ -40,72 +40,12 @@ pub(in crate::driver::active::flow) use reset::Reset;
 pub(in crate::driver::active::flow) use transfer_data::TransferData;
 pub(in crate::driver::active::flow) use write_config::WriteConfig;
 
-use crate::driver::Command;
-use core::{fmt::Debug, num::NonZeroU16};
-use either::Either;
+use super::Data;
+use core::fmt::Debug;
 
-pub(in crate::driver) trait Payload: Debug + 'static {
-    type Send: Send<ReceiveCommand = Self::ReceiveCommand>;
+pub(in crate::driver) trait Payload: Debug {
+    type Response<'a>;
+    type Error: core::error::Error + Clone + 'static;
 
-    type ReceiveCommand: ReceiveCommand<ReceiveLength = Self::ReceiveLength>;
-    type ReceiveLength: ReceiveLength<
-            ReceiveCommand = Self::ReceiveCommand,
-            ReceiveData = Self::ReceiveData,
-            ReceiveParsed = Self::ReceiveParsed,
-        >;
-    type ReceiveData: ReceiveData<ReceiveCommand = Self::ReceiveCommand, ReceiveParsed = Self::ReceiveParsed>;
-    type ReceiveParsed: ReceiveParsed<ReceiveCommand = Self::ReceiveCommand>;
-}
-
-pub(in crate::driver) trait Send: Debug {
-    type ReceiveCommand;
-
-    fn command(&self) -> Command;
-    fn length(&self) -> u8;
-    fn get(&self, index: u8) -> u8;
-
-    fn finish(self) -> Self::ReceiveCommand;
-}
-
-pub(in crate::driver) trait ReceiveCommand: Sized + Debug {
-    type ReceiveLength;
-    type Error: core::error::Error + 'static + Clone;
-
-    fn receive_command(self, command: Command) -> Result<Self::ReceiveLength, (Self::Error, Self)>;
-}
-
-pub(in crate::driver) trait ReceiveLength: Debug {
-    type ReceiveCommand;
-    type ReceiveData;
-    type ReceiveParsed;
-    type Error: core::error::Error + 'static + Clone;
-
-    fn receive_length(
-        self,
-        length: u8,
-    ) -> Result<Either<Self::ReceiveData, Self::ReceiveParsed>, (Self::Error, Self::ReceiveCommand)>;
-
-    fn restart(self) -> Self::ReceiveCommand;
-}
-
-pub(in crate::driver) trait ReceiveData: Sized + Debug {
-    type ReceiveCommand;
-    type ReceiveParsed;
-    type Error: core::error::Error + 'static + Clone;
-
-    fn receive_data(
-        self,
-        byte: u8,
-    ) -> Result<
-        Either<Self, Self::ReceiveParsed>,
-        (Self::Error, Self::ReceiveCommand, Option<(NonZeroU16, u16)>),
-    >;
-}
-
-pub(in crate::driver) trait ReceiveParsed: Debug {
-    type ReceiveCommand;
-
-    fn command(&self) -> Command;
-
-    fn restart(self) -> Self::ReceiveCommand;
+    fn parse<'a>(self, data: &'a Data) -> Result<Self::Response<'a>, Self::Error>;
 }

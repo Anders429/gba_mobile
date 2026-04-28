@@ -29,7 +29,7 @@ pub enum Segments {
 }
 
 impl Segments {
-    fn read_configuration_slot(bytes: &[u8; 128], index: RangedUsize<0, 2>) -> Slot {
+    fn read_configuration_slot(bytes: &[u8], index: RangedUsize<0, 2>) -> Slot {
         let mut phone_number_raw = [0; 8];
         unsafe {
             ptr::copy_nonoverlapping(
@@ -71,7 +71,7 @@ impl format::Segments for Segments {
 
     fn read(
         self,
-        bytes: &[u8; 128],
+        bytes: &[u8],
     ) -> Result<ReadResult<Self::Format, Self>, <Self::Format as Format>::Error> {
         match self {
             Self::Data => {
@@ -140,7 +140,7 @@ impl format::Segments for Segments {
 
                 // Checksum.
                 checksum = checksum.wrapping_add(
-                    bytes[..0x71]
+                    bytes[..0x4d]
                         .iter()
                         .copied()
                         .fold(0u16, |sum, byte| sum.wrapping_add(byte as u16)),

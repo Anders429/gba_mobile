@@ -1,7 +1,5 @@
 use super::{
-    super::{
-        MAX_RETRIES, Payload, Timeout, communication, error, payload::Send as _, schedule_serial,
-    },
+    super::{Data, MAX_RETRIES, Timeout, communication, error, schedule_serial},
     WaitForReceive,
 };
 use crate::{
@@ -20,11 +18,7 @@ enum Step {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active) struct Send<Payload>
-where
-    Payload: self::Payload,
-{
-    payload: Payload::Send,
+pub(in crate::driver::active) struct Send {
     step: Step,
     checksum: u16,
     attempt: u8,
@@ -32,13 +26,9 @@ where
     communication_state: communication::State,
 }
 
-impl<Payload> Send<Payload>
-where
-    Payload: self::Payload,
-{
-    pub(in super::super) fn new(payload: Payload::Send) -> Self {
+impl Send {
+    pub(in super::super) fn new() -> Self {
         Self {
-            payload,
             step: Step::MagicByte,
             checksum: 0,
             attempt: 0,
@@ -50,7 +40,6 @@ where
     /// Advance to the given step.
     fn next(self, step: Step) -> Self {
         Self {
-            payload: self.payload,
             step,
             checksum: self.checksum,
             attempt: self.attempt,
@@ -62,7 +51,6 @@ where
     /// Re-attempt this packet.
     fn retry(self, new_attempt: u8) -> Self {
         Self {
-            payload: self.payload,
             step: Step::MagicByte,
             checksum: 0,
             attempt: new_attempt,
@@ -72,11 +60,8 @@ where
     }
 }
 
-impl<Payload> super::super::Send for Send<Payload>
-where
-    Payload: self::Payload,
-{
-    type WaitForReceive = WaitForReceive<Payload>;
+impl super::super::Send for Send {
+    type WaitForReceive = WaitForReceive;
 
     fn vblank(&mut self) -> Result<(), Timeout> {
         if self.frame > frames::THREE_SECONDS {
@@ -87,16 +72,16 @@ where
         }
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, data: &Data) {
         if matches!(self.communication_state, communication::State::Send) {
             let bytes = match self.step {
                 Step::MagicByte => {
-                    let command = self.payload.command() as u8;
+                    let command = data.command as u8;
                     self.checksum = self.checksum.wrapping_add(command as u16);
                     u32::from_be_bytes([0x99, 0x66, command, 0x00])
                 }
                 Step::HeaderLength => {
-                    let length = self.payload.length();
+                    let length = data.data.len();
                     self.checksum = self.checksum.wrapping_add(length as u16);
                     if length == 0 {
                         // If not sending any data, we skip straight to sending the checksum.
@@ -107,8 +92,8 @@ where
                             self.checksum as u8,
                         ])
                     } else {
-                        let data_0 = self.payload.get(0);
-                        let data_1 = self.payload.get(1);
+                        let data_0 = data.data.get(0).copied().unwrap_or(0x00);
+                        let data_1 = data.data.get(1).copied().unwrap_or(0x00);
                         self.checksum = self
                             .checksum
                             .wrapping_add(data_0 as u16)
@@ -117,11 +102,11 @@ where
                     }
                 }
                 Step::Data { index } => {
-                    let length = self.payload.length();
+                    let length = data.data.len();
                     let mut bytes = [0x00; 4];
                     let mut offset = 0;
                     while offset < 4 && index + offset < length {
-                        let byte = self.payload.get(index + offset);
+                        let byte = data.data.get(index + offset).copied().unwrap_or(0x00);
                         self.checksum = self.checksum.wrapping_add(byte as u16);
                         bytes[offset as usize] = byte;
                         offset += 1;
@@ -148,7 +133,7 @@ where
         }
     }
 
-    fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Send> {
+    fn serial(self, data: &Data) -> Result<Either<Self, Self::WaitForReceive>, error::Send> {
         match self.communication_state {
             communication::State::Send => Ok(Either::Left(self)),
             communication::State::Receive => {
@@ -156,7 +141,7 @@ where
                 match self.step {
                     Step::MagicByte => Ok(Either::Left(self.next(Step::HeaderLength))),
                     Step::HeaderLength => {
-                        let next_step = match self.payload.length() {
+                        let next_step = match data.data.len() {
                             0 => Step::Footer,
                             1..=2 => Step::Checksum,
                             _ => Step::Data { index: 2 },
@@ -164,7 +149,7 @@ where
                         Ok(Either::Left(self.next(next_step)))
                     }
                     Step::Data { index } => {
-                        let length = self.payload.length();
+                        let length = data.data.len();
                         let next_step = if index + 2 >= length {
                             // We can fit the checksum in here.
                             Step::Footer
@@ -189,7 +174,7 @@ where
                             }
                             Ok(Command::NotSupportedError) => {
                                 // Too many retries. Stop trying and return error.
-                                Err(error::Send::UnsupportedCommand(self.payload.command()))
+                                Err(error::Send::UnsupportedCommand(data.command))
                             }
                             Ok(Command::MalformedError) => {
                                 // Too many retries. Stop trying and return error.
@@ -203,7 +188,7 @@ where
                                 // We don't verify anything here and simply assume the adapter responded
                                 // with a correct command. If the adapter is in an invalid state, we will
                                 // find out when receiving the response packet.
-                                Ok(Either::Right(WaitForReceive::new(self.payload.finish(), 0)))
+                                Ok(Either::Right(WaitForReceive::new(0)))
                             }
                         }
                     }

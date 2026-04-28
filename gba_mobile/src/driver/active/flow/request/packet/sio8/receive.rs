@@ -1,11 +1,7 @@
 use core::num::{NonZeroU8, NonZeroU16};
 
 use super::{
-    super::{
-        Payload, Response, Timeout, communication, error, payload,
-        payload::{ReceiveCommand, ReceiveData, ReceiveLength, ReceiveParsed},
-        schedule_serial,
-    },
+    super::{Data, Timeout, communication, error, schedule_serial},
     ReceiveError, receive_error,
 };
 use crate::{
@@ -15,47 +11,21 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-enum Step<Payload>
-where
-    Payload: self::Payload,
-{
-    MagicByte2 {
-        payload: Payload::ReceiveCommand,
-    },
+enum Step {
+    MagicByte2,
 
-    HeaderCommand {
-        payload: Payload::ReceiveCommand,
-    },
-    HeaderEmptyByte {
-        payload: Payload::ReceiveLength,
-    },
-    HeaderLength1 {
-        payload: Payload::ReceiveLength,
-    },
-    HeaderLength2 {
-        payload: Payload::ReceiveLength,
-        first_byte: u8,
-    },
+    HeaderCommand,
+    HeaderEmptyByte,
+    HeaderLength1,
+    HeaderLength2 { first_byte: u8 },
 
-    Data {
-        payload: Payload::ReceiveData,
-    },
+    Data { index: u8, length: NonZeroU8 },
 
-    Checksum1 {
-        payload: Payload::ReceiveParsed,
-    },
-    Checksum2 {
-        payload: Payload::ReceiveParsed,
-        first_byte: u8,
-    },
+    Checksum1,
+    Checksum2 { first_byte: u8 },
 
-    FooterDevice {
-        payload: Payload::ReceiveParsed,
-    },
-    FooterCommand {
-        payload: Payload::ReceiveParsed,
-        adapter: Adapter,
-    },
+    FooterDevice,
+    FooterCommand { adapter: Adapter },
 }
 
 #[derive(Debug)]
@@ -90,26 +60,20 @@ impl State {
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active) struct Receive<Payload>
-where
-    Payload: self::Payload,
-{
-    step: Step<Payload>,
+pub(in crate::driver::active) struct Receive {
+    step: Step,
     state: State,
 }
 
-impl<Payload> Receive<Payload>
-where
-    Payload: self::Payload,
-{
-    pub(super) fn new(payload: Payload::ReceiveCommand, attempt: u8) -> Self {
+impl Receive {
+    pub(super) fn new(attempt: u8) -> Self {
         Self {
-            step: Step::MagicByte2 { payload },
+            step: Step::MagicByte2,
             state: State::new(attempt),
         }
     }
 
-    fn next(step: Step<Payload>, state: State) -> Self {
+    fn next(step: Step, state: State) -> Self {
         Self {
             step,
             state: state.next(),
@@ -117,11 +81,8 @@ where
     }
 }
 
-impl<Payload> super::super::Receive<Payload> for Receive<Payload>
-where
-    Payload: self::Payload,
-{
-    type ReceiveError = ReceiveError<Payload>;
+impl super::super::Receive for Receive {
+    type ReceiveError = ReceiveError;
 
     fn vblank(&mut self) -> Result<(), Timeout> {
         if self.state.frame > frames::THREE_SECONDS {
@@ -132,15 +93,15 @@ where
         }
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, data: &Data) {
         if matches!(self.state.communication_state, communication::State::Send) {
             let byte = match &self.step {
-                Step::FooterDevice { .. } => 0x81,
-                Step::FooterCommand { payload, .. } => {
+                Step::FooterDevice => 0x81,
+                Step::FooterCommand { .. } => {
                     if self.state.command_xor {
-                        payload.command() as u8 | 0x80
+                        data.command as u8 | 0x80
                     } else {
-                        payload.command() as u8
+                        data.command as u8
                     }
                 }
                 _ => 0x4b,
@@ -153,70 +114,57 @@ where
 
     fn serial(
         mut self,
-    ) -> Result<Either<Result<Self, Self::ReceiveError>, Response<Payload>>, error::Receive<Payload>>
-    {
+        data: &mut Data,
+    ) -> Result<Either<Result<Self, Self::ReceiveError>, Adapter>, error::Receive> {
         match self.state.communication_state {
             communication::State::Send => Ok(Either::Left(Ok(self))),
             communication::State::Receive => {
                 let byte = unsafe { SIODATA8.read_volatile() };
                 match self.step {
-                    Step::MagicByte2 { payload } => match byte {
+                    Step::MagicByte2 => match byte {
                         0x66 => Ok(Either::Left(Ok(Self::next(
-                            Step::HeaderCommand { payload },
+                            Step::HeaderCommand,
                             self.state,
                         )))),
                         _ => Ok(Either::Left(Err(ReceiveError::new(
                             receive_error::Step::HeaderCommand,
-                            payload,
                             error::Receive::MagicValue2(byte),
                             self.state.attempt,
                         )))),
                     },
-                    Step::HeaderCommand { payload } => {
+                    Step::HeaderCommand => {
                         self.state.checksum = self.state.checksum.wrapping_add(byte as u16);
                         self.state.command_xor = byte & 0x80 == 0;
                         match Command::try_from(byte & 0x7f) {
-                            Ok(command) => match payload.receive_command(command) {
-                                Ok(payload) => Ok(Either::Left(Ok(Self::next(
-                                    Step::HeaderEmptyByte { payload },
+                            Ok(command) => {
+                                data.command = command;
+                                Ok(Either::Left(Ok(Self::next(
+                                    Step::HeaderEmptyByte,
                                     self.state,
-                                )))),
-                                Err((error, payload)) => Ok(Either::Left(Err(ReceiveError::new(
-                                    receive_error::Step::HeaderEmptyByte,
-                                    payload,
-                                    error::Receive::Payload(payload::Error::ReceiveCommand(error)),
-                                    self.state.attempt,
-                                )))),
-                            },
+                                ))))
+                            }
                             Err(unknown) => Ok(Either::Left(Err(ReceiveError::new(
                                 receive_error::Step::HeaderEmptyByte,
-                                payload,
                                 error::Receive::UnknownCommand(unknown),
                                 self.state.attempt,
                             )))),
                         }
                     }
-                    Step::HeaderEmptyByte { payload } => {
+                    Step::HeaderEmptyByte => {
                         self.state.checksum = self.state.checksum.wrapping_add(byte as u16);
                         Ok(Either::Left(Ok(Self::next(
-                            Step::HeaderLength1 { payload },
+                            Step::HeaderLength1,
                             self.state,
                         ))))
                     }
-                    Step::HeaderLength1 { payload } => {
+                    Step::HeaderLength1 => {
                         self.state.checksum = self.state.checksum.wrapping_add(byte as u16);
                         Ok(Either::Left(Ok(Self::next(
-                            Step::HeaderLength2 {
-                                payload,
-                                first_byte: byte,
-                            },
+                            Step::HeaderLength2 { first_byte: byte },
                             self.state,
                         ))))
                     }
-                    Step::HeaderLength2 {
-                        payload,
-                        first_byte,
-                    } => {
+                    Step::HeaderLength2 { first_byte } => {
                         self.state.checksum = self.state.checksum.wrapping_add(byte as u16);
                         if first_byte > 0 {
                             let full_length = ((first_byte as u16) << 8) | (byte as u16);
@@ -225,97 +173,51 @@ where
                                     index: 0,
                                     length: unsafe { NonZeroU16::new_unchecked(full_length) },
                                 },
-                                payload.restart(),
                                 error::Receive::LengthTooLarge(full_length),
                                 self.state.attempt,
                             ))))
-                        } else {
-                            match payload.receive_length(byte) {
-                                Ok(Either::Left(payload)) => Ok(Either::Left(Ok(Self::next(
-                                    Step::Data { payload },
-                                    self.state,
-                                )))),
-                                Ok(Either::Right(payload)) => Ok(Either::Left(Ok(Self::next(
-                                    Step::Checksum1 { payload },
-                                    self.state,
-                                )))),
-                                Err((error, payload)) => {
-                                    if let Some(nonzero_length) = NonZeroU16::new(byte as u16) {
-                                        Ok(Either::Left(Err(ReceiveError::new(
-                                            receive_error::Step::Data {
-                                                index: 0,
-                                                length: nonzero_length,
-                                            },
-                                            payload,
-                                            error::Receive::Payload(payload::Error::ReceiveLength(
-                                                error,
-                                            )),
-                                            self.state.attempt,
-                                        ))))
-                                    } else {
-                                        Ok(Either::Left(Err(ReceiveError::new(
-                                            receive_error::Step::Checksum1,
-                                            payload,
-                                            error::Receive::Payload(payload::Error::ReceiveLength(
-                                                error,
-                                            )),
-                                            self.state.attempt,
-                                        ))))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Step::Data { payload } => {
-                        self.state.checksum = self.state.checksum.wrapping_add(byte as u16);
-                        match payload.receive_data(byte) {
-                            Ok(Either::Left(payload)) => Ok(Either::Left(Ok(Self::next(
-                                Step::Data { payload },
-                                self.state,
-                            )))),
-                            Ok(Either::Right(payload)) => Ok(Either::Left(Ok(Self::next(
-                                Step::Checksum1 { payload },
-                                self.state,
-                            )))),
-                            Err((error, payload, Some((length, index)))) => {
-                                Ok(Either::Left(Err(ReceiveError::new(
-                                    receive_error::Step::Data { index, length },
-                                    payload,
-                                    error::Receive::Payload(payload::Error::ReceiveData(error)),
-                                    self.state.attempt,
-                                ))))
-                            }
-                            Err((error, payload, None)) => {
-                                Ok(Either::Left(Err(ReceiveError::new(
-                                    receive_error::Step::Checksum1,
-                                    payload,
-                                    error::Receive::Payload(payload::Error::ReceiveData(error)),
-                                    self.state.attempt,
-                                ))))
-                            }
-                        }
-                    }
-                    Step::Checksum1 { payload } => Ok(Either::Left(Ok(Self::next(
-                        Step::Checksum2 {
-                            payload,
-                            first_byte: byte,
-                        },
-                        self.state,
-                    )))),
-                    Step::Checksum2 {
-                        payload,
-                        first_byte,
-                    } => {
-                        let full_checksum = ((first_byte as u16) << 8) | (byte as u16);
-                        if full_checksum == self.state.checksum {
+                        } else if let Some(nonzero_length) = NonZeroU8::new(byte) {
                             Ok(Either::Left(Ok(Self::next(
-                                Step::FooterDevice { payload },
+                                Step::Data {
+                                    index: 0,
+                                    length: nonzero_length,
+                                },
                                 self.state,
                             ))))
                         } else {
+                            Ok(Either::Left(Ok(Self::next(Step::Checksum1, self.state))))
+                        }
+                    }
+                    Step::Data { index, length } => {
+                        self.state.checksum = self.state.checksum.wrapping_add(byte as u16);
+                        unsafe {
+                            data.data.try_push(byte).unwrap_unchecked();
+                        }
+                        if let Some(next_index) = index.checked_add(1)
+                            && next_index < length.get()
+                        {
+                            Ok(Either::Left(Ok(Self::next(
+                                Step::Data {
+                                    index: next_index,
+                                    length,
+                                },
+                                self.state,
+                            ))))
+                        } else {
+                            Ok(Either::Left(Ok(Self::next(Step::Checksum1, self.state))))
+                        }
+                    }
+                    Step::Checksum1 => Ok(Either::Left(Ok(Self::next(
+                        Step::Checksum2 { first_byte: byte },
+                        self.state,
+                    )))),
+                    Step::Checksum2 { first_byte } => {
+                        let full_checksum = ((first_byte as u16) << 8) | (byte as u16);
+                        if full_checksum == self.state.checksum {
+                            Ok(Either::Left(Ok(Self::next(Step::FooterDevice, self.state))))
+                        } else {
                             Ok(Either::Left(Err(ReceiveError::new(
                                 receive_error::Step::FooterDevice,
-                                payload.restart(),
                                 error::Receive::Checksum {
                                     calculated: self.state.checksum,
                                     received: full_checksum,
@@ -324,27 +226,26 @@ where
                             ))))
                         }
                     }
-                    Step::FooterDevice { payload } => match Adapter::try_from(byte) {
+                    Step::FooterDevice => match Adapter::try_from(byte) {
                         Ok(adapter) => Ok(Either::Left(Ok(Self::next(
-                            Step::FooterCommand { payload, adapter },
+                            Step::FooterCommand { adapter },
                             self.state,
                         )))),
                         Err(unknown) => Ok(Either::Left(Err(ReceiveError::new(
                             receive_error::Step::FooterCommand,
-                            payload.restart(),
                             error::Receive::UnsupportedDevice(unknown),
                             self.state.attempt,
                         )))),
                     },
-                    Step::FooterCommand { payload, adapter } => {
+                    Step::FooterCommand { adapter } => {
                         // The acknowledgement signal command we receive is expected to be 0x00.
                         if let Some(nonzero) = NonZeroU8::new(byte) {
                             // We can no longer retry at this point. We simply enter an error state.
                             Err(error::Receive::NonZeroFooterCommand(nonzero))
                         } else {
-                            // We don't care about what the adapter was set to previously. We just want to
-                            // store whatever type it's currently telling us it is.
-                            Ok(Either::Right(Response { payload, adapter }))
+                            // We don't care about what the adapter was set to previously. We just
+                            // return the device this packet indicated.
+                            Ok(Either::Right(adapter))
                         }
                     }
                 }

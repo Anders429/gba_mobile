@@ -16,7 +16,7 @@ use core::{
     fmt::{self, Display, Formatter},
     net::{Ipv4Addr, SocketAddrV4},
 };
-use flow::Flow;
+use flow::{Flow, request::packet};
 use queue::Queue;
 
 #[derive(Debug)]
@@ -25,10 +25,10 @@ enum ConnectionRequest {
         frame: u8,
     },
     Connect {
-        phone_number: ArrayVec<Digit, 32>,
+        digits: ArrayVec<Digit, 32>,
     },
     Login {
-        phone_number: ArrayVec<Digit, 32>,
+        digits: ArrayVec<Digit, 32>,
         id: ArrayVec<u8, 32>,
         password: ArrayVec<u8, 32>,
         primary_dns: Ipv4Addr,
@@ -96,6 +96,8 @@ struct State {
     phase: Phase,
 
     frame: u8,
+
+    packet_data: packet::Data,
 }
 
 impl State {
@@ -110,6 +112,8 @@ impl State {
             phase: Phase::Linking,
 
             frame: 0,
+
+            packet_data: packet::Data::new(),
         }
     }
 }
@@ -209,7 +213,7 @@ where
     /// Connect to a p2p peer.
     pub(super) fn connect(
         &mut self,
-        phone_number: ArrayVec<Digit, 32>,
+        digits: ArrayVec<Digit, 32>,
     ) -> Result<Generation, super::error::link::Error<Socket1, Socket2, Dns, Config>> {
         if matches!(self.state.phase, Phase::Ending) {
             return Err(super::error::link::Error::closed());
@@ -223,7 +227,7 @@ where
             // If we are already connected or attempting to connect, disconnect first.
             self.queue.set_disconnect();
         }
-        self.state.phase = Phase::Connecting(ConnectionRequest::Connect { phone_number });
+        self.state.phase = Phase::Connecting(ConnectionRequest::Connect { digits });
         self.queue.set_connect();
         Ok(self.state.connection_generation)
     }
@@ -257,7 +261,7 @@ where
     /// Connect via PPP protocol.
     pub(super) fn login(
         &mut self,
-        phone_number: ArrayVec<Digit, 32>,
+        digits: ArrayVec<Digit, 32>,
         id: ArrayVec<u8, 32>,
         password: ArrayVec<u8, 32>,
         primary_dns: Ipv4Addr,
@@ -276,7 +280,7 @@ where
             self.queue.set_disconnect();
         }
         self.state.phase = Phase::Connecting(ConnectionRequest::Login {
-            phone_number,
+            digits,
             id,
             password,
             primary_dns,
@@ -1103,7 +1107,7 @@ where
     pub(super) fn timer(&mut self, timer: Timer) {
         timer.stop();
         if let Some(flow) = &mut self.flow {
-            flow.timer()
+            flow.timer(&self.state)
         }
     }
 

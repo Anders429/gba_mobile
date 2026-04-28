@@ -27,6 +27,6 @@ pub trait Segments: Sized {
     fn location(&self) -> Location;
     fn read(
         self,
-        bytes: &[u8; 128],
+        bytes: &[u8],
     ) -> Result<ReadResult<Self::Format, Self>, <Self::Format as Format>::Error>;
 }

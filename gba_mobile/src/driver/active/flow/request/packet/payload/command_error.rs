@@ -1,27 +1,33 @@
-use crate::driver::command;
-use either::Either;
+use super::Error;
+use crate::{
+    ArrayVec,
+    driver::{Command, command},
+};
 
-#[derive(Debug)]
-pub(in crate::driver) enum Data {
-    Command,
-    Status(u8),
-}
+pub(super) fn parse(data: &ArrayVec<u8, 255>) -> Result<command::Error, Error> {
+    let mut bytes = data.iter().copied();
 
-impl Data {
-    pub(super) fn new() -> Self {
-        Self::Command
-    }
+    let command_byte = bytes.next().ok_or_else(|| Error::InvalidLength {
+        command: Command::CommandError,
+        received: 0,
+        expected: 2,
+    })?;
+    let status_byte = bytes.next().ok_or_else(|| Error::InvalidLength {
+        command: Command::CommandError,
+        received: 1,
+        expected: 2,
+    })?;
 
-    pub(super) fn receive_data(
-        self,
-        byte: u8,
-    ) -> Result<Either<Self, command::Error>, command::error::Unknown> {
-        match self {
-            Self::Command => Ok(Either::Left(Self::Status(byte))),
-            Self::Status(command_byte) => match command::Error::try_from((command_byte, byte)) {
-                Ok(command_error) => Ok(Either::Right(command_error)),
-                Err(unknown) => Err(unknown),
-            },
-        }
-    }
+    bytes
+        .next()
+        .map(|_| {
+            Err(Error::InvalidLength {
+                command: Command::CommandError,
+                received: data.len(),
+                expected: 2,
+            })
+        })
+        .unwrap_or_else(|| Ok(()))?;
+
+    command::Error::try_from((command_byte, status_byte)).map_err(Error::UnknownCommandError)
 }

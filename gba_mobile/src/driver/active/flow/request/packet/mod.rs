@@ -1,6 +1,8 @@
 pub(in crate::driver) mod error;
+
 pub(in crate::driver::active::flow) mod payload;
 
+mod data;
 mod sio32;
 mod sio8;
 mod timeout;
@@ -8,94 +10,82 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
+pub(in crate::driver::active) use data::Data;
+
+pub(in crate::driver::active::flow) use payload::Payload;
+
 use super::{communication, schedule_serial, schedule_timer};
 use crate::{Timer, driver::Adapter, mmio::serial::TransferLength};
 use either::Either;
-use payload::Payload;
 use sio8::Sio8;
 use sio32::Sio32;
 
 const MAX_RETRIES: u8 = 5;
 
-pub(in crate::driver::active) trait Send: Sized {
+trait Send: Sized {
     type WaitForReceive;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
 
-    fn timer(&mut self);
+    fn timer(&mut self, data: &Data);
 
-    fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Send>;
+    fn serial(self, data: &Data) -> Result<Either<Self, Self::WaitForReceive>, error::Send>;
 }
 
-pub(in crate::driver::active) trait WaitForReceive: Sized {
+trait WaitForReceive: Sized {
     type Receive;
     type ReceiveError;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
 
-    fn serial(self) -> Result<Either<Self, Self::Receive>, Self::ReceiveError>;
+    fn serial(self, data: &mut Data) -> Result<Either<Self, Self::Receive>, Self::ReceiveError>;
 }
 
-pub(in crate::driver::active) trait Receive<Payload>: Sized
-where
-    Payload: self::Payload,
-{
+trait Receive: Sized {
     type ReceiveError;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
 
-    fn timer(&mut self);
+    fn timer(&mut self, data: &Data);
 
     fn serial(
         self,
-    ) -> Result<Either<Result<Self, Self::ReceiveError>, Response<Payload>>, error::Receive<Payload>>;
+        data: &mut Data,
+    ) -> Result<Either<Result<Self, Self::ReceiveError>, Adapter>, error::Receive>;
 }
 
-pub(in crate::driver::active) trait ReceiveError<Payload>: Sized
-where
-    Payload: self::Payload,
-{
+trait ReceiveError: Sized {
     type WaitForReceive;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
 
     fn timer(&mut self);
 
-    fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive<Payload>>;
+    fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive>;
 }
 
-pub(in crate::driver::active) trait Sio {
+trait Sio {
     const TRANSFER_LENGTH: TransferLength;
 
-    type Send<Payload>: Send<WaitForReceive = Self::WaitForReceive<Payload>>
-    where
-        Payload: self::Payload;
-    type WaitForReceive<Payload>: WaitForReceive<Receive = Self::Receive<Payload>, ReceiveError = Self::ReceiveError<Payload>>
-    where
-        Payload: self::Payload;
-    type Receive<Payload>: Receive<Payload, ReceiveError = Self::ReceiveError<Payload>>
-    where
-        Payload: self::Payload;
-    type ReceiveError<Payload>: ReceiveError<Payload, WaitForReceive = Self::WaitForReceive<Payload>>
-    where
-        Payload: self::Payload;
+    type Send: Send<WaitForReceive = Self::WaitForReceive>;
+    type WaitForReceive: WaitForReceive<Receive = Self::Receive, ReceiveError = Self::ReceiveError>;
+    type Receive: Receive<ReceiveError = Self::ReceiveError>;
+    type ReceiveError: ReceiveError<WaitForReceive = Self::WaitForReceive>;
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active) enum State<Payload, Sio>
+enum Operation<Sio>
 where
-    Payload: self::Payload,
     Sio: self::Sio,
 {
-    Send(Sio::Send<Payload>),
-    WaitForReceive(Sio::WaitForReceive<Payload>),
-    Receive(Sio::Receive<Payload>),
-    ReceiveError(Sio::ReceiveError<Payload>),
+    Send(Sio::Send),
+    WaitForReceive(Sio::WaitForReceive),
+    Receive(Sio::Receive),
+    ReceiveError(Sio::ReceiveError),
 }
 
-impl<Payload, Sio> State<Payload, Sio>
+impl<Sio> Operation<Sio>
 where
-    Payload: self::Payload,
     Sio: self::Sio,
 {
     fn vblank(&mut self) -> Result<(), Timeout> {
@@ -107,25 +97,32 @@ where
         }
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, data: &Data) {
         match self {
-            Self::Send(send) => send.timer(),
+            Self::Send(send) => send.timer(data),
             Self::WaitForReceive(_) => {}
-            Self::Receive(receive) => receive.timer(),
+            Self::Receive(receive) => receive.timer(data),
             Self::ReceiveError(receive_error) => receive_error.timer(),
         }
     }
 
-    fn serial(self, timer: Timer) -> Result<Either<Self, Response<Payload>>, Error<Payload>> {
+    fn serial<Payload>(
+        self,
+        timer: Timer,
+        data: &mut Data,
+    ) -> Result<Either<Self, Adapter>, Error<Payload>>
+    where
+        Payload: self::Payload,
+    {
         match self {
             Self::Send(send) => Ok(Either::Left(
-                send.serial()?
+                send.serial(data)?
                     .map_left(Self::Send)
                     .map_right(Self::WaitForReceive)
                     .into_inner(),
             )),
             Self::WaitForReceive(wait_for_receive) => Ok(Either::Left(
-                Either::from(wait_for_receive.serial())
+                Either::from(wait_for_receive.serial(data))
                     .map_right(|right| {
                         right
                             .map_left(Self::WaitForReceive)
@@ -135,7 +132,7 @@ where
                     .map_left(Self::ReceiveError)
                     .into_inner(),
             )),
-            Self::Receive(receive) => Ok(receive.serial()?.map_left(|left| {
+            Self::Receive(receive) => Ok(receive.serial(data)?.map_left(|left| {
                 Either::from(left)
                     .map_right(Self::Receive)
                     .map_left(Self::ReceiveError)
@@ -170,12 +167,57 @@ where
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active) enum Packet<Payload>
-where
-    Payload: self::Payload,
-{
-    Packet8(State<Payload, Sio8>),
-    Packet32(State<Payload, Sio32>),
+enum State {
+    Packet8(Operation<Sio8>),
+    Packet32(Operation<Sio32>),
+}
+
+impl State {
+    fn new(transfer_length: TransferLength, timer: Timer) -> Self {
+        schedule_timer(timer, transfer_length);
+        match transfer_length {
+            TransferLength::_8Bit => Self::Packet8(Operation::Send(sio8::Send::new())),
+            TransferLength::_32Bit => Self::Packet32(Operation::Send(sio32::Send::new())),
+        }
+    }
+
+    fn vblank(&mut self) -> Result<(), Timeout> {
+        match self {
+            Self::Packet8(packet) => packet.vblank(),
+            Self::Packet32(packet) => packet.vblank(),
+        }
+    }
+
+    fn timer(&mut self, data: &Data) {
+        match self {
+            Self::Packet8(packet) => packet.timer(data),
+            Self::Packet32(packet) => packet.timer(data),
+        }
+    }
+
+    fn serial<Payload>(
+        self,
+        timer: Timer,
+        data: &mut Data,
+    ) -> Result<Either<Self, Adapter>, Error<Payload>>
+    where
+        Payload: self::Payload,
+    {
+        match self {
+            Self::Packet8(packet) => packet
+                .serial(timer, data)
+                .map(|ok| ok.map_left(Self::Packet8)),
+            Self::Packet32(packet) => packet
+                .serial(timer, data)
+                .map(|ok| ok.map_left(Self::Packet32)),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::driver::active::flow) struct Packet<Payload> {
+    state: State,
+    payload: Payload,
 }
 
 impl<Payload> Packet<Payload>
@@ -183,46 +225,57 @@ where
     Payload: self::Payload,
 {
     pub(in crate::driver::active::flow) fn new(
-        payload: Payload::Send,
+        payload: Payload,
         transfer_length: TransferLength,
         timer: Timer,
     ) -> Self {
-        schedule_timer(timer, transfer_length);
-        match transfer_length {
-            TransferLength::_8Bit => Self::Packet8(State::Send(sio8::Send::new(payload))),
-            TransferLength::_32Bit => Self::Packet32(State::Send(sio32::Send::new(payload))),
+        Self {
+            state: State::new(transfer_length, timer),
+            payload,
         }
     }
 
     pub(in crate::driver::active::flow) fn vblank(&mut self) -> Result<(), Timeout> {
-        match self {
-            Self::Packet8(packet) => packet.vblank(),
-            Self::Packet32(packet) => packet.vblank(),
-        }
+        self.state.vblank()
     }
 
-    pub(in crate::driver::active::flow) fn timer(&mut self) {
-        match self {
-            Self::Packet8(packet) => packet.timer(),
-            Self::Packet32(packet) => packet.timer(),
-        }
+    pub(in crate::driver::active::flow) fn timer(&mut self, data: &Data) {
+        self.state.timer(data)
     }
 
-    pub(in crate::driver::active::flow) fn serial(
+    pub(in crate::driver::active::flow) fn serial<'a, 'b>(
         self,
         timer: Timer,
-    ) -> Result<Either<Self, Response<Payload>>, Error<Payload>> {
-        match self {
-            Self::Packet8(packet) => packet.serial(timer).map(|ok| ok.map_left(Self::Packet8)),
-            Self::Packet32(packet) => packet.serial(timer).map(|ok| ok.map_left(Self::Packet32)),
-        }
+        data: &'a mut Data,
+    ) -> Result<Either<Self, Response<'b, Payload>>, Error<Payload>>
+    where
+        'a: 'b,
+    {
+        self.state
+            .serial(timer, data)
+            .and_then(|either| match either {
+                Either::Left(state) => Ok(Either::Left(Self {
+                    state,
+                    payload: self.payload,
+                })),
+                Either::Right(adapter) => self
+                    .payload
+                    .parse(data)
+                    .map(|response| {
+                        Either::Right(Response {
+                            payload: response,
+                            adapter,
+                        })
+                    })
+                    .map_err(Error::Payload),
+            })
     }
 }
 
-pub(in crate::driver::active::flow) struct Response<Payload>
+pub(in crate::driver::active::flow) struct Response<'a, Payload>
 where
     Payload: self::Payload,
 {
-    pub(in crate::driver::active::flow) payload: Payload::ReceiveParsed,
+    pub(in crate::driver::active::flow) payload: Payload::Response<'a>,
     pub(in crate::driver::active::flow) adapter: Adapter,
 }

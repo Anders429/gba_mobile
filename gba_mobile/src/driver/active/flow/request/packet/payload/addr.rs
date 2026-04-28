@@ -1,27 +1,36 @@
+use super::Error;
+use crate::driver::Command;
 use core::net::Ipv4Addr;
-use either::Either;
 
-#[derive(Debug)]
-pub(in crate::driver) enum Data {
-    Octet1,
-    Octet2(u8),
-    Octet3(u8, u8),
-    Octet4(u8, u8, u8),
-}
+pub(super) fn parse<Bytes>(
+    mut bytes: Bytes,
+    command: Command,
+    byte_offset: u8,
+    expected: u8,
+) -> Result<Ipv4Addr, Error>
+where
+    Bytes: Iterator<Item = u8>,
+{
+    let octet1 = bytes.next().ok_or_else(|| Error::InvalidLength {
+        command,
+        received: byte_offset,
+        expected,
+    })?;
+    let octet2 = bytes.next().ok_or_else(|| Error::InvalidLength {
+        command,
+        received: byte_offset + 1,
+        expected,
+    })?;
+    let octet3 = bytes.next().ok_or_else(|| Error::InvalidLength {
+        command,
+        received: byte_offset + 2,
+        expected,
+    })?;
+    let octet4 = bytes.next().ok_or_else(|| Error::InvalidLength {
+        command,
+        received: byte_offset + 3,
+        expected,
+    })?;
 
-impl Data {
-    pub(super) fn new() -> Self {
-        Self::Octet1
-    }
-
-    pub(super) fn receive_data(self, byte: u8) -> Either<Self, Ipv4Addr> {
-        match self {
-            Self::Octet1 => Either::Left(Self::Octet2(byte)),
-            Self::Octet2(octet1) => Either::Left(Self::Octet3(octet1, byte)),
-            Self::Octet3(octet1, octet2) => Either::Left(Self::Octet4(octet1, octet2, byte)),
-            Self::Octet4(octet1, octet2, octet3) => {
-                Either::Right(Ipv4Addr::from_octets([octet1, octet2, octet3, byte]))
-            }
-        }
-    }
+    Ok(Ipv4Addr::from_octets([octet1, octet2, octet3, octet4]))
 }

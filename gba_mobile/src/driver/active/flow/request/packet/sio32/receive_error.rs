@@ -1,5 +1,5 @@
 use super::{
-    super::{MAX_RETRIES, Payload, Timeout, communication, error, schedule_serial},
+    super::{MAX_RETRIES, Timeout, communication, error, schedule_serial},
     WaitForReceive,
 };
 use crate::{
@@ -18,24 +18,16 @@ pub(super) enum Step {
 }
 
 #[derive(Debug)]
-struct State<Payload>
-where
-    Payload: self::Payload,
-{
-    payload: Payload::ReceiveCommand,
-    error: error::Receive<Payload>,
+struct State {
+    error: error::Receive,
     attempt: u8,
     frame: u8,
     communication_state: communication::State,
 }
 
-impl<Payload> State<Payload>
-where
-    Payload: self::Payload,
-{
-    fn new(payload: Payload::ReceiveCommand, error: error::Receive<Payload>, attempt: u8) -> Self {
+impl State {
+    fn new(error: error::Receive, attempt: u8) -> Self {
         Self {
-            payload,
             error,
             attempt,
             frame: 0,
@@ -45,7 +37,6 @@ where
 
     fn next(self) -> Self {
         Self {
-            payload: self.payload,
             error: self.error,
             attempt: self.attempt,
             frame: self.frame,
@@ -55,31 +46,20 @@ where
 }
 
 #[derive(Debug)]
-pub(in crate::driver::active) struct ReceiveError<Payload>
-where
-    Payload: self::Payload,
-{
+pub(in crate::driver::active) struct ReceiveError {
     step: Step,
-    state: State<Payload>,
+    state: State,
 }
 
-impl<Payload> ReceiveError<Payload>
-where
-    Payload: self::Payload,
-{
-    pub(super) fn new(
-        step: Step,
-        payload: Payload::ReceiveCommand,
-        error: error::Receive<Payload>,
-        attempt: u8,
-    ) -> Self {
+impl ReceiveError {
+    pub(super) fn new(step: Step, error: error::Receive, attempt: u8) -> Self {
         Self {
             step,
-            state: State::new(payload, error, attempt),
+            state: State::new(error, attempt),
         }
     }
 
-    fn next(step: Step, state: State<Payload>) -> Self {
+    fn next(step: Step, state: State) -> Self {
         Self {
             step,
             state: state.next(),
@@ -87,11 +67,8 @@ where
     }
 }
 
-impl<Payload> super::super::ReceiveError<Payload> for ReceiveError<Payload>
-where
-    Payload: self::Payload,
-{
-    type WaitForReceive = WaitForReceive<Payload>;
+impl super::super::ReceiveError for ReceiveError {
+    type WaitForReceive = WaitForReceive;
 
     fn vblank(&mut self) -> Result<(), Timeout> {
         if self.state.frame > frames::THREE_SECONDS {
@@ -126,7 +103,7 @@ where
         }
     }
 
-    fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive<Payload>> {
+    fn serial(self) -> Result<Either<Self, Self::WaitForReceive>, error::Receive> {
         match self.state.communication_state {
             communication::State::Send => Ok(Either::Left(self)),
             communication::State::Receive => {
@@ -149,10 +126,10 @@ where
                         }
                     }
                     Step::Data { index, length } => {
-                        if index + 2 >= length.get() {
+                        if index.saturating_add(2) >= length.get() {
                             // Checksum is included in last two bytes.
                             Ok(Either::Left(Self::next(Step::Footer, self.state)))
-                        } else if index + 4 >= length.get() {
+                        } else if index.saturating_add(4) >= length.get() {
                             // These are the last data bytes.
                             Ok(Either::Left(Self::next(Step::Checksum, self.state)))
                         } else {
@@ -171,10 +148,7 @@ where
                         let new_attempt = self.state.attempt + 1;
                         if new_attempt < MAX_RETRIES {
                             // Retry.
-                            Ok(Either::Right(WaitForReceive::new(
-                                self.state.payload,
-                                new_attempt,
-                            )))
+                            Ok(Either::Right(WaitForReceive::new(new_attempt)))
                         } else {
                             // Too many retries. Stop trying and return error.
                             Err(self.state.error)

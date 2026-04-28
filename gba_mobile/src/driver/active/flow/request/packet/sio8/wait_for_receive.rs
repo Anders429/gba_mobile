@@ -1,6 +1,6 @@
 use super::{
-    super::{Payload, Timeout, communication, error, schedule_serial},
-    Receive, ReceiveError, receive_error,
+    super::{Data, Timeout, communication, schedule_serial},
+    Receive, ReceiveError,
 };
 use crate::{
     driver::frames,
@@ -9,24 +9,16 @@ use crate::{
 use either::Either;
 
 #[derive(Debug)]
-pub(in crate::driver::active) struct WaitForReceive<Payload>
-where
-    Payload: self::Payload,
-{
-    payload: Payload::ReceiveCommand,
+pub(in crate::driver::active) struct WaitForReceive {
     packet_frame: u16,
     serial_frame: u8,
     attempt: u8,
     communication_state: communication::State,
 }
 
-impl<Payload> WaitForReceive<Payload>
-where
-    Payload: self::Payload,
-{
-    pub(super) fn new(payload: Payload::ReceiveCommand, attempt: u8) -> Self {
+impl WaitForReceive {
+    pub(super) fn new(attempt: u8) -> Self {
         Self {
-            payload,
             packet_frame: 0,
             serial_frame: 0,
             attempt,
@@ -36,7 +28,6 @@ where
 
     fn reset(self) -> Self {
         Self {
-            payload: self.payload,
             packet_frame: self.packet_frame,
             serial_frame: 0,
             attempt: self.attempt,
@@ -45,12 +36,9 @@ where
     }
 }
 
-impl<Payload> super::super::WaitForReceive for WaitForReceive<Payload>
-where
-    Payload: self::Payload,
-{
-    type Receive = Receive<Payload>;
-    type ReceiveError = ReceiveError<Payload>;
+impl super::super::WaitForReceive for WaitForReceive {
+    type Receive = Receive;
+    type ReceiveError = ReceiveError;
 
     fn vblank(&mut self) -> Result<(), Timeout> {
         if self.packet_frame > frames::FIFTEEN_SECONDS {
@@ -72,22 +60,20 @@ where
         }
     }
 
-    fn serial(self) -> Result<Either<Self, Self::Receive>, Self::ReceiveError> {
+    fn serial(self, data: &mut Data) -> Result<Either<Self, Self::Receive>, Self::ReceiveError> {
         match self.communication_state {
             communication::State::Send => Ok(Either::Left(self)),
             communication::State::Receive => {
                 let byte = unsafe { SIODATA8.read_volatile() };
 
                 match byte {
-                    0x99 => Ok(Either::Right(Receive::new(self.payload, self.attempt))),
-                    0xd2 => Ok(Either::Left(self.reset())),
-                    // Anything else is not proper communication and should enter an error state.
-                    _ => Err(ReceiveError::new(
-                        receive_error::Step::MagicByte2,
-                        self.payload,
-                        error::Receive::MagicValue1(byte),
-                        self.attempt,
-                    )),
+                    0x99 => {
+                        // Begin receiving the new packet.
+                        *data = Data::new();
+                        Ok(Either::Right(Receive::new(self.attempt)))
+                    }
+                    // Anything else should be ignored.
+                    _ => Ok(Either::Left(self.reset())),
                 }
             }
         }

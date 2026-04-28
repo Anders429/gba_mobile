@@ -6,17 +6,15 @@ pub(in crate::driver) use timeout::Timeout;
 
 use super::{
     super::{ConnectionFailure, ConnectionRequest, Phase},
-    request::{Packet, packet::payload},
+    request::{Packet, packet, packet::payload},
 };
 use crate::{Adapter, ArrayVec, Digit, Generation, Timer, mmio::serial::TransferLength, socket};
-use core::net::Ipv4Addr;
 use either::Either;
 
 #[derive(Debug)]
 pub(in super::super) enum Login {
     Connect {
         packet: Packet<payload::Connect>,
-        login: payload::Login,
         connection_generation: Generation,
     },
     Login {
@@ -29,21 +27,17 @@ impl Login {
     pub(super) fn new(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         adapter: Adapter,
-        phone_number: ArrayVec<Digit, 32>,
-        id: ArrayVec<u8, 32>,
-        password: ArrayVec<u8, 32>,
-        primary_dns: Ipv4Addr,
-        secondary_dns: Ipv4Addr,
+        digits: &ArrayVec<Digit, 32>,
         connection_generation: Generation,
     ) -> Self {
         Self::Connect {
             packet: Packet::new(
-                payload::Connect::new(adapter, phone_number),
+                payload::Connect::new(packet_data, adapter, digits),
                 transfer_length,
                 timer,
             ),
-            login: payload::Login::new(id, password, primary_dns, secondary_dns),
             connection_generation,
         }
     }
@@ -55,10 +49,10 @@ impl Login {
         }
     }
 
-    pub(super) fn timer(&mut self) {
+    pub(super) fn timer(&mut self, packet_data: &packet::Data) {
         match self {
-            Self::Connect { packet, .. } => packet.timer(),
-            Self::Login { packet, .. } => packet.timer(),
+            Self::Connect { packet, .. } => packet.timer(packet_data),
+            Self::Login { packet, .. } => packet.timer(packet_data),
         }
     }
 
@@ -66,6 +60,7 @@ impl Login {
         self,
         timer: Timer,
         adapter: &mut Adapter,
+        packet_data: &mut packet::Data,
         transfer_length: TransferLength,
         phase: &mut Phase,
         connection_generation: Generation,
@@ -73,50 +68,62 @@ impl Login {
         match self {
             Self::Connect {
                 packet,
-                login,
                 connection_generation: flow_connection_generation,
-            } => packet
-                .serial(timer)
-                .map(|response| match response {
-                    Either::Left(packet) => Some(Self::Connect {
-                        packet,
-                        login,
-                        connection_generation,
-                    }),
-                    Either::Right(response) => {
-                        *adapter = response.adapter;
-                        if matches!(phase, Phase::Connecting(ConnectionRequest::Login { .. }))
-                            && connection_generation == flow_connection_generation
-                        {
-                            // Only continue if we are currently logging in for this specific
-                            // connection generation.
-                            //
-                            // It is possible to have the phase change during execution of the flow, in
-                            // which case we should not continue or update the phase.
-                            match response.payload {
-                                payload::connect::ReceiveParsed::Connected => Some(Self::Login {
-                                    packet: Packet::new(login, transfer_length, timer),
-                                    connection_generation: flow_connection_generation,
-                                }),
-                                payload::connect::ReceiveParsed::NotConnected => {
-                                    *phase = Phase::Linked {
-                                        frame: 0,
-                                        connection_failure: Some(ConnectionFailure::Connect),
-                                    };
-                                    None
-                                }
+            } => match packet.serial(timer, packet_data) {
+                Ok(Either::Left(packet)) => Ok(Some(Self::Connect {
+                    packet,
+                    connection_generation,
+                })),
+                Ok(Either::Right(response)) => {
+                    *adapter = response.adapter;
+                    if let Phase::Connecting(ConnectionRequest::Login {
+                        id,
+                        password,
+                        primary_dns,
+                        secondary_dns,
+                        ..
+                    }) = phase
+                        && connection_generation == flow_connection_generation
+                    {
+                        // Only continue if we are currently logging in for this specific
+                        // connection generation.
+                        //
+                        // It is possible to have the phase change during execution of the flow, in
+                        // which case we should not continue or update the phase.
+                        match response.payload {
+                            payload::connect::Response::Connected => Ok(Some(Self::Login {
+                                packet: Packet::new(
+                                    payload::Login::new(
+                                        packet_data,
+                                        id,
+                                        password,
+                                        *primary_dns,
+                                        *secondary_dns,
+                                    ),
+                                    transfer_length,
+                                    timer,
+                                ),
+                                connection_generation: flow_connection_generation,
+                            })),
+                            payload::connect::Response::NotConnected => {
+                                *phase = Phase::Linked {
+                                    frame: 0,
+                                    connection_failure: Some(ConnectionFailure::Connect),
+                                };
+                                Ok(None)
                             }
-                        } else {
-                            None
                         }
+                    } else {
+                        Ok(None)
                     }
-                })
-                .map_err(Error::Connect),
+                }
+                Err(error) => Err(Error::Connect(error)),
+            },
             Self::Login {
                 packet,
                 connection_generation: flow_connection_generation,
             } => packet
-                .serial(timer)
+                .serial(timer, packet_data)
                 .map(|response| match response {
                     Either::Left(packet) => Some(Self::Login {
                         packet,
@@ -127,12 +134,12 @@ impl Login {
                         if matches!(phase, Phase::Connecting(ConnectionRequest::Login { .. }))
                             && connection_generation == flow_connection_generation
                         {
-                            // Only update the phase if we are currently logging in for this specific
-                            // connection generation.
+                            // Only update the phase if we are currently logging in for this
+                            // specific connection generation.
                             //
-                            // It is possible to have the phase change during execution of the flow, in
-                            // which case we should not update the phase.
-                            match response.payload.response {
+                            // It is possible to have the phase change during execution of the
+                            // flow, in which case we should not update the phase.
+                            match response.payload {
                                 payload::login::Response::Connected {
                                     ip,
                                     primary_dns,

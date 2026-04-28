@@ -1,5 +1,7 @@
 #![allow(private_interfaces)]
 
+pub(super) mod request;
+
 mod accept;
 mod close_tcp;
 mod close_udp;
@@ -13,7 +15,6 @@ mod login;
 mod open_tcp;
 mod open_udp;
 mod read_config;
-mod request;
 mod reset;
 mod start;
 mod status;
@@ -41,7 +42,7 @@ use core::{
     convert::Infallible,
     fmt,
     fmt::{Debug, Formatter},
-    net::{Ipv4Addr, SocketAddrV4},
+    net::SocketAddrV4,
 };
 use disconnect::Disconnect;
 use dns::Dns;
@@ -52,6 +53,7 @@ use login::Login;
 use open_tcp::OpenTcp;
 use open_udp::OpenUdp;
 use read_config::ReadConfig;
+use request::packet;
 use reset::Reset;
 use start::Start;
 use status::Status;
@@ -62,7 +64,7 @@ pub(crate) trait SocketSubFlow<Socket>: Sized + Debug {
     type Error: Clone + core::error::Error + 'static;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
-    fn timer(&mut self);
+    fn timer(&mut self, state: &State);
     fn serial(
         self,
         state: &mut State,
@@ -75,7 +77,7 @@ pub(crate) trait DnsSubFlow<Dns>: Sized + Debug {
     type Error: Clone + core::error::Error + 'static;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
-    fn timer(&mut self);
+    fn timer(&mut self, state: &State);
     fn serial(
         self,
         state: &mut State,
@@ -90,12 +92,13 @@ pub(crate) trait ConfigSubFlow<Config>: Sized + Debug {
     fn read_config(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         link_generation: Generation,
         config: &Config,
     ) -> Option<Self>;
 
     fn vblank(&mut self) -> Result<(), Timeout>;
-    fn timer(&mut self);
+    fn timer(&mut self, state: &State);
     fn serial(
         self,
         state: &mut State,
@@ -118,7 +121,7 @@ impl SocketSubFlow<NoSocket> for Empty {
         unreachable!()
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, _state: &State) {
         unreachable!()
     }
 
@@ -139,7 +142,7 @@ impl DnsSubFlow<NoDns> for Empty {
         unreachable!()
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, _state: &State) {
         unreachable!()
     }
 
@@ -159,6 +162,7 @@ impl ConfigSubFlow<NoConfig> for Empty {
     fn read_config(
         _transfer_length: TransferLength,
         _timer: Timer,
+        _packet_data: &mut packet::Data,
         _link_generation: Generation,
         _config: &NoConfig,
     ) -> Option<Self> {
@@ -169,7 +173,7 @@ impl ConfigSubFlow<NoConfig> for Empty {
         unreachable!()
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, _state: &State) {
         unreachable!()
     }
 
@@ -200,10 +204,10 @@ impl<Buffer> SocketSubFlow<Socket<Buffer>> for ConnectionFlow {
         }
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, state: &State) {
         match self {
-            Self::Accept(accept) => accept.timer(),
-            Self::Connect(connect) => connect.timer(),
+            Self::Accept(accept) => accept.timer(&state.packet_data),
+            Self::Connect(connect) => connect.timer(&state.packet_data),
         }
     }
 
@@ -215,13 +219,20 @@ impl<Buffer> SocketSubFlow<Socket<Buffer>> for ConnectionFlow {
     ) -> Result<Option<Self>, Self::Error> {
         match self {
             Self::Accept(accept) => accept
-                .serial(timer, &mut state.adapter, &mut state.phase, socket)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    &mut state.packet_data,
+                    &mut state.phase,
+                    socket,
+                )
                 .map(|flow| flow.map(Self::Accept))
                 .map_err(error::Connection::Accept),
             Self::Connect(connect) => connect
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     &mut state.phase,
                     socket,
                     state.connection_generation,
@@ -259,13 +270,13 @@ where
         }
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, state: &State) {
         match self {
-            Self::OpenTcp(open_tcp) => open_tcp.timer(),
-            Self::OpenUdp(open_udp) => open_udp.timer(),
-            Self::CloseTcp(close_tcp) => close_tcp.timer(),
-            Self::CloseUdp(close_udp) => close_udp.timer(),
-            Self::TransferData(transfer_data) => transfer_data.timer(),
+            Self::OpenTcp(open_tcp) => open_tcp.timer(&state.packet_data),
+            Self::OpenUdp(open_udp) => open_udp.timer(&state.packet_data),
+            Self::CloseTcp(close_tcp) => close_tcp.timer(&state.packet_data),
+            Self::CloseUdp(close_udp) => close_udp.timer(&state.packet_data),
+            Self::TransferData(transfer_data) => transfer_data.timer(&state.packet_data),
         }
     }
 
@@ -280,6 +291,7 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     &mut state.phase,
                     socket,
                     state.connection_generation,
@@ -290,6 +302,7 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     &mut state.phase,
                     socket,
                     state.connection_generation,
@@ -297,17 +310,28 @@ where
                 .map(|flow| flow.map(Self::OpenUdp))
                 .map_err(error::Socket::OpenUdp),
             Self::CloseTcp(close_tcp) => close_tcp
-                .serial(timer, &mut state.adapter, &mut state.phase)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    &mut state.packet_data,
+                    &mut state.phase,
+                )
                 .map(|flow| flow.map(Self::CloseTcp))
                 .map_err(error::Socket::CloseTcp),
             Self::CloseUdp(close_udp) => close_udp
-                .serial(timer, &mut state.adapter, &mut state.phase)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    &mut state.packet_data,
+                    &mut state.phase,
+                )
                 .map(|flow| flow.map(Self::CloseUdp))
                 .map_err(error::Socket::CloseUdp),
             Self::TransferData(transfer_data) => transfer_data
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     state.transfer_length,
                     &mut state.phase,
                     socket,
@@ -328,8 +352,8 @@ impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> 
         self.0.vblank().map_err(Timeout::Dns)
     }
 
-    fn timer(&mut self) {
-        self.0.timer();
+    fn timer(&mut self, state: &State) {
+        self.0.timer(&state.packet_data);
     }
 
     fn serial(
@@ -339,7 +363,7 @@ impl<const MAX_LEN: usize> DnsSubFlow<crate::Dns<MAX_LEN>> for DnsFlow<MAX_LEN> 
         dns: &mut crate::Dns<MAX_LEN>,
     ) -> Result<Option<Self>, Self::Error> {
         self.0
-            .serial(timer, &mut state.adapter, dns)
+            .serial(timer, &mut state.adapter, &mut state.packet_data, dns)
             .map(|flow| flow.map(Self))
             .map_err(error::Dns::Dns)
     }
@@ -368,10 +392,12 @@ where
     fn read_config(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         link_generation: Generation,
         config: &Config<Format>,
     ) -> Option<Self> {
-        ReadConfig::new(transfer_length, timer, link_generation, config).map(Self::ReadConfig)
+        ReadConfig::new(transfer_length, timer, packet_data, link_generation, config)
+            .map(Self::ReadConfig)
     }
 
     fn vblank(&mut self) -> Result<(), Timeout> {
@@ -381,10 +407,10 @@ where
         }
     }
 
-    fn timer(&mut self) {
+    fn timer(&mut self, state: &State) {
         match self {
-            Self::ReadConfig(read_config) => read_config.timer(),
-            Self::WriteConfig(write_config) => write_config.timer(),
+            Self::ReadConfig(read_config) => read_config.timer(&state.packet_data),
+            Self::WriteConfig(write_config) => write_config.timer(&state.packet_data),
         }
     }
 
@@ -400,6 +426,7 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     state.transfer_length,
                     config,
                     &mut state.phase,
@@ -408,7 +435,13 @@ where
                 .map(|flow| flow.map(Self::ReadConfig))
                 .map_err(error::Config::ReadConfig),
             Self::WriteConfig(write_config) => write_config
-                .serial(timer, &mut state.adapter, state.transfer_length, config)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    &mut state.packet_data,
+                    state.transfer_length,
+                    config,
+                )
                 .map(|flow| flow.map(Self::WriteConfig))
                 .map_err(error::Config::WriteConfig),
         }
@@ -453,48 +486,60 @@ where
         Self::Start(Start::new(transfer_length, link_generation))
     }
 
-    pub(super) fn end(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::End(End::new(transfer_length, timer))
+    pub(super) fn end(
+        transfer_length: TransferLength,
+        timer: Timer,
+        packet_data: &mut packet::Data,
+    ) -> Self {
+        Self::End(End::new(transfer_length, timer, packet_data))
     }
 
     pub(super) fn reset(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         link_generation: Generation,
     ) -> Self {
-        Self::Reset(Reset::new(transfer_length, timer, link_generation))
+        Self::Reset(Reset::new(
+            transfer_length,
+            timer,
+            packet_data,
+            link_generation,
+        ))
     }
 
     pub(super) fn login(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         adapter: Adapter,
-        phone_number: ArrayVec<Digit, 32>,
-        id: ArrayVec<u8, 32>,
-        password: ArrayVec<u8, 32>,
-        primary_dns: Ipv4Addr,
-        secondary_dns: Ipv4Addr,
+        digits: &ArrayVec<Digit, 32>,
         connection_generation: Generation,
     ) -> Self {
         Self::Login(Login::new(
             transfer_length,
             timer,
+            packet_data,
             adapter,
-            phone_number,
-            id,
-            password,
-            primary_dns,
-            secondary_dns,
+            digits,
             connection_generation,
         ))
     }
 
-    pub(super) fn disconnect(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::Disconnect(Disconnect::new(transfer_length, timer))
+    pub(super) fn disconnect(
+        transfer_length: TransferLength,
+        timer: Timer,
+        packet_data: &mut packet::Data,
+    ) -> Self {
+        Self::Disconnect(Disconnect::new(transfer_length, timer, packet_data))
     }
 
-    pub(super) fn status(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::Status(Status::new(transfer_length, timer))
+    pub(super) fn status(
+        transfer_length: TransferLength,
+        timer: Timer,
+        packet_data: &mut packet::Data,
+    ) -> Self {
+        Self::Status(Status::new(transfer_length, timer, packet_data))
     }
 
     pub(super) fn idle(transfer_length: TransferLength, timer: Timer) -> Self {
@@ -522,19 +567,19 @@ where
         }
     }
 
-    pub(super) fn timer(&mut self) {
+    pub(super) fn timer(&mut self, state: &State) {
         match self {
-            Self::Start(start) => start.timer(),
-            Self::End(end) => end.timer(),
-            Self::Reset(reset) => reset.timer(),
-            Self::Login(login) => login.timer(),
-            Self::Connection(connection) => connection.timer(),
-            Self::Disconnect(disconnect) => disconnect.timer(),
-            Self::Socket1(socket_1) => socket_1.timer(),
-            Self::Socket2(socket_2) => socket_2.timer(),
-            Self::Dns(dns) => dns.timer(),
-            Self::Config(config) => config.timer(),
-            Self::Status(status) => status.timer(),
+            Self::Start(start) => start.timer(&state.packet_data),
+            Self::End(end) => end.timer(&state.packet_data),
+            Self::Reset(reset) => reset.timer(&state.packet_data),
+            Self::Login(login) => login.timer(&state.packet_data),
+            Self::Connection(connection) => connection.timer(state),
+            Self::Disconnect(disconnect) => disconnect.timer(&state.packet_data),
+            Self::Socket1(socket_1) => socket_1.timer(state),
+            Self::Socket2(socket_2) => socket_2.timer(state),
+            Self::Dns(dns) => dns.timer(state),
+            Self::Config(config) => config.timer(state),
+            Self::Status(status) => status.timer(&state.packet_data),
             Self::Idle(idle) => idle.timer(),
         }
     }
@@ -555,6 +600,7 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     &mut state.transfer_length,
                     link_generation,
                 )
@@ -565,6 +611,7 @@ where
                             let config_flow = Config::Flow::read_config(
                                 state.transfer_length,
                                 timer,
+                                &mut state.packet_data,
                                 link_generation,
                                 &config,
                             )
@@ -592,13 +639,19 @@ where
                 })
                 .map_err(Error::Start),
             Self::End(end) => end
-                .serial(timer, &mut state.adapter, &mut state.transfer_length)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    &mut state.packet_data,
+                    &mut state.transfer_length,
+                )
                 .map(|flow| Some(Self::End(flow)))
                 .map_err(Error::End),
             Self::Reset(reset) => reset
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     &mut state.transfer_length,
                     link_generation,
                 )
@@ -609,6 +662,7 @@ where
                             let config_flow = Config::Flow::read_config(
                                 state.transfer_length,
                                 timer,
+                                &mut state.packet_data,
                                 link_generation,
                                 &config,
                             )
@@ -634,6 +688,7 @@ where
                 .serial(
                     timer,
                     &mut state.adapter,
+                    &mut state.packet_data,
                     state.transfer_length,
                     &mut state.phase,
                     state.connection_generation,
@@ -645,7 +700,7 @@ where
                 .map(|flow| flow.map(Self::Connection))
                 .map_err(Error::Connection),
             Self::Disconnect(disconnect) => disconnect
-                .serial(timer, &mut state.adapter)
+                .serial(timer, &mut state.adapter, &mut state.packet_data)
                 .map(|flow| flow.map(Self::Disconnect))
                 .map_err(Error::Disconnect),
             Self::Socket1(socket) => socket
@@ -665,7 +720,12 @@ where
                 .map(|flow| flow.map(Self::Config))
                 .map_err(Error::Config),
             Self::Status(status) => status
-                .serial(timer, &mut state.adapter, &mut state.phase)
+                .serial(
+                    timer,
+                    &mut state.adapter,
+                    &mut state.packet_data,
+                    &mut state.phase,
+                )
                 .map(|flow| flow.map(Self::Status))
                 .map_err(Error::Status),
             Self::Idle(idle) => idle
@@ -683,22 +743,32 @@ where
     Dns: crate::dns::Sealed,
     Config: config::Sealed,
 {
-    pub(super) fn accept(transfer_length: TransferLength, timer: Timer) -> Self {
-        Self::Connection(ConnectionFlow::Accept(Accept::new(transfer_length, timer)))
+    pub(super) fn accept(
+        transfer_length: TransferLength,
+        timer: Timer,
+        packet_data: &mut packet::Data,
+    ) -> Self {
+        Self::Connection(ConnectionFlow::Accept(Accept::new(
+            transfer_length,
+            timer,
+            packet_data,
+        )))
     }
 
     pub(super) fn connect(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         adapter: Adapter,
-        phone_number: ArrayVec<Digit, 32>,
+        digits: &ArrayVec<Digit, 32>,
         connection_generation: Generation,
     ) -> Self {
         Self::Connection(ConnectionFlow::Connect(Connect::new(
             transfer_length,
             timer,
+            packet_data,
             adapter,
-            phone_number,
+            digits,
             connection_generation,
         )))
     }
@@ -706,6 +776,7 @@ where
     pub(super) fn open_tcp_1(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
@@ -713,6 +784,7 @@ where
         Self::Socket1(SocketFlow::OpenTcp(OpenTcp::new(
             transfer_length,
             timer,
+            packet_data,
             addr,
             connection_generation,
             socket_generation,
@@ -722,6 +794,7 @@ where
     pub(super) fn open_udp_1(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
@@ -729,6 +802,7 @@ where
         Self::Socket1(SocketFlow::OpenUdp(OpenUdp::new(
             transfer_length,
             timer,
+            packet_data,
             addr,
             connection_generation,
             socket_generation,
@@ -738,11 +812,13 @@ where
     pub(super) fn close_tcp_1(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         id: socket::Id,
     ) -> Self {
         Self::Socket1(SocketFlow::CloseTcp(CloseTcp::new(
             transfer_length,
             timer,
+            packet_data,
             id,
         )))
     }
@@ -750,11 +826,13 @@ where
     pub(super) fn close_udp_1(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         id: socket::Id,
     ) -> Self {
         Self::Socket1(SocketFlow::CloseUdp(CloseUdp::new(
             transfer_length,
             timer,
+            packet_data,
             id,
         )))
     }
@@ -762,11 +840,13 @@ where
     pub(super) fn socket_1_transfer_data(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         socket: &mut Socket<Buffer>,
     ) -> Self {
         Self::Socket1(SocketFlow::TransferData(TransferData::new(
             transfer_length,
             timer,
+            packet_data,
             socket,
         )))
     }
@@ -782,6 +862,7 @@ where
     pub(super) fn open_tcp_2(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
@@ -789,6 +870,7 @@ where
         Self::Socket2(SocketFlow::OpenTcp(OpenTcp::new(
             transfer_length,
             timer,
+            packet_data,
             addr,
             connection_generation,
             socket_generation,
@@ -798,6 +880,7 @@ where
     pub(super) fn open_udp_2(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         addr: SocketAddrV4,
         connection_generation: Generation,
         socket_generation: Generation,
@@ -805,6 +888,7 @@ where
         Self::Socket2(SocketFlow::OpenUdp(OpenUdp::new(
             transfer_length,
             timer,
+            packet_data,
             addr,
             connection_generation,
             socket_generation,
@@ -814,11 +898,13 @@ where
     pub(super) fn close_tcp_2(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         id: socket::Id,
     ) -> Self {
         Self::Socket2(SocketFlow::CloseTcp(CloseTcp::new(
             transfer_length,
             timer,
+            packet_data,
             id,
         )))
     }
@@ -826,11 +912,13 @@ where
     pub(super) fn close_udp_2(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         id: socket::Id,
     ) -> Self {
         Self::Socket2(SocketFlow::CloseUdp(CloseUdp::new(
             transfer_length,
             timer,
+            packet_data,
             id,
         )))
     }
@@ -838,11 +926,13 @@ where
     pub(super) fn socket_2_transfer_data(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         socket: &mut Socket<Buffer>,
     ) -> Self {
         Self::Socket2(SocketFlow::TransferData(TransferData::new(
             transfer_length,
             timer,
+            packet_data,
             socket,
         )))
     }
@@ -858,12 +948,14 @@ where
     pub(super) fn dns(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         name: ArrayVec<u8, MAX_LEN>,
         dns_generation: Generation,
     ) -> Self {
         Self::Dns(DnsFlow(Dns::new(
             transfer_length,
             timer,
+            packet_data,
             name,
             dns_generation,
         )))
@@ -880,11 +972,13 @@ where
     pub(super) fn write_config(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         config: &Config<Format>,
     ) -> Option<Self> {
         Some(Self::Config(ConfigFlow::WriteConfig(WriteConfig::new(
             transfer_length,
             timer,
+            packet_data,
             config,
         )?)))
     }

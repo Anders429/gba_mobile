@@ -1,69 +1,80 @@
-use crate::driver::Command;
-
-use super::{Payload, ReceiveCommand, ReceiveData, ReceiveLength};
+use crate::driver::{Command, command};
 use core::{
     fmt,
-    fmt::{Debug, Display, Formatter},
+    fmt::{Display, Formatter},
 };
 
-#[derive(Debug)]
-pub(in crate::driver) enum Error<Payload>
-where
-    Payload: self::Payload,
-{
-    ReceiveCommand(<Payload::ReceiveCommand as ReceiveCommand>::Error),
-    ReceiveLength(<Payload::ReceiveLength as ReceiveLength>::Error),
-    ReceiveData(<Payload::ReceiveData as ReceiveData>::Error),
+#[derive(Clone, Debug)]
+pub(in crate::driver) enum Error {
+    UnsupportedCommand {
+        received: Command,
+        expected: &'static [Command],
+    },
+    InvalidLength {
+        command: Command,
+        received: u8,
+        expected: u8,
+    },
+    UnknownCommandError(command::error::Unknown),
+    UnexpectedCommandError(command::Error),
 }
 
-impl<Payload> Error<Payload>
-where
-    Payload: self::Payload,
-{
-    pub(in super::super) fn command(&self) -> Command {
-        match self {
-            Self::ReceiveCommand(_) => Command::NotSupportedError,
-            Self::ReceiveLength(_) => Command::MalformedError,
-            Self::ReceiveData(_) => Command::MalformedError,
+fn fmt_unsupported_command(
+    formatter: &mut Formatter,
+    received: Command,
+    expected: &'static [Command],
+) -> fmt::Result {
+    write!(formatter, "unsupported command {received}")?;
+    if let Some((last, list)) = expected.split_last() {
+        if list.len() <= 1 {
+            if let Some(first) = list.first() {
+                write!(formatter, "; supported commands are {first} and {last}")?;
+            } else {
+                write!(formatter, "; expected {last}")?;
+            }
+        } else {
+            formatter.write_str("; supported commands are ")?;
+            for command in list {
+                write!(formatter, "{command}, ")?;
+            }
+            write!(formatter, "and {last}")?;
         }
     }
+
+    Ok(())
 }
 
-impl<Payload> Clone for Error<Payload>
-where
-    Payload: self::Payload,
-{
-    fn clone(&self) -> Self {
-        match self {
-            Self::ReceiveCommand(error) => Self::ReceiveCommand(error.clone()),
-            Self::ReceiveLength(error) => Self::ReceiveLength(error.clone()),
-            Self::ReceiveData(error) => Self::ReceiveData(error.clone()),
-        }
-    }
-}
-
-impl<Payload> Display for Error<Payload>
-where
-    Payload: self::Payload,
-{
+impl Display for Error {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {
         match self {
-            Self::ReceiveCommand(_) => formatter.write_str("failed to parse received command"),
-            Self::ReceiveLength(_) => formatter.write_str("failed to parse received length"),
-            Self::ReceiveData(_) => formatter.write_str("failed to parse received data"),
+            Self::UnsupportedCommand { received, expected } => {
+                fmt_unsupported_command(formatter, *received, expected)
+            }
+            Self::InvalidLength {
+                command,
+                received,
+                expected,
+            } => write!(
+                formatter,
+                "received length of {received} for {command} packet, but expected length of {expected}"
+            ),
+            Self::UnknownCommandError(_) => {
+                formatter.write_str("unable to parse command error payload")
+            }
+            Self::UnexpectedCommandError(_) => {
+                formatter.write_str("received unexpected command error")
+            }
         }
     }
 }
 
-impl<Payload> core::error::Error for Error<Payload>
-where
-    Payload: self::Payload,
-{
+impl core::error::Error for Error {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
-            Self::ReceiveCommand(error) => Some(error),
-            Self::ReceiveLength(error) => Some(error),
-            Self::ReceiveData(error) => Some(error),
+            Self::UnsupportedCommand { .. } => None,
+            Self::InvalidLength { .. } => None,
+            Self::UnknownCommandError(unknown) => Some(unknown),
+            Self::UnexpectedCommandError(error) => Some(error),
         }
     }
 }

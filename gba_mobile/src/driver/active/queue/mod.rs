@@ -165,33 +165,46 @@ where
         self.next().and_then(|item| {
             match item {
                 Item::Start => Some(Flow::start(state.transfer_length, link_generation)),
-                Item::End => Some(Flow::end(state.transfer_length, timer)),
-                Item::Reset => Some(Flow::reset(state.transfer_length, timer, link_generation)),
-                Item::Disconnect => Some(Flow::disconnect(state.transfer_length, timer)),
+                Item::End => Some(Flow::end(
+                    state.transfer_length,
+                    timer,
+                    &mut state.packet_data,
+                )),
+                Item::Reset => Some(Flow::reset(
+                    state.transfer_length,
+                    timer,
+                    &mut state.packet_data,
+                    link_generation,
+                )),
+                Item::Disconnect => Some(Flow::disconnect(
+                    state.transfer_length,
+                    timer,
+                    &mut state.packet_data,
+                )),
                 Item::Connect => match &state.phase {
                     Phase::Connecting(ConnectionRequest::Accept { .. }) => {
                         Socket1::ConnectionItem::accept(state, timer)
                     }
-                    Phase::Connecting(ConnectionRequest::Connect { phone_number }) => {
-                        Socket1::ConnectionItem::connect(phone_number, state, timer)
+                    Phase::Connecting(ConnectionRequest::Connect { digits }) => {
+                        Socket1::ConnectionItem::connect(
+                            digits,
+                            state.transfer_length,
+                            state.adapter,
+                            state.connection_generation,
+                            timer,
+                            &mut state.packet_data,
+                        )
                     }
-                    Phase::Connecting(ConnectionRequest::Login {
-                        phone_number,
-                        id,
-                        password,
-                        primary_dns,
-                        secondary_dns,
-                    }) => Some(Flow::login(
-                        state.transfer_length,
-                        timer,
-                        state.adapter,
-                        phone_number.clone(),
-                        id.clone(),
-                        password.clone(),
-                        *primary_dns,
-                        *secondary_dns,
-                        state.connection_generation,
-                    )),
+                    Phase::Connecting(ConnectionRequest::Login { digits, .. }) => {
+                        Some(Flow::login(
+                            state.transfer_length,
+                            timer,
+                            &mut state.packet_data,
+                            state.adapter,
+                            digits,
+                            state.connection_generation,
+                        ))
+                    }
                     // If we have this item on the queue, but have left the connecting phase, we
                     // can't determine what type of connection request should be attempted. This
                     // also means we likely have ended the session anyway, so a connection attempt
@@ -202,7 +215,11 @@ where
                 Item::Socket2(item) => item.next_flow(state, timer, socket_1, socket_2),
                 Item::Dns(item) => item.flow(dns, state, timer),
                 Item::Config(item) => item.flow(config, state, timer),
-                Item::Status => Some(Flow::status(state.transfer_length, timer)),
+                Item::Status => Some(Flow::status(
+                    state.transfer_length,
+                    timer,
+                    &mut state.packet_data,
+                )),
                 Item::Idle => Some(Flow::idle(state.transfer_length, timer)),
             }
         })

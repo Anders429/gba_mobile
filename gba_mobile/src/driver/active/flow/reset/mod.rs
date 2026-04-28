@@ -4,7 +4,7 @@ mod timeout;
 pub(in crate::driver) use error::Error;
 pub(in crate::driver) use timeout::Timeout;
 
-use super::request::{Packet, WaitForIdle, packet::payload};
+use super::request::{Packet, WaitForIdle, packet, packet::payload};
 use crate::{
     Generation, Timer,
     driver::Adapter,
@@ -30,10 +30,15 @@ impl Reset {
     pub(super) fn new(
         transfer_length: TransferLength,
         timer: Timer,
+        packet_data: &mut packet::Data,
         link_generation: Generation,
     ) -> Self {
         Self {
-            state: State::Reset(Packet::new(payload::Reset, transfer_length, timer)),
+            state: State::Reset(Packet::new(
+                payload::Reset::new(packet_data),
+                transfer_length,
+                timer,
+            )),
             link_generation,
         }
     }
@@ -51,11 +56,11 @@ impl Reset {
         }
     }
 
-    pub(super) fn timer(&mut self) {
+    pub(super) fn timer(&mut self, packet_data: &packet::Data) {
         match &mut self.state {
-            State::Reset(packet) => packet.timer(),
+            State::Reset(packet) => packet.timer(packet_data),
             State::WaitForSio8(_) => {}
-            State::EnableSio32(packet) => packet.timer(),
+            State::EnableSio32(packet) => packet.timer(packet_data),
             State::WaitForSio32(_) => {}
         }
     }
@@ -64,12 +69,13 @@ impl Reset {
         self,
         timer: Timer,
         adapter: &mut Adapter,
+        packet_data: &mut packet::Data,
         transfer_length: &mut TransferLength,
         link_generation: Generation,
     ) -> Result<Either<Self, Response>, Error> {
         match self.state {
             State::Reset(packet) => packet
-                .serial(timer)
+                .serial(timer, packet_data)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self {
                         state: State::Reset(packet),
@@ -94,7 +100,7 @@ impl Reset {
                 Ok(Either::Left(wait_for_idle.serial().map_or_else(
                     || Self {
                         state: State::EnableSio32(Packet::new(
-                            payload::EnableSio32,
+                            payload::EnableSio32::new(packet_data),
                             *transfer_length,
                             timer,
                         )),
@@ -107,7 +113,7 @@ impl Reset {
                 )))
             }
             State::EnableSio32(packet) => packet
-                .serial(timer)
+                .serial(timer, packet_data)
                 .map(|response| match response {
                     Either::Left(packet) => Either::Left(Self {
                         state: State::EnableSio32(packet),
@@ -115,7 +121,7 @@ impl Reset {
                     }),
                     Either::Right(response) => {
                         *adapter = response.adapter;
-                        *transfer_length = response.payload.transfer_length;
+                        *transfer_length = response.payload;
                         unsafe {
                             SIOCNT.write_volatile(
                                 SIOCNT.read_volatile().transfer_length(*transfer_length),

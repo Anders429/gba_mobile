@@ -90,16 +90,13 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
             Err(error::Capacity)
         }
     }
-}
 
-impl<T, const CAP: usize> ArrayVec<T, CAP>
-where
-    T: Clone,
-{
-    pub(crate) fn take(&mut self) -> Self {
-        let result = self.clone();
+    pub(crate) fn clear(&mut self) {
         self.len = 0;
-        result
+    }
+
+    pub(crate) fn iter(&self) -> slice::Iter<'_, T> {
+        self.as_slice().iter()
     }
 }
 
