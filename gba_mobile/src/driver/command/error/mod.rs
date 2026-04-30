@@ -5,10 +5,10 @@ pub(in crate::driver) mod dial_telephone;
 pub(in crate::driver) mod dns_query;
 pub(in crate::driver) mod end_session;
 pub(in crate::driver) mod hang_up_telephone;
-pub(in crate::driver) mod isp_login;
-pub(in crate::driver) mod isp_logout;
 pub(in crate::driver) mod open_tcp_connection;
 pub(in crate::driver) mod open_udp_connection;
+pub(in crate::driver) mod ppp_login;
+pub(in crate::driver) mod ppp_logout;
 pub(in crate::driver) mod read_configuration_data;
 pub(in crate::driver) mod reset;
 pub(in crate::driver) mod sio32_mode;
@@ -39,8 +39,8 @@ pub(in crate::driver) enum Unknown {
     ReadConfigurationData(UnknownError),
     WriteConfigurationData(UnknownError),
     ConnectionClosed(UnknownError),
-    IspLogin(UnknownError),
-    IspLogout(UnknownError),
+    PppLogin(UnknownError),
+    PppLogout(UnknownError),
     OpenTcpConnection(UnknownError),
     CloseTcpConnection(UnknownError),
     OpenUdpConnection(UnknownError),
@@ -84,8 +84,8 @@ impl Display for Unknown {
             Self::ConnectionClosed(_) => {
                 Self::fmt_for_command(formatter, Command::ConnectionClosed)
             }
-            Self::IspLogin(_) => Self::fmt_for_command(formatter, Command::IspLogin),
-            Self::IspLogout(_) => Self::fmt_for_command(formatter, Command::IspLogout),
+            Self::PppLogin(_) => Self::fmt_for_command(formatter, Command::PppLogin),
+            Self::PppLogout(_) => Self::fmt_for_command(formatter, Command::PppLogout),
             Self::OpenTcpConnection(_) => {
                 Self::fmt_for_command(formatter, Command::OpenTcpConnection)
             }
@@ -130,8 +130,8 @@ impl core::error::Error for Unknown {
             Self::ReadConfigurationData(error) => Some(error),
             Self::WriteConfigurationData(error) => Some(error),
             Self::ConnectionClosed(error) => Some(error),
-            Self::IspLogin(error) => Some(error),
-            Self::IspLogout(error) => Some(error),
+            Self::PppLogin(error) => Some(error),
+            Self::PppLogout(error) => Some(error),
             Self::OpenTcpConnection(error) => Some(error),
             Self::CloseTcpConnection(error) => Some(error),
             Self::OpenUdpConnection(error) => Some(error),
@@ -160,8 +160,8 @@ pub(in crate::driver) enum Error {
     Sio32Mode(sio32_mode::Error),
     ReadConfigurationData(read_configuration_data::Error),
     WriteConfigurationData(write_configuration_data::Error),
-    IspLogin(isp_login::Error),
-    IspLogout(isp_logout::Error),
+    PppLogin(ppp_login::Error),
+    PppLogout(ppp_logout::Error),
     OpenTcpConnection(open_tcp_connection::Error),
     CloseTcpConnection(close_tcp_connection::Error),
     OpenUdpConnection(open_udp_connection::Error),
@@ -194,8 +194,8 @@ impl Display for Error {
             Self::WriteConfigurationData(_) => {
                 Self::fmt_for_command(formatter, Command::WriteConfigurationData)
             }
-            Self::IspLogin(_) => Self::fmt_for_command(formatter, Command::IspLogin),
-            Self::IspLogout(_) => Self::fmt_for_command(formatter, Command::IspLogout),
+            Self::PppLogin(_) => Self::fmt_for_command(formatter, Command::PppLogin),
+            Self::PppLogout(_) => Self::fmt_for_command(formatter, Command::PppLogout),
             Self::OpenTcpConnection(_) => {
                 Self::fmt_for_command(formatter, Command::OpenTcpConnection)
             }
@@ -226,8 +226,8 @@ impl core::error::Error for Error {
             Self::Sio32Mode(error) => Some(error),
             Self::ReadConfigurationData(error) => Some(error),
             Self::WriteConfigurationData(error) => Some(error),
-            Self::IspLogin(error) => Some(error),
-            Self::IspLogout(error) => Some(error),
+            Self::PppLogin(error) => Some(error),
+            Self::PppLogout(error) => Some(error),
             Self::OpenTcpConnection(error) => Some(error),
             Self::CloseTcpConnection(error) => Some(error),
             Self::OpenUdpConnection(error) => Some(error),
@@ -282,14 +282,14 @@ impl TryFrom<(u8, u8)> for Error {
                 .map(Self::WriteConfigurationData)
                 .map_err(Unknown::WriteConfigurationData),
             Ok(Command::ConnectionClosed) => Err(Unknown::ConnectionClosed(UnknownError(error))),
-            Ok(Command::IspLogin) => error
+            Ok(Command::PppLogin) => error
                 .try_into()
-                .map(Self::IspLogin)
-                .map_err(Unknown::IspLogin),
-            Ok(Command::IspLogout) => error
+                .map(Self::PppLogin)
+                .map_err(Unknown::PppLogin),
+            Ok(Command::PppLogout) => error
                 .try_into()
-                .map(Self::IspLogout)
-                .map_err(Unknown::IspLogout),
+                .map(Self::PppLogout)
+                .map_err(Unknown::PppLogout),
             Ok(Command::OpenTcpConnection) => error
                 .try_into()
                 .map(Self::OpenTcpConnection)

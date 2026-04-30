@@ -18,7 +18,7 @@ impl Login {
         primary_dns: Ipv4Addr,
         secondary_dns: Ipv4Addr,
     ) -> Self {
-        data.command = Command::IspLogin;
+        data.command = Command::PppLogin;
         data.data = unsafe {
             ArrayVec::try_from_iter(
                 iter::once(id.len())
@@ -53,11 +53,11 @@ impl Payload for Login {
 
     fn parse<'a>(self, data: &'a Data) -> Result<Self::Response<'a>, Self::Error> {
         match data.command {
-            Command::IspLogin => {
+            Command::PppLogin => {
                 let mut bytes = data.data.iter().copied();
-                let ip = addr::parse(&mut bytes, Command::IspLogin, 0, 12)?;
-                let primary_dns = addr::parse(&mut bytes, Command::IspLogin, 4, 12)?;
-                let secondary_dns = addr::parse(&mut bytes, Command::IspLogin, 8, 12)?;
+                let ip = addr::parse(&mut bytes, Command::PppLogin, 0, 12)?;
+                let primary_dns = addr::parse(&mut bytes, Command::PppLogin, 4, 12)?;
+                let secondary_dns = addr::parse(&mut bytes, Command::PppLogin, 8, 12)?;
                 Ok(Response::Connected {
                     ip,
                     primary_dns,
@@ -67,16 +67,16 @@ impl Payload for Login {
             Command::CommandError => {
                 let error = command_error::parse(&data.data)?;
                 match error {
-                    command::Error::IspLogin(
-                        command::error::isp_login::Error::NotInCall
-                        | command::error::isp_login::Error::InternalError,
+                    command::Error::PppLogin(
+                        command::error::ppp_login::Error::NotInCall
+                        | command::error::ppp_login::Error::InternalError,
                     ) => Ok(Response::NotConnected),
                     _ => Err(Error::UnexpectedCommandError(error)),
                 }
             }
             unexpected => Err(Error::UnsupportedCommand {
                 received: unexpected,
-                expected: &[Command::IspLogin, Command::CommandError],
+                expected: &[Command::PppLogin, Command::CommandError],
             }),
         }
     }
