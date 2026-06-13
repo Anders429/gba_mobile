@@ -12,7 +12,7 @@ impl Mode {
 }
 
 /// The length of data being transferred.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum TransferLength {
     _8Bit = 0,

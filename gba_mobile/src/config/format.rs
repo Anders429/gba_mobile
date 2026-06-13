@@ -1,6 +1,6 @@
 use deranged::RangedU8;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Location {
     pub offset: u8,
     pub length: RangedU8<0, 128>,

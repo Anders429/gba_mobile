@@ -29,13 +29,26 @@ impl<T> core::error::Error for Invalid<T> where T: Debug + Display {}
 pub struct Digit(RangedU8<0, 11>);
 
 impl Digit {
+    pub const _0: Self = Self::new(RangedU8::new_static::<0>());
+    pub const _1: Self = Self::new(RangedU8::new_static::<1>());
+    pub const _2: Self = Self::new(RangedU8::new_static::<2>());
+    pub const _3: Self = Self::new(RangedU8::new_static::<3>());
+    pub const _4: Self = Self::new(RangedU8::new_static::<4>());
+    pub const _5: Self = Self::new(RangedU8::new_static::<5>());
+    pub const _6: Self = Self::new(RangedU8::new_static::<6>());
+    pub const _7: Self = Self::new(RangedU8::new_static::<7>());
+    pub const _8: Self = Self::new(RangedU8::new_static::<8>());
+    pub const _9: Self = Self::new(RangedU8::new_static::<9>());
+    pub const POUND: Self = Self::new(RangedU8::new_static::<10>());
+    pub const STAR: Self = Self::new(RangedU8::new_static::<11>());
+
     /// Create a new digit using a raw value.
     ///
     /// Values are mapped as follows:
     /// - `0-9`: digits `0-9`.
     /// - `10`: `#`
     /// - `11`: `*`.
-    pub fn new(value: RangedU8<0, 11>) -> Self {
+    pub const fn new(value: RangedU8<0, 11>) -> Self {
         Self(value)
     }
 

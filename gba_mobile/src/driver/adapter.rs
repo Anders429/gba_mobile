@@ -33,7 +33,7 @@ impl Adapter {
     /// The byte used when dialing a number.
     ///
     /// The required byte is different depending on the adapter being used.
-    pub(in crate::driver) fn dial_byte(self) -> u8 {
+    pub(in crate::driver) const fn dial_byte(self) -> u8 {
         match self {
             Self::Blue => 0,
             Self::Yellow => 2,

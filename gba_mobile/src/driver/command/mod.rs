@@ -5,7 +5,7 @@ pub(in crate::driver) use error::Error;
 use core::fmt::{self, Display, Formatter};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::driver) struct Unknown(u8);
+pub(in crate::driver) struct Unknown(pub(in crate::driver) u8);
 
 impl Display for Unknown {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {

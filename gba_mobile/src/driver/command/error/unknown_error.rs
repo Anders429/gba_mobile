@@ -4,7 +4,7 @@ use core::{
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::driver) struct UnknownError(pub(super) u8);
+pub(in crate::driver) struct UnknownError(pub(in crate::driver) u8);
 
 impl Display for UnknownError {
     fn fmt(&self, formatter: &mut Formatter) -> fmt::Result {

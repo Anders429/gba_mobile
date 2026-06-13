@@ -54,3 +54,127 @@ impl Payload for Disconnect {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{Data, Error, Payload},
+        Disconnect,
+    };
+    use crate::{
+        ArrayVec,
+        driver::{Command, command},
+    };
+    use claims::{assert_err_eq, assert_ok};
+    use core::marker::PhantomData;
+    use gba_test::test;
+
+    #[test]
+    fn new() {
+        let mut data = Data::new();
+
+        Disconnect::new(&mut data);
+
+        assert_eq!(
+            data,
+            Data {
+                command: Command::HangUpTelephone,
+                data: ArrayVec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_ok() {
+        let data = Data {
+            command: Command::HangUpTelephone,
+            data: ArrayVec::new(),
+        };
+
+        let payload = Disconnect {
+            _private: PhantomData,
+        };
+
+        assert_ok!(payload.parse(&data));
+    }
+
+    #[test]
+    fn parse_ok_already_disconnected() {
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::HangUpTelephone as u8,
+                command::error::hang_up_telephone::Error::NotConnected as u8,
+            ])),
+        };
+
+        let payload = Disconnect {
+            _private: PhantomData,
+        };
+
+        assert_ok!(payload.parse(&data));
+    }
+
+    #[test]
+    fn parse_error_invalid_length() {
+        let data = Data {
+            command: Command::HangUpTelephone,
+            data: assert_ok!(ArrayVec::try_from_iter([1, 2])),
+        };
+
+        let payload = Disconnect {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::InvalidLength {
+                command: Command::HangUpTelephone,
+                received: 2,
+                expected: 0
+            }
+        );
+    }
+
+    #[test]
+    fn parse_error_unexpected_error() {
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::EndSession as u8,
+                command::error::end_session::Error::FailedToDisconnect as u8,
+            ])),
+        };
+
+        let payload = Disconnect {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::UnexpectedCommandError(command::Error::EndSession(
+                command::error::end_session::Error::FailedToDisconnect
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_error_unsupported_command() {
+        let data = Data {
+            command: Command::Empty,
+            data: ArrayVec::new(),
+        };
+
+        let payload = Disconnect {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::UnsupportedCommand {
+                received: Command::Empty,
+                expected: &[Command::HangUpTelephone, Command::CommandError]
+            }
+        );
+    }
+}

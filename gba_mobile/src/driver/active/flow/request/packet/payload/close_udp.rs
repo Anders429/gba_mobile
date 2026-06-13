@@ -23,14 +23,14 @@ impl CloseUdp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::driver::active::flow) enum Response {
     Closed,
     AlreadyClosed,
     AlreadyDisconnected,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::driver) enum Error {
     InvalidSocketId {
         expected: socket::Id,
@@ -111,5 +111,174 @@ impl Payload for CloseUdp {
             }
             .into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{Data, Payload},
+        CloseUdp, Error, Response,
+    };
+    use crate::{
+        arrayvec::ArrayVec,
+        driver::{Command, active::packet::payload, command},
+        socket,
+    };
+    use alloc::format;
+    use claims::{assert_err_eq, assert_ok, assert_ok_eq};
+    use gba_test::test;
+
+    #[test]
+    fn new() {
+        let id = socket::Id(42);
+        let mut data = Data::new();
+
+        let payload = CloseUdp::new(&mut data, id);
+
+        assert_eq!(data.command, Command::CloseUdpConnection);
+        assert_eq!(data.data.as_slice(), &[id.0]);
+        assert_eq!(payload.id, id);
+    }
+
+    #[test]
+    fn parse_closed() {
+        let id = socket::Id(42);
+        let data = Data {
+            command: Command::CloseUdpConnection,
+            data: assert_ok!(ArrayVec::try_from_iter([id.0])),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_ok_eq!(payload.parse(&data), Response::Closed);
+    }
+
+    #[test]
+    fn parse_already_closed() {
+        let id = socket::Id(42);
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::CloseUdpConnection as u8,
+                command::error::close_udp_connection::Error::NotConnected as u8
+            ])),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_ok_eq!(payload.parse(&data), Response::AlreadyClosed);
+    }
+
+    #[test]
+    fn parse_already_disconnected() {
+        let id = socket::Id(42);
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::CloseUdpConnection as u8,
+                command::error::close_udp_connection::Error::NotLoggedIn as u8
+            ])),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_ok_eq!(payload.parse(&data), Response::AlreadyDisconnected);
+    }
+
+    #[test]
+    fn parse_error_invalid_socket_id() {
+        let id = socket::Id(42);
+        let invalid_id = socket::Id(100);
+        let data = Data {
+            command: Command::CloseUdpConnection,
+            data: assert_ok!(ArrayVec::try_from_iter([invalid_id.0])),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::InvalidSocketId {
+                expected: id,
+                received: invalid_id
+            }
+        );
+    }
+
+    #[test]
+    fn parse_error_invalid_length() {
+        let id = socket::Id(42);
+        let data = Data {
+            command: Command::CloseUdpConnection,
+            data: ArrayVec::new(),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::InvalidLength {
+                command: Command::CloseUdpConnection,
+                received: 0,
+                expected: 1
+            })
+        );
+    }
+
+    #[test]
+    fn parse_error_unexpected_error() {
+        let id = socket::Id(42);
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::CloseTcpConnection as u8,
+                command::error::close_tcp_connection::Error::NotLoggedIn as u8
+            ])),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::UnexpectedCommandError(
+                command::Error::CloseTcpConnection(
+                    command::error::close_tcp_connection::Error::NotLoggedIn,
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_error_unsupported_command() {
+        let id = socket::Id(42);
+        let data = Data {
+            command: Command::Empty,
+            data: ArrayVec::new(),
+        };
+
+        let payload = CloseUdp { id };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::UnsupportedCommand {
+                received: Command::Empty,
+                expected: &[Command::CloseUdpConnection, Command::CommandError]
+            })
+        );
+    }
+
+    #[test]
+    fn error_invalid_socket_id_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::InvalidSocketId {
+                    expected: socket::Id(42),
+                    received: socket::Id(100),
+                }
+            ),
+            "expected socket ID 0x2a, but received socket ID 0x64"
+        );
     }
 }

@@ -13,16 +13,18 @@ pub(in crate::driver) mod read_configuration_data;
 pub(in crate::driver) mod reset;
 pub(in crate::driver) mod sio32_mode;
 pub(in crate::driver) mod transfer_data;
-pub(in crate::driver) mod unknown_error;
 pub(in crate::driver) mod wait_for_telephone_call;
 pub(in crate::driver) mod write_configuration_data;
+
+mod unknown_error;
+
+pub(in crate::driver) use unknown_error::UnknownError;
 
 use super::Command;
 use core::{
     fmt,
     fmt::{Display, Formatter},
 };
-use unknown_error::UnknownError;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::driver) enum Unknown {

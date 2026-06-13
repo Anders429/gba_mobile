@@ -53,3 +53,115 @@ impl Payload for OpenUdp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{Data, Error, Payload},
+        OpenUdp,
+    };
+    use crate::{
+        ArrayVec,
+        driver::{Command, command},
+        socket,
+    };
+    use claims::{assert_err_eq, assert_ok, assert_ok_eq};
+    use core::{
+        marker::PhantomData,
+        net::{Ipv4Addr, SocketAddrV4},
+    };
+    use gba_test::test;
+
+    #[test]
+    fn new() {
+        let mut data = Data::new();
+        let socket = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 80);
+
+        OpenUdp::new(&mut data, socket);
+
+        assert_eq!(
+            data,
+            Data {
+                command: Command::OpenUdpConnection,
+                data: assert_ok!(ArrayVec::try_from_iter([127, 0, 0, 1, 0, 80])),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_connected() {
+        let data = Data {
+            command: Command::OpenUdpConnection,
+            data: assert_ok!(ArrayVec::try_from_iter([0x42])),
+        };
+
+        let payload = OpenUdp {
+            _private: PhantomData,
+        };
+
+        assert_ok_eq!(payload.parse(&data), socket::Id(0x42));
+    }
+
+    #[test]
+    fn parse_error_invalid_length() {
+        let data = Data {
+            command: Command::OpenUdpConnection,
+            data: ArrayVec::new(),
+        };
+
+        let payload = OpenUdp {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::InvalidLength {
+                command: Command::OpenUdpConnection,
+                received: 0,
+                expected: 1
+            }
+        );
+    }
+
+    #[test]
+    fn parse_error_unexpected_error() {
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::OpenUdpConnection as u8,
+                command::error::open_udp_connection::Error::TooManyConnections as u8
+            ])),
+        };
+
+        let payload = OpenUdp {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::UnexpectedCommandError(command::Error::OpenUdpConnection(
+                command::error::open_udp_connection::Error::TooManyConnections
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_error_unsupported_command() {
+        let data = Data {
+            command: Command::Empty,
+            data: ArrayVec::new(),
+        };
+
+        let payload = OpenUdp {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::UnsupportedCommand {
+                received: Command::Empty,
+                expected: &[Command::OpenUdpConnection, Command::CommandError]
+            }
+        );
+    }
+}

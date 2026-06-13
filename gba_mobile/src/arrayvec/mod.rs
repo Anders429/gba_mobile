@@ -163,6 +163,17 @@ where
     }
 }
 
+impl<T, const CAP: usize> PartialEq for ArrayVec<T, CAP>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<T, const CAP: usize> Eq for ArrayVec<T, CAP> where T: Eq {}
+
 #[cfg(test)]
 mod tests {
     use super::{ArrayVec, error};

@@ -29,7 +29,7 @@ impl WriteConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::driver) enum Error {
     Offset { received: u8, expected: u8 },
     Length { received: u8, expected: u8 },
@@ -133,5 +133,181 @@ impl Payload for WriteConfig {
             }
             .into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{Data, Payload},
+        Error, WriteConfig,
+    };
+    use crate::{
+        ArrayVec,
+        config::format::Location,
+        driver::{Command, active::flow::packet::payload, command},
+    };
+    use claims::{assert_err_eq, assert_ok};
+    use deranged::RangedU8;
+    use gba_test::test;
+
+    #[test]
+    fn new() {
+        let mut data = Data::new();
+        let location = Location {
+            offset: 15,
+            length: RangedU8::new_static::<24>(),
+        };
+        let mut segment = [0; 128];
+        segment[..24].copy_from_slice(b"write configuration data");
+
+        let payload = WriteConfig::new(&mut data, location, &segment);
+
+        assert_eq!(payload.location, location);
+        assert_eq!(data.command, Command::WriteConfigurationData);
+        assert_eq!(
+            data.data.as_slice(),
+            [
+                15, b'w', b'r', b'i', b't', b'e', b' ', b'c', b'o', b'n', b'f', b'i', b'g', b'u',
+                b'r', b'a', b't', b'i', b'o', b'n', b' ', b'd', b'a', b't', b'a'
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_ok() {
+        let data = Data {
+            command: Command::WriteConfigurationData,
+            data: assert_ok!(ArrayVec::try_from_iter([0, 96])),
+        };
+
+        let payload = WriteConfig {
+            location: Location {
+                offset: 0,
+                length: RangedU8::new_static::<96>(),
+            },
+        };
+
+        assert_ok!(payload.parse(&data));
+    }
+
+    #[test]
+    fn parse_error_offset() {
+        let data = Data {
+            command: Command::WriteConfigurationData,
+            data: assert_ok!(ArrayVec::try_from_iter([0, 96])),
+        };
+
+        let payload = WriteConfig {
+            location: Location {
+                offset: 22,
+                length: RangedU8::new_static::<96>(),
+            },
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Offset {
+                received: 0,
+                expected: 22
+            }
+        );
+    }
+
+    #[test]
+    fn parse_error_length() {
+        let data = Data {
+            command: Command::WriteConfigurationData,
+            data: assert_ok!(ArrayVec::try_from_iter([12, 54])),
+        };
+
+        let payload = WriteConfig {
+            location: Location {
+                offset: 12,
+                length: RangedU8::new_static::<96>(),
+            },
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Length {
+                received: 54,
+                expected: 96
+            }
+        );
+    }
+
+    #[test]
+    fn parse_error_invalid_length() {
+        let data = Data {
+            command: Command::WriteConfigurationData,
+            data: assert_ok!(ArrayVec::try_from_iter([0])),
+        };
+
+        let payload = WriteConfig {
+            location: Location {
+                offset: 12,
+                length: RangedU8::new_static::<96>(),
+            },
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::InvalidLength {
+                command: Command::WriteConfigurationData,
+                received: 1,
+                expected: 2
+            })
+        );
+    }
+
+    #[test]
+    fn parse_error_unexpected_error() {
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::WriteConfigurationData as u8,
+                command::error::write_configuration_data::Error::WriteFailure as u8,
+            ])),
+        };
+
+        let payload = WriteConfig {
+            location: Location {
+                offset: 27,
+                length: RangedU8::new_static::<128>(),
+            },
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::UnexpectedCommandError(
+                command::Error::WriteConfigurationData(
+                    command::error::write_configuration_data::Error::WriteFailure
+                )
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_error_unsupported_command() {
+        let data = Data {
+            command: Command::Empty,
+            data: assert_ok!(ArrayVec::try_from_iter([0, 96])),
+        };
+
+        let payload = WriteConfig {
+            location: Location {
+                offset: 0,
+                length: RangedU8::new_static::<96>(),
+            },
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::UnsupportedCommand {
+                received: Command::Empty,
+                expected: &[Command::WriteConfigurationData, Command::CommandError]
+            })
+        );
     }
 }

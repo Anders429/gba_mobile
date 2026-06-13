@@ -27,13 +27,13 @@ impl BeginSession {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub(in crate::driver::active::flow) enum Response {
     BeginSession,
     AlreadyActive,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::driver) enum Error {
     Handshake { byte: u8, index: usize },
     Payload(super::Error),
@@ -44,7 +44,7 @@ impl Display for Error {
         match self {
             Self::Handshake { byte, index } => write!(
                 formatter,
-                "unexpected byte {byte:#04x} at index {index}; expected {:04x}",
+                "unexpected byte {byte:#04x} at index {index}; expected {:#04x}",
                 HANDSHAKE[*index],
             ),
             Self::Payload(_) => formatter.write_str("payload error"),
@@ -114,5 +114,159 @@ impl Payload for BeginSession {
             }
             .into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        super::{Data, Payload},
+        BeginSession, Error, HANDSHAKE, Response,
+    };
+    use crate::{
+        ArrayVec,
+        driver::{Command, active::packet::payload, command},
+    };
+    use alloc::format;
+    use claims::{assert_err_eq, assert_ok, assert_ok_eq};
+    use core::marker::PhantomData;
+    use gba_test::test;
+
+    #[test]
+    fn new() {
+        let mut data = Data::new();
+
+        BeginSession::new(&mut data);
+
+        assert_eq!(data.command, Command::BeginSession);
+        assert_eq!(data.data.as_slice(), HANDSHAKE);
+    }
+
+    #[test]
+    fn parse_begin_session() {
+        let data = Data {
+            command: Command::BeginSession,
+            data: assert_ok!(ArrayVec::try_from_iter(HANDSHAKE)),
+        };
+
+        let payload = BeginSession {
+            _private: PhantomData,
+        };
+
+        assert_ok_eq!(payload.parse(&data), Response::BeginSession);
+    }
+
+    #[test]
+    fn parse_already_active() {
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::BeginSession as u8,
+                command::error::begin_session::Error::AlreadyActive as u8
+            ])),
+        };
+
+        let payload = BeginSession {
+            _private: PhantomData,
+        };
+
+        assert_ok_eq!(payload.parse(&data), Response::AlreadyActive);
+    }
+
+    #[test]
+    fn parse_error_handshake() {
+        let data = Data {
+            command: Command::BeginSession,
+            data: assert_ok!(ArrayVec::try_from_iter(*b"SEGA    ")),
+        };
+
+        let payload = BeginSession {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Handshake {
+                byte: b'S',
+                index: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_error_invalid_length() {
+        let data = Data {
+            command: Command::BeginSession,
+            data: ArrayVec::new(),
+        };
+
+        let payload = BeginSession {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::InvalidLength {
+                command: Command::BeginSession,
+                received: 0,
+                expected: 8
+            })
+        );
+    }
+
+    #[test]
+    fn parse_error_unexpected_error() {
+        let data = Data {
+            command: Command::CommandError,
+            data: assert_ok!(ArrayVec::try_from_iter([
+                Command::BeginSession as u8,
+                command::error::begin_session::Error::InvalidContents as u8
+            ])),
+        };
+
+        let payload = BeginSession {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::UnexpectedCommandError(
+                command::Error::BeginSession(command::error::begin_session::Error::InvalidContents,)
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_error_unsupported_command() {
+        let data = Data {
+            command: Command::InternalError,
+            data: ArrayVec::new(),
+        };
+
+        let payload = BeginSession {
+            _private: PhantomData,
+        };
+
+        assert_err_eq!(
+            payload.parse(&data),
+            Error::Payload(payload::Error::UnsupportedCommand {
+                received: Command::InternalError,
+                expected: &[Command::BeginSession, Command::CommandError]
+            })
+        );
+    }
+
+    #[test]
+    fn error_handshake_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                Error::Handshake {
+                    byte: b'A',
+                    index: 6
+                }
+            ),
+            "unexpected byte 0x41 at index 6; expected 0x44"
+        );
     }
 }
