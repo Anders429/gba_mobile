@@ -1,10 +1,15 @@
 use crate::mmio::timer::{TM0CNT, TM1CNT, TM2CNT, TM3CNT};
 
+/// Identifier for a timer on the GBA.
 #[derive(Clone, Copy, Debug)]
 pub enum Timer {
+    /// Timer 0.
     _0,
+    /// Timer 1.
     _1,
+    /// Timer 2.
     _2,
+    /// Timer 3.
     _3,
 }
 
