@@ -75,6 +75,14 @@ where
         }
     }
 
+    /// Poll the pending result's current status.
+    ///
+    /// Will return `Some(Ok(T))` if the operation was successful, `Some(Err(T::Error))` if the
+    /// operation failed, or `None` if the operation is still pending.
+    ///
+    /// Note that calling this function does not consume `self`. You may call `status()` multiple
+    /// times for the same pending operation. However, the result is not guaranteed to always be
+    /// available and may be superseded by future operations later.
     pub fn status(
         &self,
         driver: &Driver<Socket1, Socket2, Dns, Config>,
@@ -82,6 +90,11 @@ where
         T::status(&self.state, driver)
     }
 
+    /// Cancel the pending operation.
+    ///
+    /// If the operation is currently executing, its execution will still finish. In those cases,
+    /// the state will be reset and any further necessary communication to undo the operation will
+    /// be executed.
     pub fn cancel(
         self,
         driver: &mut Driver<Socket1, Socket2, Dns, Config>,
