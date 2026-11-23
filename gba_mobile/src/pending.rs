@@ -43,10 +43,6 @@ where
 /// operations requiring multiple packets to be sent/received), operations cannot be completed
 /// immediately. In order to not block on waiting for the response, a `Pending` wrapper is
 /// returned, providing a handle to poll the resource.
-///
-/// As interacting with the pending response requires a mutable reference to a `Driver`, the
-/// [`Future`] trait is not implemented. If you are using an async runtime, you can construct your
-/// own wrapper around a `Pending` object to implement `Future` yourself.
 #[derive(Debug)]
 pub struct Pending<T, Socket1, Socket2, Dns, Config>
 where
