@@ -236,6 +236,38 @@ where
     Dns: dns::Mode,
     Config: config::Mode,
 {
+    /// Construct a new `Driver`.
+    ///
+    /// The parameters used for construction allow for customization of the driver.
+    ///
+    /// - `timer` - The [`Timer`] to be used for communication timing. The [`timer()`] function will
+    /// need to be wired up to trigger on interrupts from this timer.
+    /// - `socket_1` - Configuration for the first connection socket. Can either be defined as
+    /// [`NoSocket`] (for no configuration) or a [`Socket`] to define read/write buffers to be used
+    /// during communication. In order to use P2P connections in general and PPP connections over
+    /// socket 1, a `Socket` must be defined here. See [`socket`] for more information.
+    /// - `socket_2` - Configuration for the second connection socket, similar to `socket_1`. In
+    /// order to use PPP connections over socket 2, a `Socket` must be defined here.
+    /// - `dns` - Defines a buffer for DNS requests. Can either be defined as [`NoDns`] (for no
+    /// buffer) or [`Dns`] to define the buffer size. In order to use DNS to lookup domain names,
+    /// `Dns` must be defined here with some buffer size. See [`dns`] for more information.
+    /// - `config` - A config format for the reading from and writing to the Mobile Adapter's
+    /// on-device EEPROM storage. Can either be defined as [`NoConfig`] (for no config format) or
+    /// [`Config`] to specify the format to be used. If you intend to read a configuration, you'll
+    /// likely want to use the [`mobile_system_gb::Config`] to use the standard Mobile System GB
+    /// format. In order to interact with the Mobile Adapter's config for reading or writing,
+    /// `Config` must be defined here using some format. See [`config`] for more information.
+    ///
+    /// Note: in order for the `Driver` to be fully functional, the [`vblank()`], [`serial()`], and
+    /// [`timer()`] functions must be wired up properly in the interrupt handler.
+    ///
+    /// [`mobile_system_gb::Config`]: `crate::config::mobile_system_gb::Config`
+    /// [`NoConfig`]: `crate::config::NoConfig`
+    /// [`NoDns`]: `crate::dns::NoDns`
+    /// [`NoSocket`]: `crate::socket::NoSocket`
+    /// [`serial()`]: `Driver::serial()`
+    /// [`timer()`]: `Driver::timer()`
+    /// [`vblank()`]: `Driver::vblank()`
     pub const fn new(
         timer: Timer,
         socket_1: Socket1,
