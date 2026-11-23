@@ -1,6 +1,7 @@
 use crate::{Driver, config, dns, socket};
 use core::marker::PhantomData;
 
+/// A [`Pendable`] type's associated `Error` type.
 pub trait PendableError<Socket1, Socket2, Dns, Config>: Sized {
     type Error;
 }
@@ -26,6 +27,7 @@ where
     ) -> Result<(), Self::Error>;
 }
 
+/// Marks a type that is allowed to be [`Pending`].
 #[allow(private_bounds)]
 pub trait Pendable<Socket1, Socket2, Dns, Config>:
     Sealed<Socket1, Socket2, Dns, Config> + PendableError<Socket1, Socket2, Dns, Config>
