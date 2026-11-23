@@ -1,3 +1,11 @@
+//! Pending asynchronous results.
+//!
+//! This module contains types for working with asynchronous results returned by non-blocking
+//! operations on a [`Driver`].
+//!
+//! The primary type you'll need to interact with here is [`Pending`], which provides a handle to a
+//! pending result. This type is returned by various functions in this crate.
+
 use crate::{Driver, config, dns, socket};
 use core::marker::PhantomData;
 
