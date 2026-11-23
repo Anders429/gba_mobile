@@ -349,6 +349,10 @@ where
         }
     }
 
+    /// Timer interrupt handler.
+    ///
+    /// This should be called whenever a timer interrupt is received for the timer the driver was
+    /// constructed with.
     pub fn timer(&mut self) {
         match &mut self.state {
             State::Inactive => {}
@@ -357,6 +361,9 @@ where
         }
     }
 
+    /// Serial interrupt handler.
+    ///
+    /// This should be called whenever a serial interrupt is received.
     pub fn serial(&mut self) {
         match &mut self.state {
             State::Inactive => {}
@@ -376,6 +383,9 @@ where
         }
     }
 
+    /// V-Blank interrupt handler.
+    ///
+    /// This should be called whenever a V-Blank interrupt is received.
     pub fn vblank(&mut self) {
         match &mut self.state {
             State::Inactive => {}
