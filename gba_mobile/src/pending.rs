@@ -11,6 +11,7 @@ use core::marker::PhantomData;
 
 /// A [`Pendable`] type's associated `Error` type.
 pub trait PendableError<Socket1, Socket2, Dns, Config>: Sized {
+    /// The error type that can be returned if the pending operation fails.
     type Error;
 }
 
