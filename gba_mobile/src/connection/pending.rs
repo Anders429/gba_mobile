@@ -41,7 +41,7 @@ where
                         finished.then(|| Connection {
                             link_generation: state.link_generation,
                             connection_generation: state.connection_generation,
-                            socket: state.socket,
+                            mode: state.mode,
                             driver: PhantomData,
                         })
                     })
@@ -101,12 +101,12 @@ where
             .map_err(Into::into)
             .and_then(|active| {
                 active
-                    .socket_1_status(state.connection_generation, state.socket.0)
+                    .socket_1_status(state.connection_generation, state.mode.0)
                     .map(|finished| {
                         finished.then(|| Connection {
                             link_generation: state.link_generation,
                             connection_generation: state.connection_generation,
-                            socket: state.socket,
+                            mode: state.mode,
                             driver: PhantomData,
                         })
                     })
@@ -121,7 +121,7 @@ where
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
-            .close_socket_1(state.connection_generation, state.socket.0)
+            .close_socket_1(state.connection_generation, state.mode.0)
             .map_err(Into::into)
     }
 }
@@ -166,12 +166,12 @@ where
             .map_err(Into::into)
             .and_then(|active| {
                 active
-                    .socket_2_status(state.connection_generation, state.socket.0)
+                    .socket_2_status(state.connection_generation, state.mode.0)
                     .map(|finished| {
                         finished.then(|| Connection {
                             link_generation: state.link_generation,
                             connection_generation: state.connection_generation,
-                            socket: state.socket,
+                            mode: state.mode,
                             driver: PhantomData,
                         })
                     })
@@ -186,7 +186,7 @@ where
     ) -> Result<(), Self::Error> {
         driver
             .as_active_mut(state.link_generation)?
-            .close_socket_2(state.connection_generation, state.socket.0)
+            .close_socket_2(state.connection_generation, state.mode.0)
             .map_err(Into::into)
     }
 }

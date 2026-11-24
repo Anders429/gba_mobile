@@ -124,7 +124,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation,
-                    socket: connection::P2p,
+                    mode: connection::P2p,
                     driver: PhantomData,
                 })
             })
@@ -160,7 +160,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation,
-                    socket: connection::P2p,
+                    mode: connection::P2p,
                     driver: PhantomData,
                 })
             })

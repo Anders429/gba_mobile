@@ -95,7 +95,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    socket: connection::Socket1(socket_generation),
+                    mode: connection::Socket1(socket_generation),
                     driver: PhantomData,
                 })
             })
@@ -123,7 +123,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    socket: connection::Socket1(socket_generation),
+                    mode: connection::Socket1(socket_generation),
                     driver: PhantomData,
                 })
             })
@@ -159,7 +159,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    socket: connection::Socket2(socket_generation),
+                    mode: connection::Socket2(socket_generation),
                     driver: PhantomData,
                 })
             })
@@ -187,7 +187,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    socket: connection::Socket2(socket_generation),
+                    mode: connection::Socket2(socket_generation),
                     driver: PhantomData,
                 })
             })
