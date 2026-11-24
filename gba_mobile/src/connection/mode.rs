@@ -42,6 +42,20 @@ where
         link_generation: Generation,
         connection_generation: Generation,
     ) -> Result<(), Self::Error>;
+
+    fn status(
+        self,
+        driver: &Driver<Socket1, Socket2, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<bool, Self::Error>;
+
+    fn cancel(
+        self,
+        driver: &mut Driver<Socket1, Socket2, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<(), Self::Error>;
 }
 
 #[allow(private_bounds)]
@@ -115,6 +129,30 @@ where
     }
 
     fn close(
+        self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<(), Self::Error> {
+        driver
+            .as_active_mut(link_generation)?
+            .disconnect(connection_generation)
+            .map_err(Into::into)
+    }
+
+    fn status(
+        self,
+        driver: &Driver<Socket<Buffer>, Socket2, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<bool, Self::Error> {
+        driver
+            .as_active(link_generation)?
+            .connection_status(connection_generation)
+            .map_err(Into::into)
+    }
+
+    fn cancel(
         self,
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
         link_generation: Generation,
@@ -207,6 +245,30 @@ where
             .close_socket_1(connection_generation, self.0)
             .map_err(Into::into)
     }
+
+    fn status(
+        self,
+        driver: &Driver<Socket<Buffer>, Socket2, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<bool, Self::Error> {
+        driver
+            .as_active(link_generation)?
+            .socket_1_status(connection_generation, self.0)
+            .map_err(Into::into)
+    }
+
+    fn cancel(
+        self,
+        driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<(), Self::Error> {
+        driver
+            .as_active_mut(link_generation)?
+            .close_socket_1(connection_generation, self.0)
+            .map_err(Into::into)
+    }
 }
 
 impl<Buffer, Socket2, Dns, Config> Mode<Socket<Buffer>, Socket2, Dns, Config> for Socket1
@@ -279,6 +341,30 @@ where
     }
 
     fn close(
+        self,
+        driver: &mut Driver<Socket1, Socket<Buffer>, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<(), Self::Error> {
+        driver
+            .as_active_mut(link_generation)?
+            .close_socket_2(connection_generation, self.0)
+            .map_err(Into::into)
+    }
+
+    fn status(
+        self,
+        driver: &Driver<Socket1, Socket<Buffer>, Dns, Config>,
+        link_generation: Generation,
+        connection_generation: Generation,
+    ) -> Result<bool, Self::Error> {
+        driver
+            .as_active(link_generation)?
+            .socket_2_status(connection_generation, self.0)
+            .map_err(Into::into)
+    }
+
+    fn cancel(
         self,
         driver: &mut Driver<Socket1, Socket<Buffer>, Dns, Config>,
         link_generation: Generation,
