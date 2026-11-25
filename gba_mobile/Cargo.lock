@@ -28,7 +28,6 @@ dependencies = [
  "deranged",
  "either",
  "gba_test",
- "log",
  "mgba_log",
 ]
 
