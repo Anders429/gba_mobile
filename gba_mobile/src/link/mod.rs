@@ -1,3 +1,8 @@
+//! Linking with a Mobile Adapter.
+//!
+//! A [`Link`] establishes a session with a connected adapter. All communication with the Mobile
+//! Adapter must happen through an established `Link`.
+
 pub mod error;
 
 #[doc(inline)]
