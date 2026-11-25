@@ -1,3 +1,5 @@
+//! Errors while using the Mobile Adapter to connect to the internet.
+
 use super::connect;
 use crate::{arrayvec, config, dns, driver, socket};
 use core::{

@@ -1,3 +1,5 @@
+//! Errors while interacting with the linked Mobile Adapter's config.
+
 use crate::{dns, driver, socket};
 use core::{
     fmt,

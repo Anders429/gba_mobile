@@ -1,3 +1,5 @@
+//! Errors while using the Mobile Adapter to connect to another device.
+
 use crate::{arrayvec, config, dns, driver, link, socket};
 use core::{
     fmt,
