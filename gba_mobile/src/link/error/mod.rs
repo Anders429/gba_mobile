@@ -1,3 +1,5 @@
+//! Specific errors that can happen when linking or linked with a Mobile Adapter.
+
 pub mod config;
 pub mod connect;
 pub mod login;
