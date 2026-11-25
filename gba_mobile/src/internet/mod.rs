@@ -81,7 +81,7 @@ where
         socket_addr: SocketAddrV4,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::Socket1>,
+            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::mode::Socket1>,
             Socket<Buffer>,
             Socket2,
             Dns,
@@ -96,7 +96,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    mode: connection::Socket1(socket_generation),
+                    mode: connection::mode::Socket1(socket_generation),
                     driver: PhantomData,
                 })
             })
@@ -109,7 +109,7 @@ where
         socket_addr: SocketAddrV4,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::Socket1>,
+            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::mode::Socket1>,
             Socket<Buffer>,
             Socket2,
             Dns,
@@ -124,7 +124,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    mode: connection::Socket1(socket_generation),
+                    mode: connection::mode::Socket1(socket_generation),
                     driver: PhantomData,
                 })
             })
@@ -145,7 +145,7 @@ where
         socket_addr: SocketAddrV4,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, connection::Socket2>,
+            Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, connection::mode::Socket2>,
             Socket1,
             Socket<Buffer>,
             Dns,
@@ -160,7 +160,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    mode: connection::Socket2(socket_generation),
+                    mode: connection::mode::Socket2(socket_generation),
                     driver: PhantomData,
                 })
             })
@@ -173,7 +173,7 @@ where
         socket_addr: SocketAddrV4,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, connection::Socket2>,
+            Connection<Driver<Socket1, Socket<Buffer>, Dns, Config>, connection::mode::Socket2>,
             Socket1,
             Socket<Buffer>,
             Dns,
@@ -188,7 +188,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation: self.connection_generation,
-                    mode: connection::Socket2(socket_generation),
+                    mode: connection::mode::Socket2(socket_generation),
                     driver: PhantomData,
                 })
             })

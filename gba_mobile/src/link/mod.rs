@@ -159,7 +159,7 @@ where
         driver: &mut Driver<Socket<Buffer>, Socket2, Dns, Config>,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::P2p>,
+            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::mode::P2p>,
             Socket<Buffer>,
             Socket2,
             Dns,
@@ -174,7 +174,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation,
-                    mode: connection::P2p,
+                    mode: connection::mode::P2p,
                     driver: PhantomData,
                 })
             })
@@ -191,7 +191,7 @@ where
         phone_number: PhoneNumber,
     ) -> Result<
         Pending<
-            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::P2p>,
+            Connection<Driver<Socket<Buffer>, Socket2, Dns, Config>, connection::mode::P2p>,
             Socket<Buffer>,
             Socket2,
             Dns,
@@ -214,7 +214,7 @@ where
                 Pending::new(Connection {
                     link_generation: self.link_generation,
                     connection_generation,
-                    mode: connection::P2p,
+                    mode: connection::mode::P2p,
                     driver: PhantomData,
                 })
             })
