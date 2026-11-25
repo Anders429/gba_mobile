@@ -1,6 +1,7 @@
 pub mod format;
 pub mod mobile_system_gb;
 
+#[doc(inline)]
 pub use format::Format;
 
 use crate::{

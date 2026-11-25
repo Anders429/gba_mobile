@@ -3,6 +3,7 @@ pub mod mode;
 
 mod pending;
 
+#[doc(inline)]
 pub use mode::{Mode, P2p, Socket1, Socket2};
 
 use crate::{Driver, Generation, config, dns, socket};
