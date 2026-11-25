@@ -8,6 +8,10 @@ use core::{
     fmt::{Debug, Display, Formatter},
 };
 
+/// A link connection error.
+///
+/// This error indicates something went wrong with the general link connection with the Mobile
+/// Adapter.
 pub struct Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,

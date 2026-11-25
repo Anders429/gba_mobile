@@ -4,6 +4,10 @@ use core::{
     fmt::{Debug, Display, Formatter},
 };
 
+/// A config error.
+///
+/// This error indicates that something went wrong while trying to interact with the on-device
+/// config stored in the Mobile Adapter's EEPROM.
 pub struct Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,

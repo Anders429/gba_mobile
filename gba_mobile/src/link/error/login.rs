@@ -5,6 +5,10 @@ use core::{
     fmt::{Debug, Display, Formatter},
 };
 
+/// An internet login error.
+///
+/// This error indicates that something went wrong while attempting to connect to the internet with
+/// the Mobile Adapter.
 pub struct Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,

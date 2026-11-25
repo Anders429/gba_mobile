@@ -4,6 +4,10 @@ use core::{
     fmt::{Debug, Display, Formatter},
 };
 
+/// A connection error.
+///
+/// This error indicates that something went wrong while trying to connect to a remote device,
+/// either via a P2P or PPP (internet) connection.
 pub struct Error<Socket1, Socket2, Dns, Config>
 where
     Socket1: socket::Slot,
